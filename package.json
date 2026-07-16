@@ -16,6 +16,7 @@
 	},
 	"dependencies": {
 		"@huggingface/transformers": "^4.2.0",
-		"web-tree-sitter": "^0.26.11"
+		"web-tree-sitter": "^0.26.11",
+		"zod": "^4.4.3"
 	}
 }

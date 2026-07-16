@@ -37,7 +37,7 @@ Os dois scripts de smoke ficam em `scripts/` até a tarefa 1.4 absorver o códig
 ## FASE 1 — Núcleo de decisões
 
 ### 1.1 Domínio e validação
-- [ ] Criar `src/domain/`: tipos `Decision`, `Session`, `Project`, `Anchor`, enums de `edge kind` e `provenance`; schemas Zod. O schema de criação de decisão exige: `title` (min 8 chars), `body` (min 30 chars), `keywords` (array, **mínimo 5**, describe instruindo misturar PT/EN com termos de busca), `module` opcional, `anchors` opcional (`{file_path, symbol?}`), `depends_on` opcional (ids), `replaces` opcional (id).
+- [x] Criar `src/domain/`: tipos `Decision`, `Session`, `Project`, `Anchor`, enums de `edge kind` e `provenance`; schemas Zod. O schema de criação de decisão exige: `title` (min 8 chars), `body` (min 30 chars), `keywords` (array, **mínimo 5**, describe instruindo misturar PT/EN com termos de busca), `module` opcional, `anchors` opcional (`{file_path, symbol?}`), `depends_on` opcional (ids), `replaces` opcional (id).
   - **Aceite:** testes de unidade cobrindo aceitação/rejeição de cada regra.
 
 ### 1.2 Storage — conexão e migrations
