@@ -7,7 +7,7 @@ export async function runLog(args: string[], cwd: string): Promise<number> {
 		args,
 		options: { module: { type: "string" }, since: { type: "string" } },
 	});
-	const runtime = openInitializedRuntime(cwd);
+	const runtime = await openInitializedRuntime(cwd);
 	if (!runtime) return 1;
 	try {
 		const decisions = runtime.nodes.listActive({

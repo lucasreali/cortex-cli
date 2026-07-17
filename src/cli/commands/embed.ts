@@ -1,5 +1,4 @@
 import { parseArgs } from "node:util";
-import { GEMMA_MODEL } from "@/embedding/model";
 import { decisionPassage } from "@/embedding/queue";
 import type { CortexRuntime } from "@/mcp/runtime";
 import { readConfig, writeConfig } from "@/storage/config";
@@ -19,7 +18,7 @@ export async function runEmbed(args: string[], cwd: string): Promise<number> {
 		console.error("usage: cortex embed --missing | --rebuild [--yes]");
 		return 1;
 	}
-	const runtime = openInitializedRuntime(cwd);
+	const runtime = await openInitializedRuntime(cwd);
 	if (!runtime) return 1;
 	try {
 		return values.missing
@@ -31,9 +30,7 @@ export async function runEmbed(args: string[], cwd: string): Promise<number> {
 }
 
 async function embedMissing(runtime: CortexRuntime): Promise<number> {
-	const config = await readConfig(cortexDirOf(runtime));
-	const modelId = config?.model_id ?? GEMMA_MODEL.modelId;
-	const pending = runtime.embeddings.listMissingNodeIds(modelId);
+	const pending = runtime.embeddings.listMissingNodeIds(runtime.pinnedModelId);
 	if (pending.length === 0) {
 		console.log("Nothing to embed.");
 		return 0;

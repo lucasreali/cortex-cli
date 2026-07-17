@@ -14,7 +14,7 @@ export async function runImpact(args: string[], cwd: string): Promise<number> {
 		console.error("usage: cortex impact <id> [--depth N]");
 		return 1;
 	}
-	const runtime = openInitializedRuntime(cwd);
+	const runtime = await openInitializedRuntime(cwd);
 	if (!runtime) return 1;
 	try {
 		const root = runtime.nodes.getById(id);

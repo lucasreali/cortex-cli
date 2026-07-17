@@ -1,9 +1,12 @@
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { GemmaProvider } from "@/embedding/gemma-provider";
+import { createProvider } from "@/embedding/create-provider";
+import type { GemmaProvider } from "@/embedding/gemma-provider";
+import { GEMMA_MODEL } from "@/embedding/model";
 import { EmbedQueue } from "@/embedding/queue";
 import { SemanticSearch } from "@/embedding/semantic-search";
 import { getCanonicalProjectId, getHead, getRepoRoot } from "@/git";
+import { readConfig } from "@/storage/config";
 import { openDecisionsDb } from "@/storage/connection";
 import { EdgeRepository } from "@/storage/edge-repository";
 import { EmbeddingRepository } from "@/storage/embedding-repository";
@@ -14,6 +17,8 @@ import { SearchRepository } from "@/storage/search-repository";
 export interface CortexRuntime {
 	repoRoot: string;
 	projectNodeId: string;
+	projectCanonicalId: string;
+	pinnedModelId: string;
 	nodes: NodeRepository;
 	edges: EdgeRepository;
 	fts: SearchRepository;
@@ -26,7 +31,7 @@ export interface CortexRuntime {
 	dispose(): void;
 }
 
-export function buildRuntime(cwd: string): CortexRuntime {
+export async function buildRuntime(cwd: string): Promise<CortexRuntime> {
 	const repoRoot = getRepoRoot(cwd) ?? resolve(cwd);
 	const cortexDir = join(repoRoot, ".cortex");
 	mkdirSync(cortexDir, { recursive: true });
@@ -37,7 +42,12 @@ export function buildRuntime(cwd: string): CortexRuntime {
 	const edges = new EdgeRepository(db);
 	const fts = new SearchRepository(db);
 	const embeddings = new EmbeddingRepository(db);
-	const provider = embeddingsDisabled() ? null : new GemmaProvider();
+	// The config is the single source of truth for the embedding space
+	// (spec §2.5): the provider is built from the pinned model_id, and an
+	// unknown id fails the startup loudly instead of drifting silently.
+	const config = await readConfig(cortexDir);
+	const pinnedModelId = config?.model_id ?? GEMMA_MODEL.modelId;
+	const provider = embeddingsDisabled() ? null : createProvider(pinnedModelId);
 	const semanticSearch = new SemanticSearch({
 		nodes,
 		embeddings,
@@ -52,14 +62,19 @@ export function buildRuntime(cwd: string): CortexRuntime {
 				onEmbedded: () => semanticSearch.invalidate(),
 			})
 		: null;
-	const projectNodeId = nodes.ensureProject(
-		getCanonicalProjectId(repoRoot) ?? repoRoot,
-	);
+	const projectCanonicalId = getCanonicalProjectId(repoRoot) ?? repoRoot;
+	const projectNodeId = nodes.ensureProject(projectCanonicalId);
 	let sessionNodeId: string | null = null;
+	const ensureSession = (): string => {
+		sessionNodeId ??= nodes.createSession(projectNodeId);
+		return sessionNodeId;
+	};
 
 	return {
 		repoRoot,
 		projectNodeId,
+		projectCanonicalId,
+		pinnedModelId,
 		nodes,
 		edges,
 		fts,
@@ -67,15 +82,12 @@ export function buildRuntime(cwd: string): CortexRuntime {
 		provider,
 		queue,
 		semanticSearch,
-		ensureSession() {
-			sessionNodeId ??= nodes.createSession(projectNodeId);
-			return sessionNodeId;
-		},
+		ensureSession,
 		saveContext() {
 			const head = getHead(repoRoot);
 			return {
 				projectId: projectNodeId,
-				sessionId: this.ensureSession(),
+				sessionId: ensureSession(),
 				commitSha: head?.sha ?? null,
 				commitDirty: head?.dirty ?? false,
 			};

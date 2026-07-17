@@ -8,7 +8,7 @@ export async function runWhy(args: string[], cwd: string): Promise<number> {
 		console.error("usage: cortex why <path>");
 		return 1;
 	}
-	const runtime = openInitializedRuntime(cwd);
+	const runtime = await openInitializedRuntime(cwd);
 	if (!runtime) return 1;
 	try {
 		const decisions = runtime.nodes.listByAnchorPath(path);

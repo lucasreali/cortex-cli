@@ -130,6 +130,32 @@ describe("EmbedQueue", () => {
 		expect(embeddings.getByNodeId(second.id)?.modelId).toBe("flaky-model@4");
 	});
 
+	test("a hung provider times out, is disposed and leaves the item pending", async () => {
+		let disposed = false;
+		const hungProvider: EmbeddingProvider = {
+			modelId: "hung-model@4",
+			embedQuery: () => new Promise(() => {}),
+			embedPassages: () => new Promise(() => {}),
+			dispose: () => {
+				disposed = true;
+			},
+		};
+		const queue = new EmbedQueue(
+			{ nodes, embeddings, provider: hungProvider },
+			{ timeoutMs: 50 },
+		);
+		const decision = nodes.createDecision(input, context);
+
+		queue.enqueue(decision.id);
+		await queue.onIdle();
+
+		expect(disposed).toBe(true);
+		expect(embeddings.getByNodeId(decision.id)).toBeNull();
+		expect(embeddings.listMissingNodeIds("hung-model@4")).toEqual([
+			decision.id,
+		]);
+	});
+
 	test("ignores ids that no longer resolve to a decision", async () => {
 		const queue = new EmbedQueue({
 			nodes,

@@ -20,10 +20,12 @@ export interface SemanticSearchDependencies {
 export interface SemanticSearchOptions {
 	topK?: number;
 	threshold?: number;
+	queryTimeoutMs?: number;
 }
 
 const DEFAULT_TOP_K = 5;
 const DEFAULT_THRESHOLD = 0.3;
+const DEFAULT_QUERY_TIMEOUT_MS = 2000;
 
 export class SemanticSearch {
 	private vectorCache: Map<string, Float32Array> | null = null;
@@ -51,12 +53,8 @@ export class SemanticSearch {
 	): Promise<SemanticSearchResult[]> {
 		const { provider } = this.dependencies;
 		if (!provider) return [];
-		let queryVector: Float32Array;
-		try {
-			queryVector = await provider.embedQuery(intent);
-		} catch {
-			return [];
-		}
+		const queryVector = await this.embedIntent(provider, intent);
+		if (!queryVector) return [];
 		const cache = this.loadCache(provider.modelId);
 		for (const nodeId of cache.keys()) {
 			covered.add(nodeId);
@@ -102,6 +100,21 @@ export class SemanticSearch {
 		return this.vectorCache;
 	}
 
+	// The vector path must never block a query: a cold worker (model still
+	// loading after an idle-kill) hits the timeout and FTS answers instead,
+	// per spec §2.4. The provider keeps loading for the next query.
+	private async embedIntent(
+		provider: EmbeddingProvider,
+		intent: string,
+	): Promise<Float32Array | null> {
+		const timeoutMs = this.options.queryTimeoutMs ?? DEFAULT_QUERY_TIMEOUT_MS;
+		try {
+			return await withTimeout(provider.embedQuery(intent), timeoutMs);
+		} catch {
+			return null;
+		}
+	}
+
 	private topK(): number {
 		return this.options.topK ?? DEFAULT_TOP_K;
 	}
@@ -109,6 +122,25 @@ export class SemanticSearch {
 	private threshold(): number {
 		return this.options.threshold ?? DEFAULT_THRESHOLD;
 	}
+}
+
+function withTimeout<T>(work: Promise<T>, timeoutMs: number): Promise<T> {
+	return new Promise((resolve, reject) => {
+		const timer = setTimeout(
+			() => reject(new Error(`timed out after ${timeoutMs} ms`)),
+			timeoutMs,
+		);
+		work.then(
+			(value) => {
+				clearTimeout(timer);
+				resolve(value);
+			},
+			(error) => {
+				clearTimeout(timer);
+				reject(error);
+			},
+		);
+	});
 }
 
 function dot(a: Float32Array, b: Float32Array): number {

@@ -16,7 +16,7 @@ export function createServer(runtime: CortexRuntime): McpServer {
 }
 
 export async function serveStdio(cwd: string): Promise<void> {
-	const runtime = buildRuntime(cwd);
+	const runtime = await buildRuntime(cwd);
 	const server = createServer(runtime);
 	await server.connect(new StdioServerTransport());
 }

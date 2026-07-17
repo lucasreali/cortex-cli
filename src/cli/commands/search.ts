@@ -1,4 +1,5 @@
 import { parseArgs } from "node:util";
+import type { CortexRuntime } from "@/mcp/runtime";
 import { openInitializedRuntime } from "../open-runtime";
 
 export async function runSearch(args: string[], cwd: string): Promise<number> {
@@ -11,7 +12,7 @@ export async function runSearch(args: string[], cwd: string): Promise<number> {
 		console.error("usage: cortex search <terms...> [--exact]");
 		return 1;
 	}
-	const runtime = openInitializedRuntime(cwd);
+	const runtime = await openInitializedRuntime(cwd);
 	if (!runtime) return 1;
 	try {
 		const lines = values.exact
@@ -30,10 +31,7 @@ export async function runSearch(args: string[], cwd: string): Promise<number> {
 	}
 }
 
-function exactLines(
-	runtime: NonNullable<ReturnType<typeof openInitializedRuntime>>,
-	terms: string[],
-): string[] {
+function exactLines(runtime: CortexRuntime, terms: string[]): string[] {
 	return runtime.fts.searchExact(terms).flatMap((hit) => {
 		const node = runtime.nodes.getById(hit.nodeId);
 		if (node?.status !== "active") return [];
@@ -42,7 +40,7 @@ function exactLines(
 }
 
 async function semanticLines(
-	runtime: NonNullable<ReturnType<typeof openInitializedRuntime>>,
+	runtime: CortexRuntime,
 	terms: string[],
 ): Promise<string[]> {
 	const results = await runtime.semanticSearch.search(terms.join(" "));

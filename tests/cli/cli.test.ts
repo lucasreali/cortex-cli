@@ -255,6 +255,31 @@ describe("cortex CLI in an empty project", () => {
 		return { code: result.exitCode ?? 1, stdout: result.stdout.toString() };
 	}
 
+	test("a config pinning an unknown model_id fails the startup loudly", () => {
+		expect(cliEmpty("init").code).toBe(0);
+		writeFileSync(
+			join(emptyDir, ".cortex/config"),
+			JSON.stringify({ model_id: "unknown-model@1", schema_version: 1 }),
+		);
+		const result = Bun.spawnSync(["bun", MAIN_PATH, "log"], {
+			cwd: emptyDir,
+			stdout: "pipe",
+			stderr: "pipe",
+			env: { ...process.env, CORTEX_DISABLE_EMBEDDINGS: undefined },
+		});
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr.toString()).toContain(
+			'no embedding provider implements model_id "unknown-model@1"',
+		);
+		writeFileSync(
+			join(emptyDir, ".cortex/config"),
+			JSON.stringify({
+				model_id: "embeddinggemma-300m-q8@256",
+				schema_version: 1,
+			}),
+		);
+	});
+
 	test("init works without git and embed --missing is a clean no-op", () => {
 		expect(cliEmpty("init").code).toBe(0);
 		const embed = cliEmpty("embed", "--missing");

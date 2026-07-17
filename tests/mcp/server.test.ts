@@ -185,6 +185,12 @@ describe("cortex MCP server e2e", () => {
 		expect(ids).not.toContain(decisionA);
 	});
 
+	test("get_context without intent exposes project identity and modules", async () => {
+		const { payload } = await callTool("get_context", {});
+		expect(payload.project).toBe("github.com/acme/demo");
+		expect(payload.modules).toEqual(["auth"]);
+	});
+
 	test("search exact matches accent-insensitively and only active decisions", async () => {
 		const { payload } = await callTool("search", {
 			terms: ["sessoes", "opacas"],

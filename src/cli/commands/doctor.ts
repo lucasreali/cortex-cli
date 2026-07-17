@@ -10,13 +10,13 @@ import { cortexDirOf, openInitializedRuntime } from "../open-runtime";
 const MINIMUM_KEYWORDS = 5;
 
 export async function runDoctor(_args: string[], cwd: string): Promise<number> {
-	const runtime = openInitializedRuntime(cwd);
+	const runtime = await openInitializedRuntime(cwd);
 	if (!runtime) return 1;
 	try {
 		const report = new DoctorReport();
 		await checkConfig(runtime, report);
 		checkAnchors(runtime, report);
-		await checkEmbeddings(runtime, report);
+		checkEmbeddings(runtime, report);
 		checkKeywords(runtime, report);
 		checkModelDownloaded(report);
 		return report.finish();
@@ -86,13 +86,8 @@ function checkAnchors(runtime: CortexRuntime, report: DoctorReport): void {
 	}
 }
 
-async function checkEmbeddings(
-	runtime: CortexRuntime,
-	report: DoctorReport,
-): Promise<void> {
-	const config = await readConfig(cortexDirOf(runtime));
-	const modelId = config?.model_id ?? GEMMA_MODEL.modelId;
-	const pending = runtime.embeddings.listMissingNodeIds(modelId);
+function checkEmbeddings(runtime: CortexRuntime, report: DoctorReport): void {
+	const pending = runtime.embeddings.listMissingNodeIds(runtime.pinnedModelId);
 	if (pending.length === 0) {
 		report.ok("embeddings: none pending");
 		return;

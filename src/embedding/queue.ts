@@ -10,10 +10,19 @@ export interface EmbedQueueDependencies {
 	onEmbedded?(nodeId: string): void;
 }
 
+export interface EmbedQueueOptions {
+	timeoutMs?: number;
+}
+
+const DEFAULT_EMBED_TIMEOUT_MS = 30_000;
+
 export class EmbedQueue {
 	private tail: Promise<void> = Promise.resolve();
 
-	constructor(private readonly dependencies: EmbedQueueDependencies) {}
+	constructor(
+		private readonly dependencies: EmbedQueueDependencies,
+		private readonly options: EmbedQueueOptions = {},
+	) {}
 
 	enqueue(nodeId: string): void {
 		this.tail = this.tail
@@ -34,10 +43,34 @@ export class EmbedQueue {
 		const decision = this.dependencies.nodes.getById(nodeId);
 		if (!decision) return;
 		const { provider, embeddings } = this.dependencies;
-		const [vector] = await provider.embedPassages([decisionPassage(decision)]);
+		const [vector] = await this.embedWithTimeout(decisionPassage(decision));
 		if (!vector) throw new Error("provider returned no vector");
 		embeddings.upsert(nodeId, provider.modelId, vector);
 		this.dependencies.onEmbedded?.(nodeId);
+	}
+
+	// A hung worker must never wedge the queue: on timeout the provider is
+	// disposed (killing the subprocess) and the item stays pending for
+	// `cortex embed --missing`.
+	private embedWithTimeout(passage: string): Promise<Float32Array[]> {
+		const { provider } = this.dependencies;
+		const timeoutMs = this.options.timeoutMs ?? DEFAULT_EMBED_TIMEOUT_MS;
+		return new Promise((resolve, reject) => {
+			const timer = setTimeout(() => {
+				provider.dispose?.();
+				reject(new Error(`embedding timed out after ${timeoutMs} ms`));
+			}, timeoutMs);
+			provider.embedPassages([passage]).then(
+				(vectors) => {
+					clearTimeout(timer);
+					resolve(vectors);
+				},
+				(error) => {
+					clearTimeout(timer);
+					reject(error);
+				},
+			);
+		});
 	}
 }
 

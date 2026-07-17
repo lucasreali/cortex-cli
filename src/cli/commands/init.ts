@@ -11,7 +11,7 @@ export async function runInit(args: string[], cwd: string): Promise<number> {
 		args,
 		options: { yes: { type: "boolean", default: false } },
 	});
-	const runtime = buildRuntime(cwd);
+	const runtime = await buildRuntime(cwd);
 	runtime.dispose();
 
 	const root = getRepoRoot(cwd) ?? resolve(cwd);

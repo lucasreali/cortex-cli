@@ -174,6 +174,25 @@ describe("SemanticSearch — degradation", () => {
 		]);
 	});
 
+	test("a cold provider hits the query timeout and FTS answers instead", async () => {
+		const jwtId = await createEmbedded(jwtInput, conceptProvider);
+		const coldProvider: EmbeddingProvider = {
+			modelId: "concept-model@4",
+			embedQuery: () => new Promise(() => {}),
+			embedPassages: conceptProvider.embedPassages,
+		};
+		const search = new SemanticSearch(
+			{ nodes, embeddings, fts, provider: coldProvider },
+			{ queryTimeoutMs: 50 },
+		);
+
+		const results = await search.search("jwt");
+
+		expect(results.map((result) => [result.node.id, result.source])).toEqual([
+			[jwtId, "fts"],
+		]);
+	});
+
 	test("a null provider behaves the same", async () => {
 		const jwtId = await createEmbedded(jwtInput, conceptProvider);
 		const search = new SemanticSearch({
