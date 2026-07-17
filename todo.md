@@ -63,7 +63,7 @@ Os dois scripts de smoke ficam em `scripts/` até a tarefa 1.4 absorver o códig
   - **Aceite (gated `RUN_MODEL_TESTS=1`):** save → fila → vetor com `model_id` correto; save funciona com provider quebrado (pendente, nada perdido); RSS do processo principal volta ao baseline após idle-kill.
 
 ### 1.6 Busca semântica
-- [ ] `SemanticSearch`: vetores do `model_id` ativo em memória (cache invalidado por write); embeda intent via `embedQuery`; cosine brute-force; top-K com threshold; mescla fallback FTS5 para nodes sem vetor; retorno `{node, score, source: 'vector'|'fts'}`.
+- [x] `SemanticSearch`: vetores do `model_id` ativo em memória (cache invalidado por write); embeda intent via `embedQuery`; cosine brute-force; top-K com threshold; mescla fallback FTS5 para nodes sem vetor; retorno `{node, score, source: 'vector'|'fts'}`.
   - **Aceite (gated):** 10 decisões, "como autenticamos usuários?" retorna a de JWT no top-3 sem conter "autentica"; provider desligado → degrada para FTS sem erro.
 
 ### 1.7 Servidor MCP (stdio) — as 4 tools

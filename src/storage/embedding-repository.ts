@@ -50,6 +50,22 @@ export class EmbeddingRepository {
 		};
 	}
 
+	listActiveVectors(
+		modelId: string,
+	): Array<{ nodeId: string; vector: Float32Array }> {
+		return this.db
+			.query<{ node_id: string; vector: Uint8Array }, [string]>(
+				`SELECT e.node_id, e.vector FROM embeddings e
+				 JOIN nodes n ON n.id = e.node_id
+				 WHERE e.model_id = ? AND n.kind = 'decision' AND n.status = 'active'`,
+			)
+			.all(modelId)
+			.map((row) => ({
+				nodeId: row.node_id,
+				vector: toFloat32Array(row.vector),
+			}));
+	}
+
 	listMissingNodeIds(modelId: string): string[] {
 		return this.db
 			.query<{ id: string }, [string]>(

@@ -7,6 +7,7 @@ export interface EmbedQueueDependencies {
 	nodes: NodeRepository;
 	embeddings: EmbeddingRepository;
 	provider: EmbeddingProvider;
+	onEmbedded?(nodeId: string): void;
 }
 
 export class EmbedQueue {
@@ -36,6 +37,7 @@ export class EmbedQueue {
 		const [vector] = await provider.embedPassages([passageText(decision)]);
 		if (!vector) throw new Error("provider returned no vector");
 		embeddings.upsert(nodeId, provider.modelId, vector);
+		this.dependencies.onEmbedded?.(nodeId);
 	}
 }
 
