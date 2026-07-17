@@ -52,7 +52,7 @@ Os dois scripts de smoke ficam em `scripts/` até a tarefa 1.4 absorver o códig
   - **Aceite:** integração contra banco real em dir temporário (nunca mocks): 3 decisões encadeadas por `DEPENDS_ON`, impact nas duas direções; replace exclui do `listActive` mas mantém no `getById`; busca FTS com acento e keyword.
 
 ### 1.4 Git utils
-- [ ] `src/git/`: `getRepoRoot()`, `getCanonicalProjectId()` (remote SSH/HTTPS → `host/user/repo`), `getHead()` (sha + dirty via `git status --porcelain`). Via `Bun.spawnSync`; sem remote → projectId = caminho absoluto normalizado (fallback comentado).
+- [x] `src/git/`: `getRepoRoot()`, `getCanonicalProjectId()` (remote SSH/HTTPS → `host/user/repo`), `getHead()` (sha + dirty via `git status --porcelain`). Via `Bun.spawnSync`; sem remote → projectId = caminho absoluto normalizado (fallback comentado).
   - **Aceite:** testes com repo git em dir temporário (com/sem remote, limpo/dirty).
 
 ### 1.5 Provider de embedding (subprocess)
