@@ -56,10 +56,10 @@ Os dois scripts de smoke ficam em `scripts/` até a tarefa 1.4 absorver o códig
   - **Aceite:** testes com repo git em dir temporário (com/sem remote, limpo/dirty).
 
 ### 1.5 Provider de embedding (subprocess)
-- [ ] `src/embedding/`: interface `EmbeddingProvider { modelId: string; embedQuery(text): Promise<Float32Array>; embedPassages(texts): Promise<Float32Array[]> }`.
-- [ ] `src/embedding/worker.ts` (subprocess): absorve os workarounds de `scripts/smoke-embedding.ts` (forçar caminho web, 1 thread, q8); carrega Gemma com prefixos de tarefa **hardcoded**; trunca MRL 256 + renormaliza; protocolo JSON por linha via stdin/stdout.
-- [ ] `GemmaProvider` (processo principal): spawn lazy do worker no primeiro uso; **idle-kill** após N minutos sem uso (timer resetado a cada uso; respawn lazy). Download do modelo para cache global `~/.cortex/models/` (env do transformers.js apontando para lá).
-- [ ] Fila de embed assíncrona: `enqueue(nodeId)` → embeda e grava em `embeddings` fora do caminho do save; falha → loga e deixa pendente.
+- [x] `src/embedding/`: interface `EmbeddingProvider { modelId: string; embedQuery(text): Promise<Float32Array>; embedPassages(texts): Promise<Float32Array[]> }`.
+- [x] `src/embedding/worker.ts` (subprocess): absorve os workarounds de `scripts/smoke-embedding.ts` (forçar caminho web, 1 thread, q8); carrega Gemma com prefixos de tarefa **hardcoded**; trunca MRL 256 + renormaliza; protocolo JSON por linha via stdin/stdout.
+- [x] `GemmaProvider` (processo principal): spawn lazy do worker no primeiro uso; **idle-kill** após N minutos sem uso (timer resetado a cada uso; respawn lazy). Download do modelo para cache global `~/.cortex/models/` (env do transformers.js apontando para lá).
+- [x] Fila de embed assíncrona: `enqueue(nodeId)` → embeda e grava em `embeddings` fora do caminho do save; falha → loga e deixa pendente.
   - **Aceite (gated `RUN_MODEL_TESTS=1`):** save → fila → vetor com `model_id` correto; save funciona com provider quebrado (pendente, nada perdido); RSS do processo principal volta ao baseline após idle-kill.
 
 ### 1.6 Busca semântica
