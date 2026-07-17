@@ -67,12 +67,12 @@ Os dois scripts de smoke ficam em `scripts/` até a tarefa 1.4 absorver o códig
   - **Aceite (gated):** 10 decisões, "como autenticamos usuários?" retorna a de JWT no top-3 sem conter "autentica"; provider desligado → degrada para FTS sem erro.
 
 ### 1.7 Servidor MCP (stdio) — as 4 tools
-- [ ] `src/mcp/server.ts` com o SDK, transporte stdio. Sessão implícita por processo (node `session` no primeiro save). Projeto resolvido pelo git remote no startup (cria node `project` se não existir).
-- [ ] `save_decision`: valida (schema 1.1); âncoras de arquivo checadas contra o working tree (inexistente → aviso, não erro); grava `commit_sha`/`dirty`; suporta `replaces`; enfileira embed; retorna id + avisos.
-- [ ] `get_context`: `intent?` e `module?`; com intent → busca semântica; sem → decisões ativas recentes + sumários de sessão. Retorno compacto.
-- [ ] `get_impact`: `decision_id` → árvore de decisões afetadas (ambas direções, profundidade limitada) + âncoras.
-- [ ] `search`: `terms` + flag `exact`; descrição instrui o agente a passar múltiplos termos e variações PT/EN.
-- [ ] Passada de revisão dedicada só nas descrições das tools (são a interface real com o agente): quando usar, o que passar, exemplos.
+- [x] `src/mcp/server.ts` com o SDK, transporte stdio. Sessão implícita por processo (node `session` no primeiro save). Projeto resolvido pelo git remote no startup (cria node `project` se não existir).
+- [x] `save_decision`: valida (schema 1.1); âncoras de arquivo checadas contra o working tree (inexistente → aviso, não erro); grava `commit_sha`/`dirty`; suporta `replaces`; enfileira embed; retorna id + avisos.
+- [x] `get_context`: `intent?` e `module?`; com intent → busca semântica; sem → decisões ativas recentes + sumários de sessão. Retorno compacto.
+- [x] `get_impact`: `decision_id` → árvore de decisões afetadas (ambas direções, profundidade limitada) + âncoras.
+- [x] `search`: `terms` + flag `exact`; descrição instrui o agente a passar múltiplos termos e variações PT/EN.
+- [x] Passada de revisão dedicada só nas descrições das tools (são a interface real com o agente): quando usar, o que passar, exemplos.
   - **Aceite:** e2e via client MCP do SDK contra servidor em subprocess: save → get_context encontra → impact retorna cadeia → replace → antiga some do get_context.
 
 ### 1.8 Comandos CLI
@@ -113,7 +113,7 @@ Os dois scripts de smoke ficam em `scripts/` até a tarefa 1.4 absorver o códig
 ### 2.5 Integração com o grafo de decisões
 - [ ] Âncora de símbolo validada no `save_decision` e no `doctor` (não encontrado → aviso com sugestões aproximadas).
 - [ ] `cortex why <symbol>`: símbolo → arquivo → decisões ancoradas (arquivo ou símbolo exato).
-- [ ] `get_impact` expandido: decisão → arquivos ancorados → importadores transitivos via CTE em `imports` (profundidade default 3, configurável) → decisões ancoradas neles. Resposta separa impacto por `DEPENDS_ON` vs. por código (imports), com `provenance` visível.
+- [x] `get_impact` expandido: decisão → arquivos ancorados → importadores transitivos via CTE em `imports` (profundidade default 3, configurável) → decisões ancoradas neles. Resposta separa impacto por `DEPENDS_ON` vs. por código (imports), com `provenance` visível.
   - **Aceite:** e2e — decisão em `src/auth/service.ts`; importado por `src/api/login.ts` com outra decisão; impact da primeira retorna a segunda via caminho de código.
 
 ### 2.6 Qualidade de fase

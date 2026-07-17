@@ -83,6 +83,48 @@ export class NodeRepository {
 		return rows.map((row) => this.toDecision(row));
 	}
 
+	ensureProject(canonicalId: string): string {
+		const existing = this.db
+			.query<{ id: string }, [string]>(
+				"SELECT id FROM nodes WHERE kind = 'project' AND title = ?",
+			)
+			.get(canonicalId);
+		if (existing) return existing.id;
+		const id = Bun.randomUUIDv7();
+		this.db
+			.query("INSERT INTO nodes (id, kind, title) VALUES (?, 'project', ?)")
+			.run(id, canonicalId);
+		return id;
+	}
+
+	createSession(projectNodeId: string): string {
+		return this.db.transaction(() => {
+			const id = Bun.randomUUIDv7();
+			this.db
+				.query("INSERT INTO nodes (id, kind) VALUES (?, 'session')")
+				.run(id);
+			this.insertEdge(id, "BELONGS_TO", projectNodeId);
+			return id;
+		})();
+	}
+
+	listSessionSummaries(
+		limit: number,
+	): Array<{ id: string; summary: string; createdAt: string }> {
+		return this.db
+			.query<{ id: string; body: string; created_at: string }, [number]>(
+				`SELECT id, body, created_at FROM nodes
+				 WHERE kind = 'session' AND body IS NOT NULL AND body != ''
+				 ORDER BY id DESC LIMIT ?`,
+			)
+			.all(limit)
+			.map((row) => ({
+				id: row.id,
+				summary: row.body,
+				createdAt: row.created_at,
+			}));
+	}
+
 	listModules(): string[] {
 		return this.db
 			.query<{ module: string }, []>(
