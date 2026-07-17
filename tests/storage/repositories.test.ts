@@ -230,6 +230,83 @@ describe("NodeRepository.listModules", () => {
 	});
 });
 
+describe("NodeRepository project and session nodes", () => {
+	test("ensureProject is idempotent per canonical id", () => {
+		const first = nodes.ensureProject("github.com/acme/app");
+		const second = nodes.ensureProject("github.com/acme/app");
+		const other = nodes.ensureProject("github.com/acme/other");
+		expect(second).toBe(first);
+		expect(other).not.toBe(first);
+	});
+
+	test("createSession links the session to the project", () => {
+		const sessionId = nodes.createSession(PROJECT_ID);
+		expect(edgeRows("BELONGS_TO")).toContainEqual({
+			from_id: sessionId,
+			to_id: PROJECT_ID,
+		});
+	});
+
+	test("listSessionSummaries returns only sessions with a summary", () => {
+		const summarized = nodes.createSession(PROJECT_ID);
+		nodes.createSession(PROJECT_ID);
+		db.query(
+			"UPDATE nodes SET body = 'Refatorada a autenticação.' WHERE id = ?",
+		).run(summarized);
+
+		const summaries = nodes.listSessionSummaries(10);
+		expect(summaries).toEqual([
+			{
+				id: summarized,
+				summary: "Refatorada a autenticação.",
+				createdAt: expect.any(String),
+			},
+		]);
+	});
+});
+
+describe("NodeRepository.listByAnchorPath", () => {
+	test("matches exact files and directory prefixes, chronologically", () => {
+		const first = nodes.createDecision(
+			decisionInput({ anchors: [{ file_path: "src/auth/service.ts" }] }),
+			context,
+		);
+		const second = nodes.createDecision(
+			decisionInput({ anchors: [{ file_path: "src/auth/jwt.ts" }] }),
+			context,
+		);
+		nodes.createDecision(
+			decisionInput({ anchors: [{ file_path: "src/api/login.ts" }] }),
+			context,
+		);
+
+		const byFile = nodes.listByAnchorPath("src/auth/service.ts");
+		expect(byFile.map((decision) => decision.id)).toEqual([first.id]);
+
+		const byDirectory = nodes.listByAnchorPath("src/auth/");
+		expect(byDirectory.map((decision) => decision.id)).toEqual([
+			first.id,
+			second.id,
+		]);
+
+		expect(nodes.listByAnchorPath("src/billing")).toEqual([]);
+	});
+});
+
+describe("NodeRepository.listActiveWithFewKeywords", () => {
+	test("flags active decisions below the minimum", () => {
+		const deficient = nodes.createDecision(
+			decisionInput({ keywords: ["jwt", "token", "login"] }),
+			context,
+		);
+		nodes.createDecision(decisionInput(), context);
+
+		expect(nodes.listActiveWithFewKeywords(5)).toEqual([
+			{ id: deficient.id, title: deficient.title },
+		]);
+	});
+});
+
 describe("SearchRepository.searchExact", () => {
 	test("matches accented content from unaccented terms", () => {
 		const decision = nodes.createDecision(decisionInput(), context);
