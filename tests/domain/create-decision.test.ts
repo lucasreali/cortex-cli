@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createDecisionSchema } from "../../src/domain";
+import { createDecisionSchema } from "@/domain";
 
 const validInput = {
 	title: "Adopt JWT for API authentication",

@@ -5,7 +5,7 @@ import type {
 	Decision,
 	DecisionStatus,
 	NodeProvenance,
-} from "../domain";
+} from "@/domain";
 
 export interface SaveContext {
 	projectId: string;

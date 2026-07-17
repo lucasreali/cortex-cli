@@ -3,15 +3,12 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { CreateDecisionInput } from "../../src/domain";
-import { openDecisionsDb } from "../../src/storage/connection";
-import { EdgeRepository } from "../../src/storage/edge-repository";
-import { migrate } from "../../src/storage/migrations";
-import {
-	NodeRepository,
-	type SaveContext,
-} from "../../src/storage/node-repository";
-import { SearchRepository } from "../../src/storage/search-repository";
+import type { CreateDecisionInput } from "@/domain";
+import { openDecisionsDb } from "@/storage/connection";
+import { EdgeRepository } from "@/storage/edge-repository";
+import { migrate } from "@/storage/migrations";
+import { NodeRepository, type SaveContext } from "@/storage/node-repository";
+import { SearchRepository } from "@/storage/search-repository";
 
 const PROJECT_ID = "project-1";
 const SESSION_ID = "session-1";

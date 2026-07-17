@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getCanonicalProjectId, getHead, getRepoRoot } from "../../src/git";
+import { getCanonicalProjectId, getHead, getRepoRoot } from "@/git";
 
 let dir: string;
 
