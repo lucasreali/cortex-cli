@@ -41,8 +41,8 @@ Os dois scripts de smoke ficam em `scripts/` até a tarefa 1.4 absorver o códig
   - **Aceite:** testes de unidade cobrindo aceitação/rejeição de cada regra.
 
 ### 1.2 Storage — conexão e migrations
-- [ ] `src/storage/connection.ts`: abre `.cortex/decisions.db` via `bun:sqlite` com `PRAGMA journal_mode=WAL`, `foreign_keys=ON`, `busy_timeout=5000`.
-- [ ] `src/storage/migrations.ts`: migrations idempotentes (tabela `_migrations`; cada uma em transação). Migration 001 = DDL do `decisions.db` da spec §3.1 **exatamente** — incluindo `anchors.symbol NOT NULL DEFAULT ''`, `idx_edges_reverse`, FTS5 **sem** external content com `tokenize='unicode61 remove_diacritics 2'`.
+- [x] `src/storage/connection.ts`: abre `.cortex/decisions.db` via `bun:sqlite` com `PRAGMA journal_mode=WAL`, `foreign_keys=ON`, `busy_timeout=5000`.
+- [x] `src/storage/migrations.ts`: migrations idempotentes (tabela `_migrations`; cada uma em transação). Migration 001 = DDL do `decisions.db` da spec §3.1 **exatamente** — incluindo `anchors.symbol NOT NULL DEFAULT ''`, `idx_edges_reverse`, FTS5 **sem** external content com `tokenize='unicode61 remove_diacritics 2'`.
   - **Aceite:** teste em dir temporário: migrations 2× (idempotência); tabelas/índices via `sqlite_master`; busca "decisao" encontra registro com "decisão".
 
 ### 1.3 Storage — repositórios (decisions.db)

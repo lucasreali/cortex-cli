@@ -1,3 +1,6 @@
+export const NODE_KINDS = ["decision", "session", "project"] as const;
+export type NodeKind = (typeof NODE_KINDS)[number];
+
 export const EDGE_KINDS = [
 	"BELONGS_TO",
 	"GENERATED_IN",
@@ -6,8 +9,11 @@ export const EDGE_KINDS = [
 ] as const;
 export type EdgeKind = (typeof EDGE_KINDS)[number];
 
-export const PROVENANCES = ["exact", "heuristic"] as const;
-export type Provenance = (typeof PROVENANCES)[number];
+export const NODE_PROVENANCES = ["agent", "human"] as const;
+export type NodeProvenance = (typeof NODE_PROVENANCES)[number];
+
+export const IMPORT_PROVENANCES = ["exact", "heuristic"] as const;
+export type ImportProvenance = (typeof IMPORT_PROVENANCES)[number];
 
 export const DECISION_STATUSES = ["active", "replaced"] as const;
 export type DecisionStatus = (typeof DECISION_STATUSES)[number];
@@ -25,7 +31,9 @@ export interface Decision {
 	module: string | null;
 	status: DecisionStatus;
 	commitSha: string | null;
-	dirty: boolean;
+	commitDirty: boolean;
+	provenance: NodeProvenance;
+	props: Record<string, unknown> | null;
 	createdAt: string;
 	anchors: Anchor[];
 }
@@ -34,7 +42,7 @@ export interface Session {
 	id: string;
 	projectId: string;
 	summary: string | null;
-	startedAt: string;
+	createdAt: string;
 }
 
 export interface Project {
