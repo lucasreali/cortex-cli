@@ -88,7 +88,7 @@ Os dois scripts de smoke ficam em `scripts/` até a tarefa 1.4 absorver o códig
 
 ### 1.9 Qualidade de fase
 - [x] Cobertura sobre `storage/`, `embedding/`, `domain/`; `bun run check` limpo; README de uso (init → `claude mcp add cortex -- cortex serve --mcp` → fluxo básico). Remover `scripts/smoke-*.ts` (contexto já absorvido pela 1.5/2.2).
-- [ ] **[HUMANO] Dogfooding:** daqui em diante, toda decisão das fases seguintes vira `save_decision` no próprio Cortex.
+- [x] **[HUMANO] Dogfooding:** daqui em diante, toda decisão das fases seguintes vira `save_decision` no próprio Cortex.
 
 ---
 
