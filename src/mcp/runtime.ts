@@ -18,6 +18,7 @@ export interface CortexRuntime {
 	edges: EdgeRepository;
 	fts: SearchRepository;
 	embeddings: EmbeddingRepository;
+	provider: GemmaProvider | null;
 	queue: EmbedQueue | null;
 	semanticSearch: SemanticSearch;
 	ensureSession(): string;
@@ -63,6 +64,7 @@ export function buildRuntime(cwd: string): CortexRuntime {
 		edges,
 		fts,
 		embeddings,
+		provider,
 		queue,
 		semanticSearch,
 		ensureSession() {

@@ -76,14 +76,14 @@ Os dois scripts de smoke ficam em `scripts/` até a tarefa 1.4 absorver o códig
   - **Aceite:** e2e via client MCP do SDK contra servidor em subprocess: save → get_context encontra → impact retorna cadeia → replace → antiga some do get_context.
 
 ### 1.8 Comandos CLI
-- [ ] `cortex init`: cria `.cortex/`, migrations, `.cortex/config` (JSON: `model_id`, versão do schema), adiciona `.cortex/code.db*` ao `.gitignore` (perguntando), imprime próximos passos. Idempotente.
-- [ ] `cortex serve --mcp`
-- [ ] `cortex log [--module M] [--since SHA]`
-- [ ] `cortex why <path>`: âncora no caminho (prefix match p/ diretórios), cronológico.
-- [ ] `cortex search <texto...> [--exact]`: com score e origem.
-- [ ] `cortex impact <id>`: árvore indentada.
-- [ ] `cortex embed --missing | --rebuild` (rebuild confirma e atualiza `model_id` se o config mudou).
-- [ ] `cortex doctor`: âncoras órfãs; decisões sem embedding; keywords < 5; modelo não baixado; versão de schema.
+- [x] `cortex init`: cria `.cortex/`, migrations, `.cortex/config` (JSON: `model_id`, versão do schema), adiciona `.cortex/code.db*` ao `.gitignore` (perguntando), imprime próximos passos. Idempotente.
+- [x] `cortex serve --mcp`
+- [x] `cortex log [--module M] [--since SHA]`
+- [x] `cortex why <path>`: âncora no caminho (prefix match p/ diretórios), cronológico.
+- [x] `cortex search <texto...> [--exact]`: com score e origem.
+- [x] `cortex impact <id>`: árvore indentada.
+- [x] `cortex embed --missing | --rebuild` (rebuild confirma e atualiza `model_id` se o config mudou).
+- [x] `cortex doctor`: âncoras órfãs; decisões sem embedding; keywords < 5; modelo não baixado; versão de schema.
   - **Aceite:** cada comando com teste de integração mínimo (exit code + saída) em repo git temporário.
 
 ### 1.9 Qualidade de fase
@@ -112,7 +112,7 @@ Os dois scripts de smoke ficam em `scripts/` até a tarefa 1.4 absorver o códig
 
 ### 2.5 Integração com o grafo de decisões
 - [ ] Âncora de símbolo validada no `save_decision` e no `doctor` (não encontrado → aviso com sugestões aproximadas).
-- [ ] `cortex why <symbol>`: símbolo → arquivo → decisões ancoradas (arquivo ou símbolo exato).
+- [x] `cortex why <symbol>`: símbolo → arquivo → decisões ancoradas (arquivo ou símbolo exato).
 - [x] `get_impact` expandido: decisão → arquivos ancorados → importadores transitivos via CTE em `imports` (profundidade default 3, configurável) → decisões ancoradas neles. Resposta separa impacto por `DEPENDS_ON` vs. por código (imports), com `provenance` visível.
   - **Aceite:** e2e — decisão em `src/auth/service.ts`; importado por `src/api/login.ts` com outra decisão; impact da primeira retorna a segunda via caminho de código.
 

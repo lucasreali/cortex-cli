@@ -34,13 +34,13 @@ export class EmbedQueue {
 		const decision = this.dependencies.nodes.getById(nodeId);
 		if (!decision) return;
 		const { provider, embeddings } = this.dependencies;
-		const [vector] = await provider.embedPassages([passageText(decision)]);
+		const [vector] = await provider.embedPassages([decisionPassage(decision)]);
 		if (!vector) throw new Error("provider returned no vector");
 		embeddings.upsert(nodeId, provider.modelId, vector);
 		this.dependencies.onEmbedded?.(nodeId);
 	}
 }
 
-function passageText(decision: Decision): string {
+export function decisionPassage(decision: Decision): string {
 	return `${decision.title}\n${decision.body}`;
 }

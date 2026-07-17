@@ -3,6 +3,9 @@
 	"module": "index.ts",
 	"type": "module",
 	"private": true,
+	"bin": {
+		"cortex": "./src/cli/main.ts"
+	},
 	"scripts": {
 		"typecheck": "tsc --noEmit",
 		"check": "bunx --bun @biomejs/biome check --write"

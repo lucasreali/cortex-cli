@@ -125,6 +125,34 @@ export class NodeRepository {
 			}));
 	}
 
+	listByAnchorPath(path: string): Decision[] {
+		const normalized = path.replace(/\/+$/, "");
+		return this.db
+			.query<NodeRow, [string, string]>(
+				`SELECT DISTINCT n.* FROM nodes n
+				 JOIN anchors a ON a.node_id = n.id
+				 WHERE n.kind = 'decision'
+				   AND (a.file_path = ? OR a.file_path LIKE ? || '/%')
+				 ORDER BY n.id ASC`,
+			)
+			.all(normalized, normalized)
+			.map((row) => this.toDecision(row));
+	}
+
+	listActiveWithFewKeywords(minimum: number): Array<{
+		id: string;
+		title: string;
+	}> {
+		return this.db
+			.query<{ id: string; title: string }, [number]>(
+				`SELECT id, title FROM nodes
+				 WHERE kind = 'decision' AND status = 'active'
+				   AND json_array_length(keywords) < ?
+				 ORDER BY id`,
+			)
+			.all(minimum);
+	}
+
 	listModules(): string[] {
 		return this.db
 			.query<{ module: string }, []>(

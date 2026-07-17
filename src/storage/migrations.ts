@@ -17,6 +17,8 @@ const migrations: Migration[] = [
 	},
 ];
 
+export const SCHEMA_VERSION = migrations[migrations.length - 1]?.id ?? 0;
+
 export function migrate(db: Database): void {
 	ensureMigrationsTable(db);
 	for (const migration of migrations) {
