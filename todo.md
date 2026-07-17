@@ -46,9 +46,9 @@ Os dois scripts de smoke ficam em `scripts/` até a tarefa 1.4 absorver o códig
   - **Aceite:** teste em dir temporário: migrations 2× (idempotência); tabelas/índices via `sqlite_master`; busca "decisao" encontra registro com "decisão".
 
 ### 1.3 Storage — repositórios (decisions.db)
-- [ ] `NodeRepository`: `createDecision` (UUIDv7 via `Bun.randomUUIDv7()`; node + anchors + edges `BELONGS_TO`/`GENERATED_IN`/`DEPENDS_ON` + linha FTS **na mesma transação**), `replaceDecision` (nova decisão + edge `REPLACED_BY` + `status='replaced'` na antiga, mesma transação), `getById`, `listActive` (filtros: module, since_sha), `listModules`.
-- [ ] `EdgeRepository`: `getImpact(decisionId, maxDepth)` via CTE recursiva sobre `DEPENDS_ON` nas duas direções (PK para from→to, `idx_edges_reverse` para to→from), com `LIMIT` de segurança.
-- [ ] `SearchRepository`: `searchExact(terms)` via FTS5/BM25 → node_id + rank.
+- [x] `NodeRepository`: `createDecision` (UUIDv7 via `Bun.randomUUIDv7()`; node + anchors + edges `BELONGS_TO`/`GENERATED_IN`/`DEPENDS_ON` + linha FTS **na mesma transação**), `replaceDecision` (nova decisão + edge `REPLACED_BY` + `status='replaced'` na antiga, mesma transação), `getById`, `listActive` (filtros: module, since_sha), `listModules`.
+- [x] `EdgeRepository`: `getImpact(decisionId, maxDepth)` via CTE recursiva sobre `DEPENDS_ON` nas duas direções (PK para from→to, `idx_edges_reverse` para to→from), com `LIMIT` de segurança.
+- [x] `SearchRepository`: `searchExact(terms)` via FTS5/BM25 → node_id + rank.
   - **Aceite:** integração contra banco real em dir temporário (nunca mocks): 3 decisões encadeadas por `DEPENDS_ON`, impact nas duas direções; replace exclui do `listActive` mas mantém no `getById`; busca FTS com acento e keyword.
 
 ### 1.4 Git utils
