@@ -91,6 +91,16 @@ describe("getCanonicalProjectId", () => {
 		expect(getCanonicalProjectId(dir)).toBe(dir);
 	});
 
+	test("falls back to the repo root for hostless remote URLs", () => {
+		run("git", "remote", "add", "origin", "file:///srv/repos/demo.git");
+		expect(getCanonicalProjectId(dir)).toBe(dir);
+	});
+
+	test("falls back to the repo root for unparseable remotes", () => {
+		run("git", "remote", "add", "origin", "../relative/other-repo");
+		expect(getCanonicalProjectId(dir)).toBe(dir);
+	});
+
 	test("returns null outside a repository", () => {
 		const outside = mkdtempSync(join(tmpdir(), "cortex-no-git-"));
 		try {

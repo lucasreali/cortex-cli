@@ -7,6 +7,8 @@
 		"cortex": "./src/cli/main.ts"
 	},
 	"scripts": {
+		"test": "bun test",
+		"test:coverage": "bun test --coverage",
 		"typecheck": "tsc --noEmit",
 		"check": "bunx --bun @biomejs/biome check --write"
 	},

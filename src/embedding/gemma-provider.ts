@@ -8,6 +8,7 @@ import type { EmbeddingProvider } from "./provider";
 export interface GemmaProviderOptions {
 	idleTimeoutMs?: number;
 	modelsDir?: string;
+	workerPath?: string;
 }
 
 const DEFAULT_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
@@ -134,7 +135,9 @@ export class GemmaProvider implements EmbeddingProvider {
 	}
 
 	private spawnWorker(): WorkerSubprocess {
-		const workerPath = new URL("./worker.ts", import.meta.url).pathname;
+		const workerPath =
+			this.options.workerPath ??
+			new URL("./worker.ts", import.meta.url).pathname;
 		return Bun.spawn(["bun", workerPath], {
 			stdin: "pipe",
 			stdout: "pipe",

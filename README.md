@@ -60,7 +60,8 @@ cortex doctor                           # config, anchors, embeddings, model hea
 ## Development
 
 ```bash
-bun test                    # storage/search tests run against real SQLite
+bun run test                # storage/search tests run against real SQLite
+bun run test:coverage       # coverage report, 100% threshold enforced
 RUN_MODEL_TESTS=1 bun test  # also load the real embedding model
 bun run check               # Biome lint + format
 bun run typecheck
