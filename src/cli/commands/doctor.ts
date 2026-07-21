@@ -2,12 +2,18 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { GEMMA_MODEL } from "@/embedding/model";
+import { computeDrift } from "@/indexer/code-indexer";
+import { listSourceFiles } from "@/indexer/source-walker";
+import { TsconfigAliases } from "@/indexer/tsconfig-aliases";
 import type { CortexRuntime } from "@/mcp/runtime";
+import { CodeRepository } from "@/storage/code-repository";
 import { readConfig } from "@/storage/config";
-import { SCHEMA_VERSION } from "@/storage/migrations";
+import { openCodeDb } from "@/storage/connection";
+import { migrateCode, SCHEMA_VERSION } from "@/storage/migrations";
 import { cortexDirOf, openInitializedRuntime } from "../open-runtime";
 
 const MINIMUM_KEYWORDS = 5;
+const MINIMUM_RESOLUTION_RATE = 0.85;
 
 export async function runDoctor(_args: string[], cwd: string): Promise<number> {
 	const runtime = await openInitializedRuntime(cwd);
@@ -19,6 +25,7 @@ export async function runDoctor(_args: string[], cwd: string): Promise<number> {
 		checkEmbeddings(runtime, report);
 		checkKeywords(runtime, report);
 		checkModelDownloaded(report);
+		await checkCodeIndex(runtime, report);
 		return report.finish();
 	} finally {
 		runtime.dispose();
@@ -108,6 +115,77 @@ function checkKeywords(runtime: CortexRuntime, report: DoctorReport): void {
 			`fewer than ${MINIMUM_KEYWORDS} keywords: ${entry.title} (${entry.id})`,
 		);
 	}
+}
+
+async function checkCodeIndex(
+	runtime: CortexRuntime,
+	report: DoctorReport,
+): Promise<void> {
+	if (!existsSync(join(cortexDirOf(runtime), "code.db"))) {
+		report.warn("code index not built — run: cortex index");
+		return;
+	}
+	const database = openCodeDb(cortexDirOf(runtime));
+	try {
+		migrateCode(database);
+		const repository = new CodeRepository(database);
+		checkCodeDrift(runtime, repository, report);
+		await checkImportResolution(runtime, repository, report);
+	} finally {
+		database.close();
+	}
+}
+
+function checkCodeDrift(
+	runtime: CortexRuntime,
+	repository: CodeRepository,
+	report: DoctorReport,
+): void {
+	const indexed = repository.listFiles();
+	const drift = computeDrift(listSourceFiles(runtime.repoRoot), indexed);
+	if (drift.added === 0 && drift.changed === 0 && drift.removed === 0) {
+		report.ok(
+			`code index: in sync with the working tree (${indexed.length} files)`,
+		);
+		return;
+	}
+	report.warn(
+		`code index outdated: ${drift.added} new, ${drift.changed} changed, ` +
+			`${drift.removed} deleted — run: cortex index`,
+	);
+}
+
+async function checkImportResolution(
+	runtime: CortexRuntime,
+	repository: CodeRepository,
+	report: DoctorReport,
+): Promise<void> {
+	const aliases = await TsconfigAliases.load(runtime.repoRoot);
+	const resolvable = repository
+		.listImports()
+		.filter((entry) => hasResolvableIntent(aliases, entry.specifier));
+	if (resolvable.length === 0) {
+		report.ok("imports: none with resolvable intent");
+		return;
+	}
+	const resolved = resolvable.filter((entry) => entry.toPath !== null).length;
+	const rate = resolved / resolvable.length;
+	const summary = `${resolved}/${resolvable.length} resolvable imports resolved (${(rate * 100).toFixed(1)}%)`;
+	if (rate >= MINIMUM_RESOLUTION_RATE) {
+		report.ok(`imports: ${summary}`);
+		return;
+	}
+	report.warn(
+		`imports: ${summary} — below 85%, check tsconfig paths or run: cortex index --force`,
+	);
+}
+
+function hasResolvableIntent(
+	aliases: TsconfigAliases,
+	specifier: string,
+): boolean {
+	if (specifier.startsWith("./") || specifier.startsWith("../")) return true;
+	return aliases.expand(specifier).length > 0;
 }
 
 function checkModelDownloaded(report: DoctorReport): void {

@@ -9,7 +9,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CodeIndexer } from "@/indexer/code-indexer";
+import { CodeIndexer, computeDrift } from "@/indexer/code-indexer";
+import { listSourceFiles } from "@/indexer/source-walker";
 import { CodeRepository } from "@/storage/code-repository";
 import { openCodeDb } from "@/storage/connection";
 import { migrateCode } from "@/storage/migrations";
@@ -154,5 +155,21 @@ describe("CodeIndexer", () => {
 
 		expect(report.mode).toBe("full");
 		expect(report.indexed).toBe(FILE_COUNT);
+	});
+
+	test("computeDrift reports added, changed and removed without mutating", async () => {
+		await indexer.run();
+		writeFileSync(join(dir, "src/fresh.ts"), "export const fresh = () => 1;\n");
+		writeFileSync(
+			join(dir, "src/file05.ts"),
+			`${fileContent(5)}export const more05 = () => 5;\n`,
+		);
+		bumpMtime("src/file05.ts");
+		rmSync(join(dir, "src/file40.ts"));
+
+		const drift = computeDrift(listSourceFiles(dir), repository.listFiles());
+
+		expect(drift).toEqual({ added: 1, changed: 1, removed: 1 });
+		expect(repository.listFiles()).toHaveLength(FILE_COUNT);
 	});
 });

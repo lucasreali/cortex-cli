@@ -83,6 +83,26 @@ export class CodeRepository {
 			.all(filePath);
 	}
 
+	listImports(): Array<{
+		fromPath: string;
+		specifier: string;
+		toPath: string | null;
+	}> {
+		return this.db
+			.query<
+				{ from_path: string; specifier: string; to_path: string | null },
+				[]
+			>(
+				"SELECT from_path, specifier, to_path FROM imports ORDER BY from_path, specifier",
+			)
+			.all()
+			.map((row) => ({
+				fromPath: row.from_path,
+				specifier: row.specifier,
+				toPath: row.to_path,
+			}));
+	}
+
 	importsFrom(path: string): CodeImport[] {
 		return this.db
 			.query<ImportRow, [string]>(

@@ -224,6 +224,24 @@ describe("cortex CLI", () => {
 		expect(result.stdout).toContain("without embedding");
 		expect(result.stdout).toContain("anchors: all files exist");
 		expect(result.stdout).toContain("keywords: all decisions have >= 5");
+		expect(result.stdout).toContain("code index: in sync");
+	});
+
+	test("doctor flags an outdated code index and a low resolution rate", () => {
+		writeFileSync(
+			join(dir, "src/auth/service.ts"),
+			'import { gone } from "./missing";\nexport const ok = () => gone;\n',
+		);
+		expect(cli("index").code).toBe(0);
+		writeFileSync(join(dir, "src/auth/extra.ts"), "export const x = 1;\n");
+
+		const result = cli("doctor");
+
+		expect(result.stdout).toContain(
+			"code index outdated: 1 new, 0 changed, 0 deleted",
+		);
+		expect(result.stdout).toContain("0/1 resolvable imports resolved (0.0%)");
+		expect(result.stdout).toContain("below 85%");
 	});
 
 	test("serve requires --mcp", () => {
@@ -306,5 +324,9 @@ describe("cortex CLI in an empty project", () => {
 		const log = cliEmpty("log");
 		expect(log.code).toBe(0);
 		expect(log.stdout).toContain("No active decisions.");
+
+		const doctor = cliEmpty("doctor");
+		expect(doctor.code).toBe(1);
+		expect(doctor.stdout).toContain("code index not built — run: cortex index");
 	});
 });

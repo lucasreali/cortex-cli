@@ -53,9 +53,26 @@ cortex log [--module M] [--since SHA]   # active decisions, newest first
 cortex why <path>                       # decisions anchored to a file or directory
 cortex search <terms...> [--exact]      # search with score and origin
 cortex impact <id>                      # indented dependency tree
+cortex index [--force]                  # (re)build the code index incrementally
 cortex embed --missing | --rebuild      # fill or rebuild the vector index
-cortex doctor                           # config, anchors, embeddings, model health
+cortex doctor                           # config, anchors, embeddings, model, code index
 ```
+
+## Code index
+
+`cortex index` builds `.cortex/code.db` — files, symbols and imports extracted
+with tree-sitter. It is fully regenerable (never committed) and incremental:
+only files whose size/mtime changed are re-read, and a content hash skips
+touch-only changes. MCP sessions reconcile it lazily on the first query that
+needs it, catching up on edits made while the server was down.
+
+Only TypeScript/JavaScript (`ts`, `tsx`, `js`, `jsx`, `mts`, `cts`, `mjs`,
+`cjs`) is indexed. Files in other languages degrade gracefully: they get no
+symbol or import rows, so decisions about them anchor at the file level and
+impact analysis walks only decision links, not code imports. Import
+resolution is heuristic by design — edges carry a `provenance` column
+(`exact` for relative specifiers with explicit extensions, `heuristic` for
+everything else) and `cortex doctor` reports the measured resolution rate.
 
 ## Development
 

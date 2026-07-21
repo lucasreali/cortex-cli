@@ -17,6 +17,29 @@ export interface IndexOptions {
 	force?: boolean;
 }
 
+export interface IndexDrift {
+	added: number;
+	changed: number;
+	removed: number;
+}
+
+export function computeDrift(
+	sources: SourceFile[],
+	indexed: IndexedFile[],
+): IndexDrift {
+	const known = new Map(indexed.map((file) => [file.path, file]));
+	const drift: IndexDrift = { added: 0, changed: 0, removed: 0 };
+	for (const source of sources) {
+		const previous = known.get(source.path);
+		known.delete(source.path);
+		if (!previous) drift.added++;
+		else if (previous.size !== source.size || previous.mtime !== source.mtime)
+			drift.changed++;
+	}
+	drift.removed = known.size;
+	return drift;
+}
+
 export class CodeIndexer {
 	static async create(
 		repoRoot: string,

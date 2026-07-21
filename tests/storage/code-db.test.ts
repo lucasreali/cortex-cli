@@ -240,6 +240,24 @@ describe("CodeRepository", () => {
 		]);
 	});
 
+	test("listImports returns every import row ordered", () => {
+		repository.wipeAndRebuild([entryFixture(), importerFixture()]);
+
+		expect(repository.listImports()).toEqual([
+			{
+				fromPath: "src/api/login.ts",
+				specifier: "../auth/service",
+				toPath: "src/auth/service.ts",
+			},
+			{
+				fromPath: "src/auth/service.ts",
+				specifier: "./token.ts",
+				toPath: "src/auth/token.ts",
+			},
+			{ fromPath: "src/auth/service.ts", specifier: "zod", toPath: null },
+		]);
+	});
+
 	test("touchFile refreshes metadata and keeps symbols and imports", () => {
 		repository.wipeAndRebuild([entryFixture()]);
 		repository.touchFile({

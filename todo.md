@@ -117,7 +117,7 @@ Os dois scripts de smoke ficam em `scripts/` até a tarefa 1.4 absorver o códig
   - **Aceite:** e2e — decisão em `src/auth/service.ts`; importado por `src/api/login.ts` com outra decisão; impact da primeira retorna a segunda via caminho de código.
 
 ### 2.6 Qualidade de fase
-- [ ] `doctor` cobre o code.db (desatualizado vs. working tree; taxa de imports não resolvidos). Documentar degradação (linguagem não suportada → âncora de arquivo). Registrar as decisões da fase no próprio Cortex.
+- [x] `doctor` cobre o code.db (desatualizado vs. working tree; taxa de imports não resolvidos). Documentar degradação (linguagem não suportada → âncora de arquivo). Registrar as decisões da fase no próprio Cortex. **Atenção: 2.5 segue aberto — a fase 2 não fecha sem ele.**
 
 ---
 
