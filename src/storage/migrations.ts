@@ -1,8 +1,8 @@
 import type { Database } from "bun:sqlite";
-import codeSchema from "./migrations/002-code-schema.sql" with { type: "text" };
 import decisionsSchema from "./migrations/001-decisions-schema.sql" with {
 	type: "text",
 };
+import codeSchema from "./migrations/002-code-schema.sql" with { type: "text" };
 
 interface Migration {
 	id: number;

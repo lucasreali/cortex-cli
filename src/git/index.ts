@@ -18,6 +18,19 @@ export function getCanonicalProjectId(cwd: string): string | null {
 	return parseRemoteUrl(remoteUrl) ?? root;
 }
 
+export function listRepoFiles(cwd: string): string[] | null {
+	const output = runGit(cwd, [
+		"-c",
+		"core.quotepath=off",
+		"ls-files",
+		"--cached",
+		"--others",
+		"--exclude-standard",
+	]);
+	if (output === null) return null;
+	return output.split("\n").filter((line) => line.length > 0);
+}
+
 export function getHead(cwd: string): HeadState | null {
 	const sha = runGit(cwd, ["rev-parse", "HEAD"]);
 	if (!sha) return null;

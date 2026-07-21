@@ -1,0 +1,169 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`TsxExtractor extracts symbols and imports from every fixture 1`] = `
+{
+  "app.tsx": {
+    "imports": [
+      "./user-service",
+    ],
+    "symbols": [
+      {
+        "kind": "function",
+        "line": 3,
+        "name": "App",
+      },
+      {
+        "kind": "arrow",
+        "line": 12,
+        "name": "Header",
+      },
+    ],
+  },
+  "arrows.ts": {
+    "imports": [],
+    "symbols": [
+      {
+        "kind": "arrow",
+        "line": 1,
+        "name": "formatName",
+      },
+      {
+        "kind": "arrow",
+        "line": 3,
+        "name": "parseId",
+      },
+      {
+        "kind": "arrow",
+        "line": 5,
+        "name": "noop",
+      },
+    ],
+  },
+  "default-export.ts": {
+    "imports": [],
+    "symbols": [
+      {
+        "kind": "function",
+        "line": 1,
+        "name": "createServer",
+      },
+    ],
+  },
+  "imports.ts": {
+    "imports": [
+      "./default-export",
+      "./user-service",
+      "node:path",
+      "./side-effect",
+      "./types-only",
+    ],
+    "symbols": [
+      {
+        "kind": "function",
+        "line": 7,
+        "name": "bootstrap",
+      },
+    ],
+  },
+  "legacy-require.js": {
+    "imports": [
+      "./database",
+      "node:path",
+    ],
+    "symbols": [
+      {
+        "kind": "function",
+        "line": 4,
+        "name": "connect",
+      },
+    ],
+  },
+  "mixed.js": {
+    "imports": [
+      "./legacy-require",
+      "./settings",
+    ],
+    "symbols": [
+      {
+        "kind": "function",
+        "line": 5,
+        "name": "start",
+      },
+      {
+        "kind": "arrow",
+        "line": 9,
+        "name": "stop",
+      },
+    ],
+  },
+  "nested.ts": {
+    "imports": [],
+    "symbols": [
+      {
+        "kind": "class",
+        "line": 1,
+        "name": "TokenStore",
+      },
+      {
+        "kind": "method",
+        "line": 2,
+        "name": "TokenStore.load",
+      },
+      {
+        "kind": "class",
+        "line": 7,
+        "name": "AuthService",
+      },
+      {
+        "kind": "method",
+        "line": 8,
+        "name": "AuthService.constructor",
+      },
+      {
+        "kind": "method",
+        "line": 10,
+        "name": "AuthService.validateToken",
+      },
+    ],
+  },
+  "re-exports.ts": {
+    "imports": [
+      "./user-service",
+      "./arrows",
+      "./default-export",
+    ],
+    "symbols": [],
+  },
+  "types-only.ts": {
+    "imports": [],
+    "symbols": [],
+  },
+  "user-service.ts": {
+    "imports": [
+      "./nested",
+    ],
+    "symbols": [
+      {
+        "kind": "class",
+        "line": 3,
+        "name": "UserService",
+      },
+      {
+        "kind": "method",
+        "line": 4,
+        "name": "UserService.constructor",
+      },
+      {
+        "kind": "method",
+        "line": 6,
+        "name": "UserService.findById",
+      },
+      {
+        "kind": "method",
+        "line": 10,
+        "name": "UserService.create",
+      },
+    ],
+  },
+}
+`;

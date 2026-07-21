@@ -99,7 +99,7 @@ Os dois scripts de smoke ficam em `scripts/` até a tarefa 1.4 absorver o códig
   - **Aceite:** deletar `code.db` e reindexar produz resultado idêntico (regenerabilidade em teste).
 
 ### 2.2 Extração TS/JS
-- [ ] `src/indexer/`: gramática TSX de `~/.cortex/grammars/` (download lazy do release oficial + sha256, padrão da fase 0); walker respeitando `.gitignore` (`git ls-files` quando repo git) + exclusões fixas (`node_modules`, `dist`, `build`, `.cortex`, > 1 MB); queries: imports (`import`/`export from`/`require`) e símbolos (funções, classes, métodos, arrows nomeadas) com nome qualificado `Classe.metodo`.
+- [x] `src/indexer/`: gramática TSX de `~/.cortex/grammars/` (download lazy do release oficial + sha256, padrão da fase 0); walker respeitando `.gitignore` (`git ls-files` quando repo git) + exclusões fixas (`node_modules`, `dist`, `build`, `.cortex`, > 1 MB); queries: imports (`import`/`export from`/`require`) e símbolos (funções, classes, métodos, arrows nomeadas) com nome qualificado `Classe.metodo`.
   - **Aceite:** fixture ~10 arquivos (default export, re-export, require, classe c/ métodos, arrow const); snapshot test.
 
 ### 2.3 Resolução de imports (heurística assumida)
