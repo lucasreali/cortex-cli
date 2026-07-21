@@ -240,6 +240,21 @@ describe("CodeRepository", () => {
 		]);
 	});
 
+	test("touchFile refreshes metadata and keeps symbols and imports", () => {
+		repository.wipeAndRebuild([entryFixture()]);
+		repository.touchFile({
+			path: "src/auth/service.ts",
+			lang: "ts",
+			hash: "abc123",
+			mtime: 1700009999,
+			size: 2048,
+		});
+
+		expect(repository.getFile("src/auth/service.ts")?.mtime).toBe(1700009999);
+		expect(repository.symbolsIn("src/auth/service.ts")).toHaveLength(2);
+		expect(repository.importsFrom("src/auth/service.ts")).toHaveLength(2);
+	});
+
 	test("removeFile deletes the file with its symbols and imports", () => {
 		repository.wipeAndRebuild([entryFixture(), importerFixture()]);
 		repository.removeFile("src/auth/service.ts");

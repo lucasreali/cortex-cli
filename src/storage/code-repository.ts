@@ -52,6 +52,14 @@ export class CodeRepository {
 		this.db.transaction(() => this.deleteFileRows(path))();
 	}
 
+	touchFile(file: IndexedFile): void {
+		this.db
+			.query(
+				"UPDATE files SET lang = ?, hash = ?, mtime = ?, size = ? WHERE path = ?",
+			)
+			.run(file.lang, file.hash, file.mtime, file.size, file.path);
+	}
+
 	getFile(path: string): IndexedFile | null {
 		const row = this.db
 			.query<FileRow, [string]>("SELECT * FROM files WHERE path = ?")

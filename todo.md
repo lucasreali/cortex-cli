@@ -107,7 +107,7 @@ Os dois scripts de smoke ficam em `scripts/` até a tarefa 1.4 absorver o códig
   - **Aceite:** fixture com `paths`; taxa de resolução medida e registrada (meta ≥ 85 %); nenhum throw em specifier estranho.
 
 ### 2.4 Incremental + reconciliação lazy
-- [ ] `cortex index`: full na primeira vez; depois diff `(size, mtime)` + hash — reprocessa só mudados/novos, remove deletados. No MCP: reconciliação na primeira query da sessão que toque o code.db (catch-up de edições com servidor desligado).
+- [x] `cortex index`: full na primeira vez; depois diff `(size, mtime)` + hash — reprocessa só mudados/novos, remove deletados. No MCP: reconciliação na primeira query da sessão que toque o code.db (catch-up de edições com servidor desligado).
   - **Aceite:** editar 1 arquivo de fixture de 50 → reindex de exatamente 1; benchmark do full index no próprio repo registrado.
 
 ### 2.5 Integração com o grafo de decisões

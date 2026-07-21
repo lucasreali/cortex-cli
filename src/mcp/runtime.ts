@@ -6,6 +6,7 @@ import { GEMMA_MODEL } from "@/embedding/model";
 import { EmbedQueue } from "@/embedding/queue";
 import { SemanticSearch } from "@/embedding/semantic-search";
 import { getCanonicalProjectId, getHead, getRepoRoot } from "@/git";
+import { LazyCodeIndex } from "@/indexer/lazy-code-index";
 import { readConfig } from "@/storage/config";
 import { openDecisionsDb } from "@/storage/connection";
 import { EdgeRepository } from "@/storage/edge-repository";
@@ -26,6 +27,7 @@ export interface CortexRuntime {
 	provider: GemmaProvider | null;
 	queue: EmbedQueue | null;
 	semanticSearch: SemanticSearch;
+	codeIndex: LazyCodeIndex;
 	ensureSession(): string;
 	saveContext(): SaveContext;
 	dispose(): void;
@@ -62,6 +64,7 @@ export async function buildRuntime(cwd: string): Promise<CortexRuntime> {
 				onEmbedded: () => semanticSearch.invalidate(),
 			})
 		: null;
+	const codeIndex = new LazyCodeIndex(repoRoot);
 	const projectCanonicalId = getCanonicalProjectId(repoRoot) ?? repoRoot;
 	const projectNodeId = nodes.ensureProject(projectCanonicalId);
 	let sessionNodeId: string | null = null;
@@ -82,6 +85,7 @@ export async function buildRuntime(cwd: string): Promise<CortexRuntime> {
 		provider,
 		queue,
 		semanticSearch,
+		codeIndex,
 		ensureSession,
 		saveContext() {
 			const head = getHead(repoRoot);
@@ -94,6 +98,7 @@ export async function buildRuntime(cwd: string): Promise<CortexRuntime> {
 		},
 		dispose() {
 			provider?.dispose();
+			codeIndex.dispose();
 			db.close();
 		},
 	};

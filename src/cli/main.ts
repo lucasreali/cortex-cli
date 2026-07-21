@@ -2,6 +2,7 @@
 import { runDoctor } from "./commands/doctor";
 import { runEmbed } from "./commands/embed";
 import { runImpact } from "./commands/impact";
+import { runIndex } from "./commands/index";
 import { runInit } from "./commands/init";
 import { runLog } from "./commands/log";
 import { runSearch } from "./commands/search";
@@ -20,6 +21,7 @@ const COMMANDS: Record<string, Command> = {
 	why: { run: runWhy, usage: "why <path>" },
 	search: { run: runSearch, usage: "search <terms...> [--exact]" },
 	impact: { run: runImpact, usage: "impact <id> [--depth N]" },
+	index: { run: runIndex, usage: "index [--force]" },
 	embed: { run: runEmbed, usage: "embed --missing | --rebuild [--yes]" },
 	doctor: { run: runDoctor, usage: "doctor" },
 };

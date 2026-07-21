@@ -108,9 +108,11 @@ describe("cortex CLI", () => {
 	});
 
 	test("commands require init first", () => {
-		const result = cli("log");
-		expect(result.code).toBe(1);
-		expect(result.stderr).toContain("cortex init");
+		for (const command of ["log", "index"]) {
+			const result = cli(command);
+			expect(result.code).toBe(1);
+			expect(result.stderr).toContain("cortex init");
+		}
 	});
 
 	test("init creates .cortex, config and prints next steps — idempotently", () => {
@@ -187,6 +189,21 @@ describe("cortex CLI", () => {
 		const missing = cli("impact", "01890000-0000-7000-8000-000000000000");
 		expect(missing.code).toBe(1);
 		expect(missing.stderr).toContain("decision not found");
+	});
+
+	test("index builds code.db in full, then incrementally, then forced", () => {
+		const first = cli("index");
+		expect(first.code).toBe(0);
+		expect(first.stdout).toContain("Indexed 1 file(s) (full)");
+		expect(existsSync(join(dir, ".cortex/code.db"))).toBe(true);
+
+		const second = cli("index");
+		expect(second.code).toBe(0);
+		expect(second.stdout).toContain("Indexed 0 file(s) (incremental)");
+		expect(second.stdout).toContain("1 unchanged");
+
+		const forced = cli("index", "--force");
+		expect(forced.stdout).toContain("(full)");
 	});
 
 	test("embed --missing fails loudly when embeddings are disabled", () => {

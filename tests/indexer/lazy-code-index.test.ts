@@ -1,0 +1,64 @@
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { LazyCodeIndex } from "@/indexer/lazy-code-index";
+
+let dir: string;
+
+beforeEach(() => {
+	dir = mkdtempSync(join(tmpdir(), "cortex-lazy-index-"));
+	mkdirSync(join(dir, ".cortex"));
+	mkdirSync(join(dir, "src"));
+	writeFileSync(join(dir, "src/a.ts"), "export const a = 1;\n");
+});
+
+afterEach(() => {
+	rmSync(dir, { recursive: true, force: true });
+});
+
+describe("LazyCodeIndex", () => {
+	test("the first access reconciles the index", async () => {
+		const lazy = new LazyCodeIndex(dir);
+		const repository = await lazy.repository();
+
+		expect(repository.listFiles().map((file) => file.path)).toEqual([
+			"src/a.ts",
+		]);
+		lazy.dispose();
+	});
+
+	test("later accesses in the same session reuse the reconciled index", async () => {
+		const lazy = new LazyCodeIndex(dir);
+		await lazy.repository();
+		writeFileSync(join(dir, "src/b.ts"), "export const b = 2;\n");
+
+		const repository = await lazy.repository();
+
+		expect(repository.listFiles()).toHaveLength(1);
+		lazy.dispose();
+	});
+
+	test("a new session catches up on edits made while it was down", async () => {
+		const first = new LazyCodeIndex(dir);
+		await first.repository();
+		first.dispose();
+		writeFileSync(join(dir, "src/b.ts"), "export const b = 2;\n");
+
+		const second = new LazyCodeIndex(dir);
+		const repository = await second.repository();
+
+		expect(repository.listFiles()).toHaveLength(2);
+		second.dispose();
+	});
+
+	test("dispose is safe to call twice and allows reopening", async () => {
+		const lazy = new LazyCodeIndex(dir);
+		await lazy.repository();
+		lazy.dispose();
+		lazy.dispose();
+
+		expect((await lazy.repository()).listFiles()).toHaveLength(1);
+		lazy.dispose();
+	});
+});
