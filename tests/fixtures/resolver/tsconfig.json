@@ -1,0 +1,10 @@
+{
+	// JSONC on purpose: real tsconfigs carry comments and trailing commas.
+	"compilerOptions": {
+		"baseUrl": ".",
+		"paths": {
+			"@app/*": ["./src/*"],
+			"utils": ["./src/lib/util.ts"],
+		},
+	},
+}

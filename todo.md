@@ -103,7 +103,7 @@ Os dois scripts de smoke ficam em `scripts/` até a tarefa 1.4 absorver o códig
   - **Aceite:** fixture ~10 arquivos (default export, re-export, require, classe c/ métodos, arrow const); snapshot test.
 
 ### 2.3 Resolução de imports (heurística assumida)
-- [ ] Specifier → arquivo: relativos com extensões omitidas (`./x` → `x.ts|.tsx|.js|/index.*`), aliases básicos de `tsconfig.json` (`paths`/`baseUrl`); npm/não resolvido → `to_path = NULL`. `provenance`: `exact` (relativo com extensão explícita) | `heuristic` (resto).
+- [x] Specifier → arquivo: relativos com extensões omitidas (`./x` → `x.ts|.tsx|.js|/index.*`), aliases básicos de `tsconfig.json` (`paths`/`baseUrl`); npm/não resolvido → `to_path = NULL`. `provenance`: `exact` (relativo com extensão explícita) | `heuristic` (resto).
   - **Aceite:** fixture com `paths`; taxa de resolução medida e registrada (meta ≥ 85 %); nenhum throw em specifier estranho.
 
 ### 2.4 Incremental + reconciliação lazy
