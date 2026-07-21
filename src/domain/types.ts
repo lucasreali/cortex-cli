@@ -50,3 +50,29 @@ export interface Project {
 	canonicalId: string;
 	createdAt: string;
 }
+
+export interface IndexedFile {
+	path: string;
+	lang: string;
+	hash: string;
+	mtime: number;
+	size: number;
+}
+
+export interface CodeSymbol {
+	name: string;
+	kind: string;
+	line: number;
+}
+
+export interface CodeImport {
+	specifier: string;
+	toPath: string | null;
+	provenance: ImportProvenance;
+}
+
+export interface FileIndexEntry {
+	file: IndexedFile;
+	symbols: CodeSymbol[];
+	imports: CodeImport[];
+}

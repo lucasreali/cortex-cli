@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import codeSchema from "./migrations/002-code-schema.sql" with { type: "text" };
 import decisionsSchema from "./migrations/001-decisions-schema.sql" with {
 	type: "text",
 };
@@ -9,7 +10,7 @@ interface Migration {
 	up(db: Database): void;
 }
 
-const migrations: Migration[] = [
+const decisionsMigrations: Migration[] = [
 	{
 		id: 1,
 		name: "decisions-schema",
@@ -17,9 +18,26 @@ const migrations: Migration[] = [
 	},
 ];
 
-export const SCHEMA_VERSION = migrations[migrations.length - 1]?.id ?? 0;
+const codeMigrations: Migration[] = [
+	{
+		id: 1,
+		name: "code-schema",
+		up: (db) => db.run(codeSchema),
+	},
+];
+
+export const SCHEMA_VERSION =
+	decisionsMigrations[decisionsMigrations.length - 1]?.id ?? 0;
 
 export function migrate(db: Database): void {
+	applyAll(db, decisionsMigrations);
+}
+
+export function migrateCode(db: Database): void {
+	applyAll(db, codeMigrations);
+}
+
+function applyAll(db: Database, migrations: Migration[]): void {
 	ensureMigrationsTable(db);
 	for (const migration of migrations) {
 		applyOnce(db, migration);

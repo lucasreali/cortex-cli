@@ -95,7 +95,7 @@ Os dois scripts de smoke ficam em `scripts/` até a tarefa 1.4 absorver o códig
 ## FASE 2 — Índice de código próprio (TS/JS)
 
 ### 2.1 Storage do code.db
-- [ ] Conexão separada para `.cortex/code.db` (WAL) + migration com o DDL da spec §3.2 (`files`, `symbols`, `imports` com `provenance`). Repositório com `wipeAndRebuild()` e upserts incrementais por arquivo.
+- [x] Conexão separada para `.cortex/code.db` (WAL) + migration com o DDL da spec §3.2 (`files`, `symbols`, `imports` com `provenance`). Repositório com `wipeAndRebuild()` e upserts incrementais por arquivo.
   - **Aceite:** deletar `code.db` e reindexar produz resultado idêntico (regenerabilidade em teste).
 
 ### 2.2 Extração TS/JS
@@ -112,8 +112,8 @@ Os dois scripts de smoke ficam em `scripts/` até a tarefa 1.4 absorver o códig
 
 ### 2.5 Integração com o grafo de decisões
 - [ ] Âncora de símbolo validada no `save_decision` e no `doctor` (não encontrado → aviso com sugestões aproximadas).
-- [x] `cortex why <symbol>`: símbolo → arquivo → decisões ancoradas (arquivo ou símbolo exato).
-- [x] `get_impact` expandido: decisão → arquivos ancorados → importadores transitivos via CTE em `imports` (profundidade default 3, configurável) → decisões ancoradas neles. Resposta separa impacto por `DEPENDS_ON` vs. por código (imports), com `provenance` visível.
+- [ ] `cortex why <symbol>`: símbolo → arquivo → decisões ancoradas (arquivo ou símbolo exato).
+- [ ] `get_impact` expandido: decisão → arquivos ancorados → importadores transitivos via CTE em `imports` (profundidade default 3, configurável) → decisões ancoradas neles. Resposta separa impacto por `DEPENDS_ON` vs. por código (imports), com `provenance` visível.
   - **Aceite:** e2e — decisão em `src/auth/service.ts`; importado por `src/api/login.ts` com outra decisão; impact da primeira retorna a segunda via caminho de código.
 
 ### 2.6 Qualidade de fase
