@@ -135,14 +135,6 @@ describe("cortex MCP server e2e", () => {
 		expect(payload.warnings).toEqual([]);
 	});
 
-	test("save_decision writes the canonical decision file through", async () => {
-		const path = join(dir, ".cortex/decisions", `${decisionA}.md`);
-		const content = await Bun.file(path).text();
-		expect(content).toStartWith("---\n");
-		expect(content).toContain(`id: ${decisionA}`);
-		expect(content).toContain("Adotar JWT para autenticação");
-	});
-
 	test("save_decision rejects input violating the schema", async () => {
 		const { isError } = await callTool("save_decision", {
 			title: "curto",

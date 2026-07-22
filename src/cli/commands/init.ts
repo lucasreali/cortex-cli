@@ -16,7 +16,7 @@ export async function runInit(args: string[], cwd: string): Promise<number> {
 	});
 	const root = getRepoRoot(cwd) ?? resolve(cwd);
 	const cortexDir = join(root, ".cortex");
-	await initializeStorage(root, cortexDir);
+	initializeStorage(root, cortexDir);
 	if (!(await readConfig(cortexDir))) {
 		await writeConfig(cortexDir, {
 			model_id: GEMMA_MODEL.modelId,
@@ -45,15 +45,8 @@ function printStep(step: number, title: string, commands: string[]): void {
 	}
 }
 
-async function initializeStorage(
-	root: string,
-	cortexDir: string,
-): Promise<void> {
-	const decisionsDir = join(cortexDir, "decisions");
-	mkdirSync(decisionsDir, { recursive: true });
-	// Git only tracks files: without this a cloned repo with zero decisions
-	// would lack the directory and wrongly trigger the bootstrap export.
-	await Bun.write(join(decisionsDir, ".gitkeep"), "");
+function initializeStorage(root: string, cortexDir: string): void {
+	mkdirSync(cortexDir, { recursive: true });
 	const db = openDecisionsDb(cortexDir);
 	try {
 		migrate(db);
@@ -70,19 +63,21 @@ async function ensureGitignore(
 	const path = join(root, ".gitignore");
 	const file = Bun.file(path);
 	const current = (await file.exists()) ? await file.text() : "";
-	if (current.includes(".cortex/*.db*")) return;
-	if (!assumeYes && !confirmInteractive("Add .cortex/*.db* to .gitignore?")) {
+	if (current.includes(".cortex/code.db")) return;
+	if (
+		!assumeYes &&
+		!confirmInteractive("Add .cortex/code.db* to .gitignore?")
+	) {
 		console.log(
 			warning(
-				"Skipped .gitignore change — add .cortex/*.db* yourself or rerun with --yes. " +
-					"Databases are local caches; .cortex/decisions/ and .cortex/config are meant to be committed.",
+				"Skipped .gitignore change — add .cortex/code.db* yourself or rerun with --yes.",
 			),
 		);
 		return;
 	}
 	const separator = current === "" || current.endsWith("\n") ? "" : "\n";
-	await Bun.write(path, `${current}${separator}.cortex/*.db*\n`);
-	console.log(success("Added .cortex/*.db* to .gitignore"));
+	await Bun.write(path, `${current}${separator}.cortex/code.db*\n`);
+	console.log(success("Added .cortex/code.db* to .gitignore"));
 }
 
 function confirmInteractive(question: string): boolean {

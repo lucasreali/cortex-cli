@@ -43,10 +43,7 @@ describe("migrations", () => {
 	test("running twice on the same connection is a no-op", () => {
 		migrate(db);
 		const rows = db.query("SELECT id, name FROM _migrations").all();
-		expect(rows).toEqual([
-			{ id: 1, name: "decisions-schema" },
-			{ id: 2, name: "decision-files" },
-		]);
+		expect(rows).toEqual([{ id: 1, name: "decisions-schema" }]);
 	});
 
 	test("running again after reopening the database is a no-op", () => {
@@ -54,7 +51,7 @@ describe("migrations", () => {
 		db = openDecisionsDb(dir);
 		migrate(db);
 		expect(db.query("SELECT count(*) AS n FROM _migrations").get()).toEqual({
-			n: 2,
+			n: 1,
 		});
 	});
 

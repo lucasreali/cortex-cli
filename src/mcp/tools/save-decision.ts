@@ -1,7 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { persistDecision } from "@/app/persist-decision";
 import type { CortexRuntime } from "@/app/runtime";
 import { symbolHint } from "@/app/symbol-hints";
 import { type CreateDecisionInput, createDecisionSchema } from "@/domain";
@@ -36,7 +35,12 @@ async function saveDecision(
 		...(await symbolWarnings(runtime, input)),
 	];
 	try {
-		const decision = await persistDecision(runtime, input);
+		const context = runtime.saveContext();
+		const decision = input.replaces
+			? runtime.nodes.replaceDecision(input.replaces, input, context)
+			: runtime.nodes.createDecision(input, context);
+		runtime.queue?.enqueue(decision.id);
+		runtime.semanticSearch.invalidate();
 		return jsonResult({ id: decision.id, warnings });
 	} catch (error) {
 		return errorResult(error);

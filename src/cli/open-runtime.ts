@@ -8,7 +8,7 @@ export async function openInitializedRuntime(
 	cwd: string,
 ): Promise<CortexRuntime | null> {
 	const root = getRepoRoot(cwd) ?? resolve(cwd);
-	if (!existsSync(join(root, ".cortex", "config"))) {
+	if (!existsSync(join(root, ".cortex", "decisions.db"))) {
 		console.error(failure("Cortex is not initialized here — run: cortex init"));
 		return null;
 	}

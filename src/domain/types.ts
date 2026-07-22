@@ -38,12 +38,6 @@ export interface Decision {
 	anchors: Anchor[];
 }
 
-export interface DecisionRecord {
-	decision: Decision;
-	dependsOn: string[];
-	replaces: string | null;
-}
-
 export interface Session {
 	id: string;
 	projectId: string;
