@@ -5,6 +5,7 @@ import {
 	decisionImpact,
 } from "@/app/decision-impact";
 import { openInitializedRuntime } from "../open-runtime";
+import { failure, style, warning } from "../style";
 
 export async function runImpact(args: string[], cwd: string): Promise<number> {
 	const { values, positionals } = parseArgs({
@@ -26,7 +27,7 @@ export async function runImpact(args: string[], cwd: string): Promise<number> {
 			codeDepth: depth,
 		});
 		if (!impact) {
-			console.error(`decision not found: ${id}`);
+			console.error(failure(`decision not found: ${id}`));
 			return 1;
 		}
 		printDependsOnTree(impact);
@@ -38,26 +39,29 @@ export async function runImpact(args: string[], cwd: string): Promise<number> {
 }
 
 function printDependsOnTree(impact: DecisionImpact): void {
-	console.log(`${impact.root.title} (${impact.root.id})`);
+	console.log(`${style.bold(impact.root.title)}  ${style.dim(impact.root.id)}`);
 	for (const entry of impact.impacted) {
-		const marker = entry.node.status === "replaced" ? " [replaced]" : "";
+		const marker =
+			entry.node.status === "replaced" ? ` ${style.yellow("[replaced]")}` : "";
+		const connector = `${"  ".repeat(entry.depth)}${style.dim("└─")}`;
 		console.log(
-			`${"  ".repeat(entry.depth)}└─ ${entry.node.title}${marker} (${entry.node.id})`,
+			`${connector} ${entry.node.title}${marker}  ${style.dim(entry.node.id)}`,
 		);
 	}
 }
 
 function printCodeImpact(impact: DecisionImpact): void {
 	if (impact.codeWarning) {
-		console.log(`\n${impact.codeWarning}`);
+		console.log(`\n${warning(impact.codeWarning)}`);
 		return;
 	}
 	if (impact.codeImpacted.length === 0) return;
-	console.log("\nVia code (imports):");
+	console.log(`\n${style.bold("Via code (imports):")}`);
 	for (const entry of impact.codeImpacted) {
+		const hops = `(${entry.depth} hop${entry.depth === 1 ? "" : "s"}, ${entry.provenance})`;
+		console.log(`  ${style.cyan(entry.filePath)} ${style.dim(hops)}`);
 		console.log(
-			`  ${entry.filePath} (${entry.depth} hop${entry.depth === 1 ? "" : "s"}, ${entry.provenance})`,
+			`    ${style.dim("└─")} ${entry.decision.title}  ${style.dim(entry.decision.id)}`,
 		);
-		console.log(`    └─ ${entry.decision.title} (${entry.decision.id})`);
 	}
 }

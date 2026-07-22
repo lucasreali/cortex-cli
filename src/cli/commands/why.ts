@@ -2,6 +2,7 @@ import { parseArgs } from "node:util";
 import type { CortexRuntime } from "@/app/runtime";
 import type { Decision } from "@/domain";
 import { openInitializedRuntime } from "../open-runtime";
+import { style } from "../style";
 
 export async function runWhy(args: string[], cwd: string): Promise<number> {
 	const { positionals } = parseArgs({ args, allowPositionals: true });
@@ -15,13 +16,14 @@ export async function runWhy(args: string[], cwd: string): Promise<number> {
 	try {
 		const byPath = runtime.nodes.listByAnchorPath(target);
 		if (byPath.length > 0) {
-			printDecisions(byPath);
+			console.log(style.cyan(target));
+			printDecisions(byPath, "  ");
 			return 0;
 		}
 		if (!target.includes("/") && (await printSymbol(runtime, target))) {
 			return 0;
 		}
-		console.log(`No decisions anchored to ${target}.`);
+		console.log(style.dim(`No decisions anchored to ${target}.`));
 		return 0;
 	} finally {
 		runtime.dispose();
@@ -36,13 +38,15 @@ async function printSymbol(
 	const locations = code.findSymbol(symbol);
 	if (locations.length === 0) return false;
 	for (const location of locations) {
-		console.log(`${symbol} — ${location.filePath}:${location.line}`);
+		console.log(
+			`${style.bold(symbol)} — ${style.cyan(`${location.filePath}:${location.line}`)}`,
+		);
 		const decisions = runtime.nodes.listByFileAnchorOrSymbol(
 			location.filePath,
 			symbol,
 		);
 		if (decisions.length === 0) {
-			console.log("  no decisions anchored here");
+			console.log(style.dim("  no decisions anchored here"));
 			continue;
 		}
 		printDecisions(decisions, "  ");
@@ -52,9 +56,11 @@ async function printSymbol(
 
 function printDecisions(decisions: Decision[], indent = ""): void {
 	for (const decision of decisions) {
-		const marker = decision.status === "replaced" ? " [replaced]" : "";
+		const marker =
+			decision.status === "replaced" ? ` ${style.yellow("[replaced]")}` : "";
+		const date = style.dim(decision.createdAt.slice(0, 10));
 		console.log(
-			`${indent}${decision.createdAt.slice(0, 10)}  ${decision.title}${marker} (${decision.id})`,
+			`${indent}${date}  ${decision.title}${marker}  ${style.dim(decision.id)}`,
 		);
 	}
 }

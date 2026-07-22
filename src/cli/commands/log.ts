@@ -1,6 +1,7 @@
 import { parseArgs } from "node:util";
 import type { Decision } from "@/domain";
 import { openInitializedRuntime } from "../open-runtime";
+import { style } from "../style";
 
 export async function runLog(args: string[], cwd: string): Promise<number> {
 	const { values } = parseArgs({
@@ -15,7 +16,7 @@ export async function runLog(args: string[], cwd: string): Promise<number> {
 			sinceSha: values.since,
 		});
 		if (decisions.length === 0) {
-			console.log("No active decisions.");
+			console.log(style.dim("No active decisions."));
 			return 0;
 		}
 		for (const decision of decisions) {
@@ -28,6 +29,9 @@ export async function runLog(args: string[], cwd: string): Promise<number> {
 }
 
 function formatLine(decision: Decision): string {
-	const module = decision.module ? `[${decision.module}] ` : "";
-	return `${decision.id}  ${decision.createdAt.slice(0, 10)}  ${module}${decision.title}`;
+	const date = style.dim(decision.createdAt.slice(0, 10));
+	const module = decision.module
+		? `${style.cyan(`[${decision.module}]`)} `
+		: "";
+	return `${date}  ${module}${decision.title}  ${style.dim(decision.id)}`;
 }

@@ -7,6 +7,7 @@ import { readConfig, writeConfig } from "@/storage/config";
 import { openDecisionsDb } from "@/storage/connection";
 import { migrate, SCHEMA_VERSION } from "@/storage/migrations";
 import { NodeRepository } from "@/storage/node-repository";
+import { style, success, warning } from "../style";
 
 export async function runInit(args: string[], cwd: string): Promise<number> {
 	const { values } = parseArgs({
@@ -24,13 +25,24 @@ export async function runInit(args: string[], cwd: string): Promise<number> {
 	}
 	await ensureGitignore(root, values.yes);
 
-	console.log(`Cortex initialized at ${cortexDir}`);
-	console.log("\nNext steps:");
-	console.log("  1. register the MCP server with your agent:");
-	console.log("       claude mcp add cortex -- cortex serve --mcp");
-	console.log("  2. decisions saved via save_decision become searchable with");
-	console.log("       cortex search <terms> | cortex log | cortex why <path>");
+	console.log(success(`Cortex initialized at ${style.cyan(cortexDir)}`));
+	console.log(`\n${style.bold("Next steps")}`);
+	printStep(1, "Register the MCP server with your agent", [
+		"claude mcp add cortex -- cortex serve --mcp",
+	]);
+	printStep(2, "Save decisions with save_decision, then explore them", [
+		"cortex search <terms>",
+		"cortex log",
+		"cortex why <path>",
+	]);
 	return 0;
+}
+
+function printStep(step: number, title: string, commands: string[]): void {
+	console.log(`  ${step}. ${title}`);
+	for (const command of commands) {
+		console.log(`       ${style.dim("$")} ${style.cyan(command)}`);
+	}
 }
 
 function initializeStorage(root: string, cortexDir: string): void {
@@ -57,13 +69,15 @@ async function ensureGitignore(
 		!confirmInteractive("Add .cortex/code.db* to .gitignore?")
 	) {
 		console.log(
-			"Skipped .gitignore change — add .cortex/code.db* yourself or rerun with --yes.",
+			warning(
+				"Skipped .gitignore change — add .cortex/code.db* yourself or rerun with --yes.",
+			),
 		);
 		return;
 	}
 	const separator = current === "" || current.endsWith("\n") ? "" : "\n";
 	await Bun.write(path, `${current}${separator}.cortex/code.db*\n`);
-	console.log("Added .cortex/code.db* to .gitignore");
+	console.log(success("Added .cortex/code.db* to .gitignore"));
 }
 
 function confirmInteractive(question: string): boolean {

@@ -4,6 +4,7 @@ import { decisionPassage } from "@/embedding/queue";
 import { readConfig, writeConfig } from "@/storage/config";
 import { SCHEMA_VERSION } from "@/storage/migrations";
 import { openInitializedRuntime } from "../open-runtime";
+import { failure, style, success } from "../style";
 
 export async function runEmbed(args: string[], cwd: string): Promise<number> {
 	const { values } = parseArgs({
@@ -32,7 +33,7 @@ export async function runEmbed(args: string[], cwd: string): Promise<number> {
 async function embedMissing(runtime: CortexRuntime): Promise<number> {
 	const pending = runtime.embeddings.listMissingNodeIds(runtime.pinnedModelId);
 	if (pending.length === 0) {
-		console.log("Nothing to embed.");
+		console.log(style.dim("Nothing to embed."));
 		return 0;
 	}
 	return embedAll(runtime, pending);
@@ -44,7 +45,7 @@ async function rebuild(
 ): Promise<number> {
 	const active = runtime.nodes.listActive();
 	if (!assumeYes && !confirmRebuild(active.length)) {
-		console.error("Rebuild needs confirmation — rerun with --yes.");
+		console.error(failure("Rebuild needs confirmation — rerun with --yes."));
 		return 1;
 	}
 	const code = await embedAll(
@@ -59,7 +60,9 @@ async function rebuild(
 			model_id: runtime.provider.modelId,
 			schema_version: config?.schema_version ?? SCHEMA_VERSION,
 		});
-		console.log(`Config model_id updated to ${runtime.provider.modelId}`);
+		console.log(
+			success(`Config model_id updated to ${runtime.provider.modelId}`),
+		);
 	}
 	return 0;
 }
@@ -71,7 +74,9 @@ async function embedAll(
 	const { provider } = runtime;
 	if (!provider) {
 		console.error(
-			"Embeddings are disabled (CORTEX_DISABLE_EMBEDDINGS=1); cannot embed.",
+			failure(
+				"Embeddings are disabled (CORTEX_DISABLE_EMBEDDINGS=1); cannot embed.",
+			),
 		);
 		return 1;
 	}
@@ -81,14 +86,16 @@ async function embedAll(
 		if (!decision) continue;
 		const [vector] = await provider.embedPassages([decisionPassage(decision)]);
 		if (!vector) {
-			console.error(`no vector returned for ${nodeId}`);
+			console.error(failure(`no vector returned for ${nodeId}`));
 			return 1;
 		}
 		runtime.embeddings.upsert(nodeId, provider.modelId, vector);
 		done++;
-		console.log(`embedded ${done}/${nodeIds.length}  ${decision.title}`);
+		console.log(
+			`${style.dim(`[${done}/${nodeIds.length}]`)} ${decision.title}`,
+		);
 	}
-	console.log(`Done: ${done} decision(s) embedded.`);
+	console.log(success(`Embedded ${done} decision(s).`));
 	return 0;
 }
 

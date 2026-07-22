@@ -2,6 +2,7 @@ import { parseArgs } from "node:util";
 import { searchDecisions } from "@/app/search-decisions";
 import type { SemanticSearchResult } from "@/embedding/semantic-search";
 import { openInitializedRuntime } from "../open-runtime";
+import { style } from "../style";
 
 export async function runSearch(args: string[], cwd: string): Promise<number> {
 	const { values, positionals } = parseArgs({
@@ -18,7 +19,7 @@ export async function runSearch(args: string[], cwd: string): Promise<number> {
 	try {
 		const results = await searchDecisions(runtime, positionals, values.exact);
 		if (results.length === 0) {
-			console.log("No results.");
+			console.log(style.dim("No results."));
 			return 0;
 		}
 		for (const result of results) {
@@ -31,5 +32,13 @@ export async function runSearch(args: string[], cwd: string): Promise<number> {
 }
 
 function formatLine(result: SemanticSearchResult): string {
-	return `${result.score.toFixed(3)}  ${result.source.padEnd(6)}  ${result.node.title} (${result.node.id})`;
+	const score = style.dim(result.score.toFixed(3));
+	const id = style.dim(result.node.id);
+	return `${score}  ${paintSource(result.source)}  ${result.node.title}  ${id}`;
+}
+
+function paintSource(source: SemanticSearchResult["source"]): string {
+	const label = source.padEnd(6);
+	if (source === "fts") return style.yellow(label);
+	return style.magenta(label);
 }

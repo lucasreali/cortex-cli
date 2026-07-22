@@ -12,6 +12,7 @@ import type { CodeRepository } from "@/storage/code-repository";
 import { readConfig } from "@/storage/config";
 import { SCHEMA_VERSION } from "@/storage/migrations";
 import { openInitializedRuntime } from "../open-runtime";
+import { success, warning } from "../style";
 
 const MINIMUM_KEYWORDS = 5;
 const MINIMUM_RESOLUTION_RATE = 0.85;
@@ -37,21 +38,22 @@ class DoctorReport {
 	private issues = 0;
 
 	ok(message: string): void {
-		console.log(`ok    ${message}`);
+		console.log(success(message));
 	}
 
 	warn(message: string): void {
 		this.issues++;
-		console.log(`warn  ${message}`);
+		console.log(warning(message));
 	}
 
 	finish(): number {
-		console.log(
-			this.issues === 0
-				? "\nAll checks passed."
-				: `\n${this.issues} issue(s) found.`,
-		);
+		console.log(`\n${this.summary()}`);
 		return this.issues === 0 ? 0 : 1;
+	}
+
+	private summary(): string {
+		if (this.issues === 0) return success("All checks passed.");
+		return warning(`${this.issues} issue(s) found.`);
 	}
 }
 
