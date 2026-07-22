@@ -5,11 +5,22 @@ export interface SearchHit {
 	rank: number;
 }
 
+export type SearchColumn = "title" | "keywords";
+
 export class SearchRepository {
 	constructor(private readonly db: Database) {}
 
 	searchExact(terms: string[], limit = 20): SearchHit[] {
 		if (terms.length === 0) return [];
+		return this.match(toMatchExpression(terms), limit);
+	}
+
+	searchColumn(column: SearchColumn, terms: string[], limit = 20): SearchHit[] {
+		if (terms.length === 0) return [];
+		return this.match(`${column} : (${toMatchExpression(terms)})`, limit);
+	}
+
+	private match(expression: string, limit: number): SearchHit[] {
 		return this.db
 			.query<{ node_id: string; rank: number }, [string, number]>(
 				`SELECT node_id, bm25(nodes_fts) AS rank
@@ -18,7 +29,7 @@ export class SearchRepository {
 				 ORDER BY rank
 				 LIMIT ?`,
 			)
-			.all(toMatchExpression(terms), limit)
+			.all(expression, limit)
 			.map((row) => ({ nodeId: row.node_id, rank: row.rank }));
 	}
 }

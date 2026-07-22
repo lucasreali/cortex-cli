@@ -5,6 +5,7 @@ import { runEmbed } from "./commands/embed";
 import { runImpact } from "./commands/impact";
 import { runInit } from "./commands/init";
 import { runLog } from "./commands/log";
+import { runPromptHook } from "./commands/prompt-hook";
 import { runSearch } from "./commands/search";
 import { runServe } from "./commands/serve";
 import { runWhy } from "./commands/why";
@@ -14,6 +15,7 @@ interface Command {
 	run(args: string[], cwd: string): Promise<number | null>;
 	usage: string;
 	description: string;
+	hidden?: boolean;
 }
 
 const COMMANDS: Record<string, Command> = {
@@ -62,10 +64,20 @@ const COMMANDS: Record<string, Command> = {
 		usage: "doctor",
 		description: "check store and index health",
 	},
+	"prompt-hook": {
+		run: runPromptHook,
+		usage: "prompt-hook",
+		description: "Claude Code UserPromptSubmit hook (JSON on stdin)",
+		hidden: true,
+	},
 };
 
+const VISIBLE_COMMANDS = Object.values(COMMANDS).filter(
+	(command) => !command.hidden,
+);
+
 const USAGE_COLUMN = Math.max(
-	...Object.values(COMMANDS).map((command) => command.usage.length),
+	...VISIBLE_COMMANDS.map((command) => command.usage.length),
 );
 
 function printUsage(): void {
@@ -73,7 +85,7 @@ function printUsage(): void {
 		`${style.bold("cortex")} ${style.dim("— persistent decision memory for coding agents")}`,
 	);
 	console.log("\nusage: cortex <command>\n\ncommands:");
-	for (const command of Object.values(COMMANDS)) {
+	for (const command of VISIBLE_COMMANDS) {
 		const usage = style.cyan(command.usage.padEnd(USAGE_COLUMN));
 		console.log(`  ${usage}  ${command.description}`);
 	}

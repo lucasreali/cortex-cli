@@ -59,6 +59,35 @@ cortex embed --missing | --rebuild      # fill or rebuild the vector index
 cortex doctor                           # config, anchors, embeddings, model, code index
 ```
 
+## Passive recall (Claude Code hook)
+
+`cortex prompt-hook` makes recall passive: registered as a `UserPromptSubmit`
+hook, it reads the `{prompt, cwd}` JSON Claude Code pipes on stdin, matches
+prompt terms against the store of the nearest `.cortex/` above `cwd`, and
+prints a `<cortex_context>` block only on a verified match:
+
+- **high** — a term hits a decision's curated keywords → injects the
+  decisions themselves (title + size-capped body);
+- **medium** — a term hits only a decision title → injects titles/ids and
+  points the agent at `get_context`;
+- anything else is a silent no-op, so unrelated prompts cost nothing.
+
+The gate is pure FTS (no embedding model on this path, ~100ms) and read-only;
+any failure exits 0 with no output, so the hook can never break a prompt.
+Register it in `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "cortex prompt-hook" }] }
+    ]
+  }
+}
+```
+
+Kill-switch: `CORTEX_NO_PROMPT_HOOK=1`.
+
 ## Code index
 
 `cortex index` builds `.cortex/code.db` — files, symbols and imports extracted

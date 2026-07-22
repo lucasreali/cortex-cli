@@ -10,6 +10,13 @@ fica a implementação de referência no codegraph.
 
 ### 1. Prompt hook com gate de confiança
 
+**Feito (2026-07-22).** `cortex prompt-hook` (comando oculto) + gate em
+`src/app/prompt-gate.ts`: HIGH = termo bate na coluna `keywords` do FTS,
+MEDIUM = bate só em `title`, corpo nunca gateia. Store aberto read-only via
+walk-up do cwd; sem dependência do item 5 (importa o storage direto).
+~110ms medidos; aceite coberto em `tests/cli/cli.test.ts` e
+`tests/app/prompt-gate.test.ts`.
+
 Tornar a recuperação de decisões passiva: um comando `cortex prompt-hook`
 plugado como hook `UserPromptSubmit` do Claude Code que lê `{prompt, cwd}`
 do stdin, confronta os termos do prompt com keywords/FTS das decisões e só

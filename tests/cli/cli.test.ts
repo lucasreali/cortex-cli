@@ -348,6 +348,112 @@ describe("cortex CLI", () => {
 	}, 30_000);
 });
 
+describe("cortex prompt-hook", () => {
+	function promptHook(
+		payload: unknown,
+		env: Record<string, string> = {},
+	): { code: number; stdout: string; stderr: string } {
+		const raw = typeof payload === "string" ? payload : JSON.stringify(payload);
+		const result = Bun.spawnSync(["bun", MAIN_PATH, "prompt-hook"], {
+			cwd: dir,
+			stdin: new TextEncoder().encode(raw),
+			stdout: "pipe",
+			stderr: "pipe",
+			env: { ...process.env, CORTEX_DISABLE_EMBEDDINGS: "1", ...env },
+		});
+		return {
+			code: result.exitCode ?? 1,
+			stdout: result.stdout.toString(),
+			stderr: result.stderr.toString(),
+		};
+	}
+
+	test("keyword match injects decisions with title and body (high tier)", () => {
+		const result = promptHook({
+			prompt: "como funciona a autenticação por jwt?",
+			cwd: dir,
+		});
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain("<cortex_context");
+		expect(result.stdout).toContain("Adotar JWT para autenticação");
+		expect(result.stdout).toContain("RS256");
+	});
+
+	test("title-only match injects titles and ids only (medium tier)", () => {
+		const result = promptHook({
+			prompt: "vale a pena adotar outra abordagem?",
+			cwd: dir,
+		});
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain("<cortex_context");
+		expect(result.stdout).toContain("Adotar JWT para autenticação");
+		expect(result.stdout).toContain(decisionA);
+		expect(result.stdout).not.toContain("RS256");
+	});
+
+	test("unrelated prompts inject nothing", () => {
+		const result = promptHook({
+			prompt: "melhora a paleta de cores do gráfico de vendas",
+			cwd: dir,
+		});
+		expect(result.code).toBe(0);
+		expect(result.stdout).toBe("");
+	});
+
+	test("malformed payloads exit 0 in silence", () => {
+		const result = promptHook("not json{{");
+		expect(result.code).toBe(0);
+		expect(result.stdout).toBe("");
+		expect(result.stderr).toBe("");
+	});
+
+	test("kill-switch disables injection", () => {
+		const result = promptHook(
+			{ prompt: "como funciona a autenticação por jwt?", cwd: dir },
+			{ CORTEX_NO_PROMPT_HOOK: "1" },
+		);
+		expect(result.code).toBe(0);
+		expect(result.stdout).toBe("");
+	});
+
+	test("a cwd without an initialized store exits 0 in silence", () => {
+		const bare = realpathSync(mkdtempSync(join(tmpdir(), "cortex-bare-")));
+		try {
+			const result = promptHook({ prompt: "jwt auth login", cwd: bare });
+			expect(result.code).toBe(0);
+			expect(result.stdout).toBe("");
+		} finally {
+			rmSync(bare, { recursive: true, force: true });
+		}
+	});
+
+	test("high-tier injection truncates long bodies", () => {
+		const db: Database = openDecisionsDb(join(dir, ".cortex"));
+		const nodes = new NodeRepository(db);
+		const projectId = nodes.ensureProject("github.com/acme/demo");
+		nodes.createDecision(
+			{
+				title: "Decisão com corpo gigante",
+				body: "palavra ".repeat(700),
+				keywords: ["gigante", "enorme", "huge", "payload", "corpo"],
+			},
+			{
+				projectId,
+				sessionId: nodes.createSession(projectId),
+				commitSha: "sha-4",
+				commitDirty: false,
+			},
+		);
+		db.close();
+
+		const result = promptHook({ prompt: "esse payload gigante", cwd: dir });
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain("Decisão com corpo gigante");
+		expect(result.stdout).toContain("…");
+		expect(result.stdout.length).toBeLessThan(1500);
+	});
+});
+
 describe("cortex CLI in an empty project", () => {
 	let emptyDir: string;
 
