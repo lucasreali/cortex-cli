@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
+import { runIndex } from "./commands/code-index";
 import { runDoctor } from "./commands/doctor";
 import { runEmbed } from "./commands/embed";
 import { runImpact } from "./commands/impact";
-import { runIndex } from "./commands/index";
 import { runInit } from "./commands/init";
 import { runLog } from "./commands/log";
 import { runSearch } from "./commands/search";

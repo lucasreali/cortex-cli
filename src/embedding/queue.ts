@@ -2,6 +2,7 @@ import type { Decision } from "@/domain";
 import type { EmbeddingRepository } from "@/storage/embedding-repository";
 import type { NodeRepository } from "@/storage/node-repository";
 import type { EmbeddingProvider } from "./provider";
+import { withTimeout } from "./with-timeout";
 
 export interface EmbedQueueDependencies {
 	nodes: NodeRepository;
@@ -55,22 +56,9 @@ export class EmbedQueue {
 	private embedWithTimeout(passage: string): Promise<Float32Array[]> {
 		const { provider } = this.dependencies;
 		const timeoutMs = this.options.timeoutMs ?? DEFAULT_EMBED_TIMEOUT_MS;
-		return new Promise((resolve, reject) => {
-			const timer = setTimeout(() => {
-				provider.dispose?.();
-				reject(new Error(`embedding timed out after ${timeoutMs} ms`));
-			}, timeoutMs);
-			provider.embedPassages([passage]).then(
-				(vectors) => {
-					clearTimeout(timer);
-					resolve(vectors);
-				},
-				(error) => {
-					clearTimeout(timer);
-					reject(error);
-				},
-			);
-		});
+		return withTimeout(provider.embedPassages([passage]), timeoutMs, () =>
+			provider.dispose?.(),
+		);
 	}
 }
 

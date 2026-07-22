@@ -3,6 +3,7 @@ import type { EmbeddingRepository } from "@/storage/embedding-repository";
 import type { NodeRepository } from "@/storage/node-repository";
 import type { SearchRepository } from "@/storage/search-repository";
 import type { EmbeddingProvider } from "./provider";
+import { withTimeout } from "./with-timeout";
 
 export interface SemanticSearchResult {
 	node: Decision;
@@ -122,25 +123,6 @@ export class SemanticSearch {
 	private threshold(): number {
 		return this.options.threshold ?? DEFAULT_THRESHOLD;
 	}
-}
-
-function withTimeout<T>(work: Promise<T>, timeoutMs: number): Promise<T> {
-	return new Promise((resolve, reject) => {
-		const timer = setTimeout(
-			() => reject(new Error(`timed out after ${timeoutMs} ms`)),
-			timeoutMs,
-		);
-		work.then(
-			(value) => {
-				clearTimeout(timer);
-				resolve(value);
-			},
-			(error) => {
-				clearTimeout(timer);
-				reject(error);
-			},
-		);
-	});
 }
 
 function dot(a: Float32Array, b: Float32Array): number {

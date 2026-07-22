@@ -8,6 +8,7 @@
 
 ```
 src/
+  app/            # composition root (runtime) + casos de uso compartilhados cli/mcp
   cli/            # entrypoints dos comandos
   storage/        # conexão, migrations, repositórios (decisions.db e code.db)
   embedding/      # provider, subprocess worker, prefixos de tarefa
