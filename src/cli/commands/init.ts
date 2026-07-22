@@ -27,9 +27,11 @@ export async function runInit(args: string[], cwd: string): Promise<number> {
 
 	console.log(success(`Cortex initialized at ${style.cyan(cortexDir)}`));
 	console.log(`\n${style.bold("Next steps")}`);
-	printStep(1, "Register the MCP server with your agent", [
-		"claude mcp add cortex -- cortex serve --mcp",
-	]);
+	printStep(
+		1,
+		"Register the MCP server once, user-wide (serves every project)",
+		["claude mcp add --scope user cortex -- cortex serve --mcp"],
+	);
 	printStep(2, "Save decisions with save_decision, then explore them", [
 		"cortex search <terms>",
 		"cortex log",

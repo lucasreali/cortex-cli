@@ -13,6 +13,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 
 const SERVER_PATH = new URL("../../src/mcp/server.ts", import.meta.url)
 	.pathname;
+const CLI_PATH = new URL("../../src/cli/main.ts", import.meta.url).pathname;
 
 let dir: string;
 let client: Client;
@@ -65,6 +66,7 @@ beforeAll(async () => {
 		"init",
 		"--no-gpg-sign",
 	);
+	run("bun", CLI_PATH, "init", "--yes");
 
 	client = new Client({ name: "e2e", version: "0.0.0" });
 	await client.connect(

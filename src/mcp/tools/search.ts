@@ -3,6 +3,8 @@ import { z } from "zod";
 import type { CortexRuntime } from "@/app/runtime";
 import { searchDecisions } from "@/app/search-decisions";
 import type { SemanticSearchResult } from "@/embedding/semantic-search";
+import type { RuntimeRegistry } from "../runtime-registry";
+import { projectPathField, scopedToProject } from "./project-scope";
 import { jsonResult } from "./results";
 
 const DESCRIPTION = `Keyword and semantic search over the project's recorded decisions (Cortex).
@@ -13,7 +15,7 @@ Returns compact results: id, title, score, and source ("vector" = semantic match
 
 export function registerSearch(
 	server: McpServer,
-	runtime: CortexRuntime,
+	registry: RuntimeRegistry,
 ): void {
 	server.registerTool(
 		"search",
@@ -32,9 +34,10 @@ export function registerSearch(
 					.describe(
 						"true = literal full-text matching only; false/omitted = also rank semantically.",
 					),
+				projectPath: projectPathField(registry),
 			},
 		},
-		async (args) => search(runtime, args),
+		scopedToProject(registry, search),
 	);
 }
 

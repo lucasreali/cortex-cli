@@ -3,6 +3,8 @@ import { z } from "zod";
 import type { CortexRuntime } from "@/app/runtime";
 import type { Decision } from "@/domain";
 import type { SemanticSearchResult } from "@/embedding/semantic-search";
+import type { RuntimeRegistry } from "../runtime-registry";
+import { projectPathField, scopedToProject } from "./project-scope";
 import { jsonResult } from "./results";
 
 const DESCRIPTION = `Fetch decision context from the project's persistent memory (Cortex).
@@ -16,7 +18,7 @@ const SESSION_LIMIT = 5;
 
 export function registerGetContext(
 	server: McpServer,
-	runtime: CortexRuntime,
+	registry: RuntimeRegistry,
 ): void {
 	server.registerTool(
 		"get_context",
@@ -36,9 +38,10 @@ export function registerGetContext(
 					.describe(
 						"Restrict results to one module (as set on save_decision).",
 					),
+				projectPath: projectPathField(registry),
 			},
 		},
-		async (args) => getContext(runtime, args),
+		scopedToProject(registry, getContext),
 	);
 }
 

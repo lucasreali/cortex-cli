@@ -35,7 +35,10 @@ export interface CortexRuntime {
 }
 
 export async function buildRuntime(cwd: string): Promise<CortexRuntime> {
-	const repoRoot = getRepoRoot(cwd) ?? resolve(cwd);
+	return buildRuntimeAt(getRepoRoot(cwd) ?? resolve(cwd));
+}
+
+export async function buildRuntimeAt(repoRoot: string): Promise<CortexRuntime> {
 	const cortexDir = join(repoRoot, ".cortex");
 	mkdirSync(cortexDir, { recursive: true });
 	const db = openDecisionsDb(cortexDir);

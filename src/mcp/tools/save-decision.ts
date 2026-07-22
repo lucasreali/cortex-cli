@@ -5,6 +5,8 @@ import type { CortexRuntime } from "@/app/runtime";
 import { symbolHint } from "@/app/symbol-hints";
 import { type CreateDecisionInput, createDecisionSchema } from "@/domain";
 import type { CodeRepository } from "@/storage/code-repository";
+import type { RuntimeRegistry } from "../runtime-registry";
+import { projectPathField, scopedToProject } from "./project-scope";
 import { errorResult, jsonResult } from "./results";
 
 const DESCRIPTION = `Record a technical decision in the project's persistent memory (Cortex).
@@ -17,12 +19,18 @@ Returns { id, warnings } — warnings flag anchor files missing from the working
 
 export function registerSaveDecision(
 	server: McpServer,
-	runtime: CortexRuntime,
+	registry: RuntimeRegistry,
 ): void {
 	server.registerTool(
 		"save_decision",
-		{ description: DESCRIPTION, inputSchema: createDecisionSchema.shape },
-		async (args) => saveDecision(runtime, args as CreateDecisionInput),
+		{
+			description: DESCRIPTION,
+			inputSchema: {
+				...createDecisionSchema.shape,
+				projectPath: projectPathField(registry),
+			},
+		},
+		scopedToProject(registry, saveDecision),
 	);
 }
 

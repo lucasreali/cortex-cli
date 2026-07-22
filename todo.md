@@ -39,6 +39,18 @@ injeta um bloco `<cortex_context>` quando há match verificado.
 
 ### 2. MCP multi-projeto: `projectPath` por chamada
 
+**Feito (2026-07-22).** `projectPath` opcional nas quatro tools
+(`src/mcp/tools/project-scope.ts`) + `RuntimeRegistry`
+(`src/mcp/runtime-registry.ts`): re-resolve por walk-up a cada chamada,
+runtime cacheado por raiz **resolvida** (nunca pelo path de entrada),
+config/`model_id` isolados por raiz. Sem projeto default o campo vira
+obrigatório no schema; path não inicializado retorna
+`{status: "not_initialized", guidance}` sem `isError` (antecipa o item 3).
+`serve` não auto-cria mais `.cortex/` — init é sempre explícito. A
+preocupação de memória já estava coberta: o `GemmaProvider` faz spawn lazy
+do worker e o mata após 5 min ocioso. Aceite em
+`tests/mcp/multi-project.test.ts`.
+
 Servir todos os repos com `.cortex/` a partir de um único registro MCP no
 nível do usuário, em vez de um `claude mcp add` por projeto.
 

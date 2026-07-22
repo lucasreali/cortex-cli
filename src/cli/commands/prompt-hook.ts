@@ -1,12 +1,12 @@
 import { Database } from "bun:sqlite";
-import { existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { join } from "node:path";
 import {
 	gatePrompt,
 	type PromptGate,
 	type PromptGateStore,
 } from "@/app/prompt-gate";
 import type { Decision } from "@/domain";
+import { findNearestCortexRoot } from "@/storage/locate-store";
 import { NodeRepository } from "@/storage/node-repository";
 import { SearchRepository } from "@/storage/search-repository";
 
@@ -68,23 +68,17 @@ function parsePayload(raw: string): { prompt: string; cwd: string | null } {
 type HookStore = PromptGateStore & { close(): void };
 
 function openNearestStore(startDir: string): HookStore | null {
-	const path = findDecisionsDb(resolve(startDir));
-	if (!path) return null;
-	const db = new Database(path, { readonly: true });
+	const root = findNearestCortexRoot(startDir);
+	if (!root) return null;
+	const db = new Database(join(root, ".cortex", "decisions.db"), {
+		readonly: true,
+	});
 	db.run(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS};`);
 	return {
 		nodes: new NodeRepository(db),
 		fts: new SearchRepository(db),
 		close: () => db.close(),
 	};
-}
-
-function findDecisionsDb(dir: string): string | null {
-	const candidate = join(dir, ".cortex", "decisions.db");
-	if (existsSync(candidate)) return candidate;
-	const parent = dirname(dir);
-	if (parent === dir) return null;
-	return findDecisionsDb(parent);
 }
 
 function render(gate: PromptGate): void {

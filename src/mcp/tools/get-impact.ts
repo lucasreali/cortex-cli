@@ -3,6 +3,8 @@ import { z } from "zod";
 import type { DecisionImpact } from "@/app/decision-impact";
 import { decisionImpact } from "@/app/decision-impact";
 import type { CortexRuntime } from "@/app/runtime";
+import type { RuntimeRegistry } from "../runtime-registry";
+import { projectPathField, scopedToProject } from "./project-scope";
 import { errorResult, jsonResult } from "./results";
 
 const DESCRIPTION = `List every decision affected by changing a given decision, through two lenses.
@@ -11,7 +13,7 @@ Call this before modifying, replacing, or contradicting a recorded decision. "im
 
 export function registerGetImpact(
 	server: McpServer,
-	runtime: CortexRuntime,
+	registry: RuntimeRegistry,
 ): void {
 	server.registerTool(
 		"get_impact",
@@ -37,9 +39,10 @@ export function registerGetImpact(
 					.describe(
 						"How many import hops to walk for code impact (default 3).",
 					),
+				projectPath: projectPathField(registry),
 			},
 		},
-		async (args) => getImpact(runtime, args),
+		scopedToProject(registry, getImpact),
 	);
 }
 

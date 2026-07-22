@@ -26,10 +26,11 @@ cd your-project
 cortex init     # creates .cortex/, runs migrations, writes config
 ```
 
-Then register the MCP server with your agent:
+Then register the MCP server with your agent — once, at user scope; a single
+server instance serves every initialized project:
 
 ```bash
-claude mcp add cortex -- cortex serve --mcp
+claude mcp add --scope user cortex -- cortex serve --mcp
 ```
 
 ## How it works
@@ -42,6 +43,14 @@ The agent gets four tools:
 | `get_context` | Semantic search by intent ("como autenticamos usuários?") or recent active decisions |
 | `get_impact` | Everything affected by changing a decision — dependency links walked both ways |
 | `search` | Keyword search (accent-insensitive FTS) with optional semantic ranking |
+
+Every tool accepts an optional `projectPath` (any directory inside the target
+project): the nearest `.cortex/` store is resolved walking up on each call and
+its runtime is cached per resolved root, so one server answers for as many
+repositories as the session touches. Without it, tools hit the project the
+server started in; if the server started outside any initialized project, the
+schema makes `projectPath` required. Paths without a store return guidance
+(`cortex init`) instead of an error.
 
 Saves are transactional (decision + anchors + links + full-text row);
 embeddings happen asynchronously off the save path and degrade to full-text
