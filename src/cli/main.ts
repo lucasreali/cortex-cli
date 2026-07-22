@@ -18,7 +18,7 @@ const COMMANDS: Record<string, Command> = {
 	init: { run: runInit, usage: "init [--yes]" },
 	serve: { run: runServe, usage: "serve --mcp" },
 	log: { run: runLog, usage: "log [--module M] [--since SHA]" },
-	why: { run: runWhy, usage: "why <path>" },
+	why: { run: runWhy, usage: "why <path|symbol>" },
 	search: { run: runSearch, usage: "search <terms...> [--exact]" },
 	impact: { run: runImpact, usage: "impact <id> [--depth N]" },
 	index: { run: runIndex, usage: "index [--force]" },

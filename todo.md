@@ -111,13 +111,13 @@ Os dois scripts de smoke ficam em `scripts/` até a tarefa 1.4 absorver o códig
   - **Aceite:** editar 1 arquivo de fixture de 50 → reindex de exatamente 1; benchmark do full index no próprio repo registrado.
 
 ### 2.5 Integração com o grafo de decisões
-- [ ] Âncora de símbolo validada no `save_decision` e no `doctor` (não encontrado → aviso com sugestões aproximadas).
-- [ ] `cortex why <symbol>`: símbolo → arquivo → decisões ancoradas (arquivo ou símbolo exato).
-- [ ] `get_impact` expandido: decisão → arquivos ancorados → importadores transitivos via CTE em `imports` (profundidade default 3, configurável) → decisões ancoradas neles. Resposta separa impacto por `DEPENDS_ON` vs. por código (imports), com `provenance` visível.
+- [x] Âncora de símbolo validada no `save_decision` e no `doctor` (não encontrado → aviso com sugestões aproximadas).
+- [x] `cortex why <symbol>`: símbolo → arquivo → decisões ancoradas (arquivo ou símbolo exato).
+- [x] `get_impact` expandido: decisão → arquivos ancorados → importadores transitivos via CTE em `imports` (profundidade default 3, configurável) → decisões ancoradas neles. Resposta separa impacto por `DEPENDS_ON` vs. por código (imports), com `provenance` visível.
   - **Aceite:** e2e — decisão em `src/auth/service.ts`; importado por `src/api/login.ts` com outra decisão; impact da primeira retorna a segunda via caminho de código.
 
 ### 2.6 Qualidade de fase
-- [x] `doctor` cobre o code.db (desatualizado vs. working tree; taxa de imports não resolvidos). Documentar degradação (linguagem não suportada → âncora de arquivo). Registrar as decisões da fase no próprio Cortex. **Atenção: 2.5 segue aberto — a fase 2 não fecha sem ele.**
+- [x] `doctor` cobre o code.db (desatualizado vs. working tree; taxa de imports não resolvidos). Documentar degradação (linguagem não suportada → âncora de arquivo). Registrar as decisões da fase no próprio Cortex.
 
 ---
 

@@ -44,7 +44,15 @@ beforeAll(async () => {
 	run("git", "init", "-b", "main");
 	run("git", "remote", "add", "origin", "git@github.com:acme/demo.git");
 	mkdirSync(join(dir, "src/auth"), { recursive: true });
-	writeFileSync(join(dir, "src/auth/service.ts"), "export const ok = 1;\n");
+	mkdirSync(join(dir, "src/api"), { recursive: true });
+	writeFileSync(
+		join(dir, "src/auth/service.ts"),
+		"export class AuthService {\n\tvalidateToken(token: string) {\n\t\treturn token.length > 0;\n\t}\n}\n",
+	);
+	writeFileSync(
+		join(dir, "src/api/login.ts"),
+		'import { AuthService } from "../auth/service";\nexport const login = () => new AuthService();\n',
+	);
 	run("git", "add", ".");
 	run(
 		"git",
@@ -104,8 +112,27 @@ describe("cortex MCP server e2e", () => {
 		expect(payload.id).toMatch(/^[0-9a-f-]{36}$/);
 		expect(payload.warnings).toEqual([
 			"anchor file not found in working tree: src/auth/missing.ts",
+			"symbol not found in code index: AuthService.login (src/auth/service.ts)" +
+				" — did you mean: AuthService.validateToken?",
 		]);
 		decisionA = payload.id;
+	});
+
+	test("save_decision accepts a valid symbol anchor without warnings", async () => {
+		const { isError, payload } = await callTool("save_decision", {
+			title: "Validação de token centralizada no AuthService",
+			body: "Toda validação de token passa pelo método validateToken do serviço.",
+			keywords: ["token", "validação", "validation", "auth", "service"],
+			module: "auth",
+			anchors: [
+				{
+					file_path: "src/auth/service.ts",
+					symbol: "AuthService.validateToken",
+				},
+			],
+		});
+		expect(isError).toBe(false);
+		expect(payload.warnings).toEqual([]);
 	});
 
 	test("save_decision rejects input violating the schema", async () => {
@@ -159,6 +186,39 @@ describe("cortex MCP server e2e", () => {
 		]);
 	});
 
+	test("get_impact reaches decisions through code imports, with provenance", async () => {
+		const save = await callTool("save_decision", {
+			title: "Endpoint de login usa o AuthService diretamente",
+			body: "O handler de login instancia o AuthService sem camada intermediária.",
+			keywords: ["login", "endpoint", "handler", "auth", "api"],
+			module: "api",
+			anchors: [{ file_path: "src/api/login.ts" }],
+		});
+		const loginDecision = save.payload.id;
+
+		const { payload } = await callTool("get_impact", {
+			decision_id: decisionA,
+		});
+
+		expect(payload.code_impacted).toEqual([
+			{
+				id: loginDecision,
+				title: "Endpoint de login usa o AuthService diretamente",
+				status: "active",
+				file: "src/api/login.ts",
+				depth: 1,
+				provenance: "heuristic",
+			},
+		]);
+		const dependsOnIds = payload.impacted.map(
+			(entry: { id: string }) => entry.id,
+		);
+		expect(dependsOnIds).not.toContain(loginDecision);
+
+		const anchorless = await callTool("get_impact", { decision_id: decisionB });
+		expect(anchorless.payload.code_impacted).toEqual([]);
+	});
+
 	test("get_impact on an unknown id errors without crashing", async () => {
 		const { isError } = await callTool("get_impact", {
 			decision_id: "01890000-0000-7000-8000-000000000000",
@@ -188,7 +248,7 @@ describe("cortex MCP server e2e", () => {
 	test("get_context without intent exposes project identity and modules", async () => {
 		const { payload } = await callTool("get_context", {});
 		expect(payload.project).toBe("github.com/acme/demo");
-		expect(payload.modules).toEqual(["auth"]);
+		expect(payload.modules).toEqual(["api", "auth"]);
 	});
 
 	test("search exact matches accent-insensitively and only active decisions", async () => {

@@ -131,6 +131,7 @@ async function checkCodeIndex(
 		const repository = new CodeRepository(database);
 		checkCodeDrift(runtime, repository, report);
 		await checkImportResolution(runtime, repository, report);
+		checkSymbolAnchors(runtime, repository, report);
 	} finally {
 		database.close();
 	}
@@ -178,6 +179,42 @@ async function checkImportResolution(
 	report.warn(
 		`imports: ${summary} — below 85%, check tsconfig paths or run: cortex index --force`,
 	);
+}
+
+function checkSymbolAnchors(
+	runtime: CortexRuntime,
+	repository: CodeRepository,
+	report: DoctorReport,
+): void {
+	const orphans = runtime.nodes
+		.listActive()
+		.flatMap((decision) =>
+			decision.anchors
+				.filter(
+					(anchor) =>
+						anchor.symbol !== "" &&
+						!repository.hasSymbol(anchor.filePath, anchor.symbol),
+				)
+				.map((anchor) => ({ anchor, title: decision.title })),
+		);
+	if (orphans.length === 0) {
+		report.ok("symbol anchors: all found in the code index");
+		return;
+	}
+	for (const { anchor, title } of orphans) {
+		const suggestions = repository.suggestSymbols(
+			anchor.filePath,
+			anchor.symbol,
+			3,
+		);
+		const hint =
+			suggestions.length > 0
+				? ` — did you mean: ${suggestions.join(", ")}?`
+				: "";
+		report.warn(
+			`orphan symbol anchor: ${anchor.filePath}#${anchor.symbol} (${title})${hint}`,
+		);
+	}
 }
 
 function hasResolvableIntent(

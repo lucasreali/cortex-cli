@@ -6,6 +6,23 @@ import type {
 	ImportProvenance,
 	IndexedFile,
 } from "@/domain";
+import transitiveImportersSql from "./queries/transitive-importers.sql" with {
+	type: "text",
+};
+
+export interface TransitiveImporter {
+	path: string;
+	depth: number;
+	provenance: ImportProvenance;
+}
+
+export interface SymbolLocation {
+	filePath: string;
+	kind: string;
+	line: number;
+}
+
+const IMPORTERS_ROW_LIMIT = 5000;
 
 interface FileRow {
 	path: string;
@@ -81,6 +98,86 @@ export class CodeRepository {
 				 WHERE file_path = ? ORDER BY line, name`,
 			)
 			.all(filePath);
+	}
+
+	transitiveImporters(
+		seedPaths: string[],
+		maxDepth: number,
+	): TransitiveImporter[] {
+		return this.db
+			.query<
+				{ path: string; depth: number; provenance: ImportProvenance },
+				{ $seeds: string; $maxDepth: number; $limit: number }
+			>(transitiveImportersSql)
+			.all({
+				$seeds: JSON.stringify(seedPaths),
+				$maxDepth: maxDepth,
+				$limit: IMPORTERS_ROW_LIMIT,
+			});
+	}
+
+	hasSymbol(filePath: string, name: string): boolean {
+		return (
+			this.db
+				.query("SELECT 1 FROM symbols WHERE file_path = ? AND name = ?")
+				.get(filePath, name) !== null
+		);
+	}
+
+	findSymbol(name: string): SymbolLocation[] {
+		return this.db
+			.query<{ file_path: string; kind: string; line: number }, [string]>(
+				"SELECT file_path, kind, line FROM symbols WHERE name = ? ORDER BY file_path, line",
+			)
+			.all(name)
+			.map((row) => ({
+				filePath: row.file_path,
+				kind: row.kind,
+				line: row.line,
+			}));
+	}
+
+	suggestSymbols(filePath: string, name: string, limit: number): string[] {
+		const local = this.matchSymbols(name, limit, filePath);
+		if (local.length > 0) return local;
+		return this.matchSymbols(name, limit, null);
+	}
+
+	private matchSymbols(
+		name: string,
+		limit: number,
+		filePath: string | null,
+	): string[] {
+		const lastSegment = name.split(".").at(-1) ?? name;
+		const owner = name.includes(".")
+			? name.slice(0, name.lastIndexOf("."))
+			: "";
+		return this.db
+			.query<
+				{ name: string },
+				{
+					$file: string | null;
+					$full: string;
+					$last: string;
+					$owner: string;
+					$limit: number;
+				}
+			>(
+				`SELECT DISTINCT name FROM symbols
+				 WHERE ($file IS NULL OR file_path = $file)
+				   AND (name LIKE '%' || $full || '%'
+				     OR name LIKE '%' || $last || '%'
+				     OR ($owner != '' AND name LIKE $owner || '.%'))
+				 ORDER BY name LIMIT $limit`,
+			)
+			.all({
+				$file: filePath,
+				$full: name,
+				$last: lastSegment,
+				$owner: owner,
+				$limit: limit,
+			})
+			.map((row) => row.name);
 	}
 
 	listImports(): Array<{

@@ -139,6 +139,39 @@ export class NodeRepository {
 			.map((row) => this.toDecision(row));
 	}
 
+	listActiveAnchoredToFiles(
+		paths: string[],
+	): Array<{ decision: Decision; filePath: string }> {
+		return this.db
+			.query<NodeRow & { anchor_path: string }, [string]>(
+				`SELECT DISTINCT n.*, a.file_path AS anchor_path
+				 FROM nodes n
+				 JOIN anchors a ON a.node_id = n.id
+				 WHERE n.kind = 'decision' AND n.status = 'active'
+				   AND a.file_path IN (SELECT value FROM json_each(?))
+				 ORDER BY n.id, a.file_path`,
+			)
+			.all(JSON.stringify(paths))
+			.map((row) => ({
+				decision: this.toDecision(row),
+				filePath: row.anchor_path,
+			}));
+	}
+
+	listByFileAnchorOrSymbol(filePath: string, symbol: string): Decision[] {
+		return this.db
+			.query<NodeRow, [string, string]>(
+				`SELECT DISTINCT n.* FROM nodes n
+				 JOIN anchors a ON a.node_id = n.id
+				 WHERE n.kind = 'decision'
+				   AND a.file_path = ?
+				   AND (a.symbol = '' OR a.symbol = ?)
+				 ORDER BY n.id ASC`,
+			)
+			.all(filePath, symbol)
+			.map((row) => this.toDecision(row));
+	}
+
 	listActiveWithFewKeywords(minimum: number): Array<{
 		id: string;
 		title: string;

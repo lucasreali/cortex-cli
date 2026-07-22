@@ -333,3 +333,88 @@ describe("SearchRepository.searchExact", () => {
 		expect(search.searchExact([])).toEqual([]);
 	});
 });
+
+describe("NodeRepository.listActiveAnchoredToFiles", () => {
+	test("returns active decisions paired with their matching anchor file", () => {
+		const anchored = nodes.createDecision(
+			decisionInput({
+				anchors: [
+					{ file_path: "src/api/login.ts" },
+					{ file_path: "src/api/logout.ts" },
+				],
+			}),
+			context,
+		);
+		nodes.createDecision(
+			decisionInput({
+				title: "Decisão ancorada em outro lugar qualquer",
+				anchors: [{ file_path: "src/billing/invoice.ts" }],
+			}),
+			context,
+		);
+		const replaced = nodes.createDecision(
+			decisionInput({
+				title: "Decisão substituída ancorada no login",
+				anchors: [{ file_path: "src/api/login.ts" }],
+			}),
+			context,
+		);
+		nodes.replaceDecision(
+			replaced.id,
+			decisionInput({ title: "Substituta sem âncoras de arquivo" }),
+			context,
+		);
+
+		const entries = nodes.listActiveAnchoredToFiles([
+			"src/api/login.ts",
+			"src/api/logout.ts",
+		]);
+
+		expect(entries.map((entry) => [entry.decision.id, entry.filePath])).toEqual(
+			[
+				[anchored.id, "src/api/login.ts"],
+				[anchored.id, "src/api/logout.ts"],
+			],
+		);
+	});
+});
+
+describe("NodeRepository.listByFileAnchorOrSymbol", () => {
+	test("matches file-level anchors and the exact symbol, nothing else", () => {
+		const fileLevel = nodes.createDecision(
+			decisionInput({ anchors: [{ file_path: "src/auth/service.ts" }] }),
+			context,
+		);
+		const exactSymbol = nodes.createDecision(
+			decisionInput({
+				title: "Decisão ancorada no símbolo validateToken",
+				anchors: [
+					{
+						file_path: "src/auth/service.ts",
+						symbol: "AuthService.validateToken",
+					},
+				],
+			}),
+			context,
+		);
+		nodes.createDecision(
+			decisionInput({
+				title: "Decisão ancorada em outro símbolo do arquivo",
+				anchors: [
+					{ file_path: "src/auth/service.ts", symbol: "AuthService.other" },
+				],
+			}),
+			context,
+		);
+
+		const decisions = nodes.listByFileAnchorOrSymbol(
+			"src/auth/service.ts",
+			"AuthService.validateToken",
+		);
+
+		expect(decisions.map((decision) => decision.id)).toEqual([
+			fileLevel.id,
+			exactSymbol.id,
+		]);
+	});
+});

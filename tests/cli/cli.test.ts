@@ -100,6 +100,27 @@ function seedDecisions(): void {
 	db.close();
 }
 
+function seedGhostSymbolDecision(): void {
+	const db: Database = openDecisionsDb(join(dir, ".cortex"));
+	const nodes = new NodeRepository(db);
+	const projectId = nodes.ensureProject("github.com/acme/demo");
+	nodes.createDecision(
+		{
+			title: "Decisão ancorada num símbolo que não existe",
+			body: "Âncora aponta para Ghost.method, removido do código há tempos.",
+			keywords: ["ghost", "símbolo", "symbol", "órfão", "orphan"],
+			anchors: [{ file_path: "src/auth/service.ts", symbol: "Ghost.method" }],
+		},
+		{
+			projectId,
+			sessionId: nodes.createSession(projectId),
+			commitSha: "sha-2",
+			commitDirty: false,
+		},
+	);
+	db.close();
+}
+
 describe("cortex CLI", () => {
 	test("unknown command prints usage and fails", () => {
 		const result = cli("nonsense");
@@ -227,13 +248,14 @@ describe("cortex CLI", () => {
 		expect(result.stdout).toContain("code index: in sync");
 	});
 
-	test("doctor flags an outdated code index and a low resolution rate", () => {
+	test("doctor flags an outdated code index, low resolution and orphan symbols", () => {
 		writeFileSync(
 			join(dir, "src/auth/service.ts"),
 			'import { gone } from "./missing";\nexport const ok = () => gone;\n',
 		);
 		expect(cli("index").code).toBe(0);
 		writeFileSync(join(dir, "src/auth/extra.ts"), "export const x = 1;\n");
+		seedGhostSymbolDecision();
 
 		const result = cli("doctor");
 
@@ -242,6 +264,20 @@ describe("cortex CLI", () => {
 		);
 		expect(result.stdout).toContain("0/1 resolvable imports resolved (0.0%)");
 		expect(result.stdout).toContain("below 85%");
+		expect(result.stdout).toContain(
+			"orphan symbol anchor: src/auth/service.ts#Ghost.method",
+		);
+	});
+
+	test("why resolves a bare symbol to its file and anchored decisions", () => {
+		const result = cli("why", "ok");
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain("ok — src/auth/service.ts:2");
+		expect(result.stdout).toContain("Adotar JWT para autenticação");
+
+		const unknown = cli("why", "GhostSymbol");
+		expect(unknown.code).toBe(0);
+		expect(unknown.stdout).toContain("No decisions anchored to GhostSymbol.");
 	});
 
 	test("serve requires --mcp", () => {

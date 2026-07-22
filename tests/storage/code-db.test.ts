@@ -159,6 +159,98 @@ describe("code.db migrations", () => {
 	});
 });
 
+function chainEntry(
+	path: string,
+	imports: FileIndexEntry["imports"],
+): FileIndexEntry {
+	return {
+		file: { path, lang: "ts", hash: `h-${path}`, mtime: 1, size: 10 },
+		symbols: [],
+		imports,
+	};
+}
+
+describe("CodeRepository.transitiveImporters", () => {
+	beforeEach(() => {
+		repository.wipeAndRebuild([
+			chainEntry("src/core.ts", [
+				{ specifier: "./loop", toPath: "src/loop.ts", provenance: "exact" },
+			]),
+			chainEntry("src/mid.ts", [
+				{ specifier: "./core.ts", toPath: "src/core.ts", provenance: "exact" },
+			]),
+			chainEntry("src/top.ts", [
+				{ specifier: "./mid", toPath: "src/mid.ts", provenance: "heuristic" },
+			]),
+			chainEntry("src/loop.ts", [
+				{ specifier: "./top.ts", toPath: "src/top.ts", provenance: "exact" },
+			]),
+		]);
+	});
+
+	test("walks importers transitively, chaining provenance pessimistically", () => {
+		expect(repository.transitiveImporters(["src/core.ts"], 5)).toEqual([
+			{ path: "src/mid.ts", depth: 1, provenance: "exact" },
+			{ path: "src/top.ts", depth: 2, provenance: "heuristic" },
+			{ path: "src/loop.ts", depth: 3, provenance: "heuristic" },
+		]);
+	});
+
+	test("respects maxDepth", () => {
+		expect(repository.transitiveImporters(["src/core.ts"], 1)).toEqual([
+			{ path: "src/mid.ts", depth: 1, provenance: "exact" },
+		]);
+	});
+
+	test("cycles terminate and seeds never appear in the result", () => {
+		const importers = repository.transitiveImporters(["src/core.ts"], 10);
+		expect(importers.map((importer) => importer.path)).not.toContain(
+			"src/core.ts",
+		);
+	});
+
+	test("multiple seeds merge at the shortest depth", () => {
+		expect(
+			repository.transitiveImporters(["src/core.ts", "src/mid.ts"], 5),
+		).toEqual([
+			{ path: "src/top.ts", depth: 1, provenance: "heuristic" },
+			{ path: "src/loop.ts", depth: 2, provenance: "heuristic" },
+		]);
+	});
+});
+
+describe("CodeRepository symbol lookups", () => {
+	beforeEach(() => {
+		repository.wipeAndRebuild([entryFixture(), importerFixture()]);
+	});
+
+	test("hasSymbol checks the exact name within a file", () => {
+		expect(
+			repository.hasSymbol("src/auth/service.ts", "AuthService.validateToken"),
+		).toBe(true);
+		expect(repository.hasSymbol("src/auth/service.ts", "login")).toBe(false);
+	});
+
+	test("findSymbol locates a qualified name across files", () => {
+		expect(repository.findSymbol("AuthService.validateToken")).toEqual([
+			{ filePath: "src/auth/service.ts", kind: "method", line: 10 },
+		]);
+		expect(repository.findSymbol("Ghost.method")).toEqual([]);
+	});
+
+	test("suggestSymbols prefers same-file matches via the owner prefix", () => {
+		expect(
+			repository.suggestSymbols("src/auth/service.ts", "AuthService.login", 3),
+		).toEqual(["AuthService.validateToken"]);
+	});
+
+	test("suggestSymbols falls back to a global substring match", () => {
+		expect(repository.suggestSymbols("src/ghost.ts", "login", 3)).toEqual([
+			"login",
+		]);
+	});
+});
+
 describe("CodeRepository", () => {
 	test("wipeAndRebuild populates files, symbols and imports", () => {
 		repository.wipeAndRebuild([entryFixture(), importerFixture()]);
