@@ -5,7 +5,8 @@ decisions made while you and your agent work on a repository — what was
 chosen, why, and which files it governs — and makes them searchable by
 meaning, not just by keyword, from any later session.
 
-Decisions live in `.cortex/decisions.db` (SQLite, committed with the repo).
+Decisions live in `.cortex/decisions.db` (SQLite, local to the machine —
+`cortex init` gitignores the whole `.cortex/` directory).
 Semantic search runs fully local: EmbeddingGemma-300m quantized, via WASM in
 a dedicated subprocess — no native dependencies, no runtime network calls
 beyond the one-time model download to `~/.cortex/models/`.

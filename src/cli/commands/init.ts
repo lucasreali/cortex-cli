@@ -63,21 +63,23 @@ async function ensureGitignore(
 	const path = join(root, ".gitignore");
 	const file = Bun.file(path);
 	const current = (await file.exists()) ? await file.text() : "";
-	if (current.includes(".cortex/code.db")) return;
-	if (
-		!assumeYes &&
-		!confirmInteractive("Add .cortex/code.db* to .gitignore?")
-	) {
+	if (ignoresCortexDir(current)) return;
+	if (!assumeYes && !confirmInteractive("Add .cortex/ to .gitignore?")) {
 		console.log(
 			warning(
-				"Skipped .gitignore change — add .cortex/code.db* yourself or rerun with --yes.",
+				"Skipped .gitignore change — add .cortex/ yourself or rerun with --yes.",
 			),
 		);
 		return;
 	}
 	const separator = current === "" || current.endsWith("\n") ? "" : "\n";
-	await Bun.write(path, `${current}${separator}.cortex/code.db*\n`);
-	console.log(success("Added .cortex/code.db* to .gitignore"));
+	await Bun.write(path, `${current}${separator}.cortex/\n`);
+	console.log(success("Added .cortex/ to .gitignore"));
+}
+
+function ignoresCortexDir(gitignore: string): boolean {
+	const entries = gitignore.split("\n").map((line) => line.trim());
+	return entries.includes(".cortex/") || entries.includes(".cortex");
 }
 
 function confirmInteractive(question: string): boolean {
