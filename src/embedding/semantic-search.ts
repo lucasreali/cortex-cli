@@ -27,6 +27,13 @@ export interface SemanticSearchOptions {
 const DEFAULT_TOP_K = 5;
 const DEFAULT_THRESHOLD = 0.3;
 const DEFAULT_QUERY_TIMEOUT_MS = 2000;
+const BM25_OVERSCAN = 4;
+const RRF_K = 60;
+
+export interface FusedRanking {
+	nodeId: string;
+	score: number;
+}
 
 export class SemanticSearch {
 	private vectorCache: Map<string, Float32Array> | null = null;
@@ -40,46 +47,46 @@ export class SemanticSearch {
 		this.vectorCache = null;
 	}
 
+	// RRF over both legs (measured in tests/evaluation/): the vector leg keeps
+	// the relevance threshold so unrelated intents still come back empty, and
+	// with no vector available the fusion degrades to plain BM25 top-K.
 	async search(intent: string): Promise<SemanticSearchResult[]> {
-		const covered = new Set<string>();
-		const vectorResults = await this.tryVectorSearch(intent, covered);
-		const slots = this.topK() - vectorResults.length;
-		if (slots <= 0) return vectorResults;
-		return [...vectorResults, ...this.ftsSearch(intent, covered, slots)];
+		const vectorLeg = await this.vectorLeg(intent);
+		const inVector = new Set(vectorLeg);
+		return fuseRankings([vectorLeg, this.bm25Leg(intent)])
+			.slice(0, this.topK())
+			.flatMap((entry) =>
+				this.toResult(
+					entry.nodeId,
+					entry.score,
+					inVector.has(entry.nodeId) ? "vector" : "fts",
+				),
+			);
 	}
 
-	private async tryVectorSearch(
-		intent: string,
-		covered: Set<string>,
-	): Promise<SemanticSearchResult[]> {
+	private async vectorLeg(intent: string): Promise<string[]> {
 		const { provider } = this.dependencies;
 		if (!provider) return [];
 		const queryVector = await this.embedIntent(provider, intent);
 		if (!queryVector) return [];
-		const cache = this.loadCache(provider.modelId);
-		for (const nodeId of cache.keys()) {
-			covered.add(nodeId);
-		}
-		return [...cache.entries()]
+		return [...this.loadCache(provider.modelId).entries()]
 			.map(([nodeId, vector]) => ({ nodeId, score: dot(queryVector, vector) }))
 			.filter((entry) => entry.score >= this.threshold())
 			.sort((a, b) => b.score - a.score)
-			.slice(0, this.topK())
-			.flatMap((entry) => this.toResult(entry.nodeId, entry.score, "vector"));
+			.map((entry) => entry.nodeId);
 	}
 
-	private ftsSearch(
-		intent: string,
-		covered: Set<string>,
-		slots: number,
-	): SemanticSearchResult[] {
+	private bm25Leg(intent: string): string[] {
 		const terms = intentTerms(intent);
 		if (terms.length === 0) return [];
 		return this.dependencies.fts
-			.searchExact(terms, this.topK() * 4)
-			.filter((hit) => !covered.has(hit.nodeId))
-			.flatMap((hit) => this.toResult(hit.nodeId, -hit.rank, "fts"))
-			.slice(0, slots);
+			.searchExact(terms, this.topK() * BM25_OVERSCAN)
+			.map((hit) => hit.nodeId)
+			.filter((nodeId) => this.isActive(nodeId));
+	}
+
+	private isActive(nodeId: string): boolean {
+		return this.dependencies.nodes.getById(nodeId)?.status === "active";
 	}
 
 	private toResult(
@@ -125,7 +132,22 @@ export class SemanticSearch {
 	}
 }
 
-function dot(a: Float32Array, b: Float32Array): number {
+export function fuseRankings(rankings: string[][]): FusedRanking[] {
+	const scores = new Map<string, number>();
+	for (const ranking of rankings) {
+		ranking.forEach((nodeId, index) => {
+			scores.set(nodeId, (scores.get(nodeId) ?? 0) + 1 / (RRF_K + index + 1));
+		});
+	}
+	return [...scores.entries()]
+		.map(([nodeId, score]) => ({ nodeId, score }))
+		.sort(
+			(left, right) =>
+				right.score - left.score || left.nodeId.localeCompare(right.nodeId),
+		);
+}
+
+export function dot(a: Float32Array, b: Float32Array): number {
 	let sum = 0;
 	for (let index = 0; index < a.length; index++) {
 		sum += (a[index] as number) * (b[index] as number);
@@ -133,7 +155,7 @@ function dot(a: Float32Array, b: Float32Array): number {
 	return sum;
 }
 
-function intentTerms(intent: string): string[] {
+export function intentTerms(intent: string): string[] {
 	return intent
 		.toLowerCase()
 		.split(/[^\p{L}\p{N}]+/u)

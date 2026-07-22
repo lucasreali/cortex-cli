@@ -164,6 +164,22 @@ igual à do pacote).
 
 ### 6. Harness de avaliação da busca
 
+**Feito (2026-07-22), incluindo a adoção da fusão.** Harness em
+`tests/evaluation/`: ground-truth com 46 perguntas PT/EN validado contra o
+store versionado (`ground-truth.test.ts`), estratégias
+`current`/`fts`/`vector` reusando `intentTerms`/`dot` de produção, runner
+manual `bun run eval:search [--json]` com o modelo real. Evidência medida:
+slot-filling 0.913 recall@5 / 0.855 MRR; BM25 puro 0.978 / 0.909 (~0.5 ms);
+cosseno sem threshold 0.935 / 0.877; fusão RRF 1.000 / 0.911 — e robusta:
+k∈{10,20,60,120} × threshold on/off dão todos o mesmo resultado. Fusão
+adotada em produção: `SemanticSearch.search` faz RRF k=60 da perna vetorial
+(threshold 0.3 mantido — query irrelevante segue vazia) com a perna BM25
+(só decisões ativas), degradando para BM25 puro sem provider/timeout.
+Registrada como decisão `019f8c23-56ca` substituindo `019f6dc3-e77a`;
+medição pós-adoção reconfirma current = 1.000/0.911. Ressalva na decisão:
+BM25 puro quase empata custando ~500× menos — se a latência do embed
+(~300 ms/query) doer, medir cascata FTS-primeiro.
+
 A decisão `019f6dc3-e77a` adiou a fusão BM25+cosseno "por falta de
 evidência". Construir o gerador de evidência:
 

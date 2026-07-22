@@ -10,6 +10,7 @@
 	"scripts": {
 		"test": "bun test",
 		"test:coverage": "bun test --coverage",
+		"eval:search": "bun tests/evaluation/runner.ts",
 		"typecheck": "tsc --noEmit",
 		"check": "bunx --bun @biomejs/biome check --write"
 	},

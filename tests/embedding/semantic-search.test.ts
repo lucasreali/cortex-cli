@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { CreateDecisionInput } from "@/domain";
 import type { EmbeddingProvider } from "@/embedding/provider";
 import { EmbedQueue } from "@/embedding/queue";
-import { SemanticSearch } from "@/embedding/semantic-search";
+import { fuseRankings, SemanticSearch } from "@/embedding/semantic-search";
 import { openDecisionsDb } from "@/storage/connection";
 import { EmbeddingRepository } from "@/storage/embedding-repository";
 import { migrate } from "@/storage/migrations";
@@ -108,12 +108,43 @@ describe("SemanticSearch — vector path", () => {
 			provider: conceptProvider,
 		});
 
-		const results = await search.search("como autenticamos usuários?");
+		const results = await search.search("autenticação de usuários");
 
 		expect(results).toHaveLength(1);
 		expect(results[0]?.node.id).toBe(jwtId);
 		expect(results[0]?.source).toBe("vector");
-		expect(results[0]?.score).toBeCloseTo(1, 5);
+		expect(results[0]?.score).toBeCloseTo(1 / 61, 5);
+	});
+
+	test("a keyword hit below the vector threshold still surfaces via bm25", async () => {
+		const postgresId = await createEmbedded(postgresInput, conceptProvider);
+		const search = new SemanticSearch({
+			nodes,
+			embeddings,
+			fts,
+			provider: conceptProvider,
+		});
+
+		const results = await search.search("login com migrations");
+
+		expect(results.map((result) => [result.node.id, result.source])).toEqual([
+			[postgresId, "fts"],
+		]);
+	});
+
+	test("an unrelated intent returns empty even with vectors present", async () => {
+		await createEmbedded(jwtInput, conceptProvider);
+		await createEmbedded(postgresInput, conceptProvider);
+		const search = new SemanticSearch({
+			nodes,
+			embeddings,
+			fts,
+			provider: conceptProvider,
+		});
+
+		const results = await search.search("grafana dashboards");
+
+		expect(results).toEqual([]);
 	});
 
 	test("merges FTS hits for nodes without vector", async () => {
@@ -259,6 +290,21 @@ describe("SemanticSearch — cache", () => {
 
 		const results = await search.search("jwt");
 		expect(results.map((result) => result.node.id)).toContain(decision.id);
+	});
+});
+
+describe("fuseRankings", () => {
+	test("an id present in both rankings outscores single-list leaders", () => {
+		const fused = fuseRankings([
+			["a", "b"],
+			["b", "c"],
+		]);
+		expect(fused.map((entry) => entry.nodeId)).toEqual(["b", "a", "c"]);
+	});
+
+	test("ties break lexicographically for determinism", () => {
+		const fused = fuseRankings([["b"], ["a"]]);
+		expect(fused.map((entry) => entry.nodeId)).toEqual(["a", "b"]);
 	});
 });
 
