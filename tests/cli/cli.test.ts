@@ -171,15 +171,16 @@ describe("cortex CLI", () => {
 			),
 		).toEqual({
 			model_id: "embeddinggemma-300m-q8@256",
-			schema_version: 1,
+			schema_version: 2,
 		});
+		expect(existsSync(join(dir, ".cortex/decisions/.gitkeep"))).toBe(true);
 		expect(first.stdout).toContain("Skipped .gitignore change");
 
 		const second = cli("init", "--yes");
 		expect(second.code).toBe(0);
 		expect(
 			Bun.spawnSync(["cat", join(dir, ".gitignore")], {}).stdout.toString(),
-		).toContain(".cortex/code.db*");
+		).toContain(".cortex/*.db*");
 
 		seedDecisions();
 	});

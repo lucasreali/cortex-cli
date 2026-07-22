@@ -3,6 +3,9 @@ import decisionsSchema from "./migrations/001-decisions-schema.sql" with {
 	type: "text",
 };
 import codeSchema from "./migrations/002-code-schema.sql" with { type: "text" };
+import decisionFilesSchema from "./migrations/003-decision-files.sql" with {
+	type: "text",
+};
 
 interface Migration {
 	id: number;
@@ -15,6 +18,11 @@ const decisionsMigrations: Migration[] = [
 		id: 1,
 		name: "decisions-schema",
 		up: (db) => db.run(decisionsSchema),
+	},
+	{
+		id: 2,
+		name: "decision-files",
+		up: (db) => db.run(decisionFilesSchema),
 	},
 ];
 

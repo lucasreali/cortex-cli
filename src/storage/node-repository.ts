@@ -3,6 +3,7 @@ import type {
 	Anchor,
 	CreateDecisionInput,
 	Decision,
+	DecisionRecord,
 	DecisionStatus,
 	NodeProvenance,
 } from "@/domain";
@@ -52,6 +53,31 @@ export class NodeRepository {
 			this.insertEdge(oldId, "REPLACED_BY", decision.id);
 			return decision;
 		})();
+	}
+
+	restoreDecision(record: DecisionRecord, projectId: string): void {
+		this.db.transaction(() => this.upsertFromRecord(record, projectId))();
+	}
+
+	deleteDecision(id: string): void {
+		this.db.transaction(() => {
+			this.db
+				.query("DELETE FROM edges WHERE from_id = ? OR to_id = ?")
+				.run(id, id);
+			this.db.query("DELETE FROM nodes_fts WHERE node_id = ?").run(id);
+			this.db
+				.query("DELETE FROM nodes WHERE id = ? AND kind = 'decision'")
+				.run(id);
+		})();
+	}
+
+	listAllDecisions(): Decision[] {
+		return this.db
+			.query<NodeRow, []>(
+				"SELECT * FROM nodes WHERE kind = 'decision' ORDER BY id ASC",
+			)
+			.all()
+			.map((row) => this.toDecision(row));
 	}
 
 	getById(id: string): Decision | null {
@@ -197,6 +223,112 @@ export class NodeRepository {
 			.map((row) => row.module);
 	}
 
+	private upsertFromRecord(record: DecisionRecord, projectId: string): void {
+		const { decision } = record;
+		const existing = this.getById(decision.id);
+		if (existing) this.updateNodeRow(decision);
+		else this.insertNodeRow(decision);
+		if (passageChanged(existing, decision)) this.clearEmbedding(decision.id);
+		this.replaceAnchors(decision);
+		this.replaceFtsRow(decision);
+		this.ensureEdge(decision.id, "BELONGS_TO", projectId);
+		this.replaceDependsOnEdges(decision.id, record.dependsOn);
+		this.replaceReplacedByEdge(decision.id, record.replaces);
+	}
+
+	private insertNodeRow(decision: Decision): void {
+		this.db
+			.query(
+				`INSERT INTO nodes
+					(id, kind, title, body, keywords, module, status, commit_sha,
+					 commit_dirty, provenance, props, created_at)
+				 VALUES (?, 'decision', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			)
+			.run(...nodeRowValues(decision));
+	}
+
+	private updateNodeRow(decision: Decision): void {
+		const [id, ...values] = nodeRowValues(decision);
+		this.db
+			.query(
+				`UPDATE nodes SET title = ?, body = ?, keywords = ?, module = ?,
+					status = ?, commit_sha = ?, commit_dirty = ?, provenance = ?,
+					props = ?, created_at = ?
+				 WHERE id = ?`,
+			)
+			.run(...values, id as string);
+	}
+
+	private clearEmbedding(nodeId: string): void {
+		this.db.query("DELETE FROM embeddings WHERE node_id = ?").run(nodeId);
+	}
+
+	private replaceAnchors(decision: Decision): void {
+		this.db.query("DELETE FROM anchors WHERE node_id = ?").run(decision.id);
+		const statement = this.db.query(
+			"INSERT INTO anchors (node_id, file_path, symbol) VALUES (?, ?, ?)",
+		);
+		for (const anchor of decision.anchors) {
+			statement.run(decision.id, anchor.filePath, anchor.symbol);
+		}
+	}
+
+	private replaceFtsRow(decision: Decision): void {
+		this.db.query("DELETE FROM nodes_fts WHERE node_id = ?").run(decision.id);
+		this.db
+			.query(
+				"INSERT INTO nodes_fts (node_id, title, body, keywords) VALUES (?, ?, ?, ?)",
+			)
+			.run(
+				decision.id,
+				decision.title,
+				decision.body,
+				decision.keywords.join(" "),
+			);
+	}
+
+	private ensureEdge(fromId: string, kind: string, toId: string): void {
+		this.db
+			.query(
+				"INSERT OR IGNORE INTO edges (from_id, to_id, kind) VALUES (?, ?, ?)",
+			)
+			.run(fromId, toId, kind);
+	}
+
+	private replaceDependsOnEdges(id: string, dependsOn: string[]): void {
+		this.db
+			.query("DELETE FROM edges WHERE from_id = ? AND kind = 'DEPENDS_ON'")
+			.run(id);
+		for (const dependencyId of dependsOn) {
+			this.insertEdgeIfTargetExists(id, "DEPENDS_ON", dependencyId);
+		}
+	}
+
+	private replaceReplacedByEdge(id: string, replaces: string | null): void {
+		this.db
+			.query("DELETE FROM edges WHERE to_id = ? AND kind = 'REPLACED_BY'")
+			.run(id);
+		if (replaces) this.insertEdgeIfTargetExists(replaces, "REPLACED_BY", id);
+	}
+
+	// A file may reference a decision whose file is gone (or not pulled yet);
+	// the link stays in the frontmatter, so skipping keeps sync loud-failure-free
+	// without losing canonical data.
+	private insertEdgeIfTargetExists(
+		fromId: string,
+		kind: string,
+		toId: string,
+	): void {
+		this.db
+			.query(
+				`INSERT OR IGNORE INTO edges (from_id, to_id, kind)
+				 SELECT $from, $to, $kind
+				 WHERE EXISTS (SELECT 1 FROM nodes WHERE id = $from)
+				   AND EXISTS (SELECT 1 FROM nodes WHERE id = $to)`,
+			)
+			.run({ $from: fromId, $to: toId, $kind: kind });
+	}
+
 	private insertDecision(
 		input: CreateDecisionInput,
 		context: SaveContext,
@@ -302,4 +434,30 @@ export class NodeRepository {
 			anchors: this.anchorsOf(row.id),
 		};
 	}
+}
+
+type NodeRowValue = string | number | null;
+
+function nodeRowValues(decision: Decision): NodeRowValue[] {
+	return [
+		decision.id,
+		decision.title,
+		decision.body,
+		JSON.stringify(decision.keywords),
+		decision.module,
+		decision.status,
+		decision.commitSha,
+		decision.commitDirty ? 1 : 0,
+		decision.provenance,
+		decision.props === null ? null : JSON.stringify(decision.props),
+		decision.createdAt,
+	];
+}
+
+function passageChanged(
+	existing: Decision | null,
+	decision: Decision,
+): boolean {
+	if (!existing) return false;
+	return existing.title !== decision.title || existing.body !== decision.body;
 }

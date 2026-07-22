@@ -12,7 +12,7 @@ export async function runIndex(args: string[], cwd: string): Promise<number> {
 		options: { force: { type: "boolean", default: false } },
 	});
 	const root = getRepoRoot(cwd) ?? resolve(cwd);
-	if (!existsSync(join(root, ".cortex", "decisions.db"))) {
+	if (!existsSync(join(root, ".cortex", "config"))) {
 		console.error(failure("Cortex is not initialized here — run: cortex init"));
 		return 1;
 	}

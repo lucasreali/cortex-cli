@@ -9,6 +9,9 @@ import { getCanonicalProjectId, getHead, getRepoRoot } from "@/git";
 import { type CodeIndex, LazyCodeIndex } from "@/indexer/lazy-code-index";
 import { readConfig } from "@/storage/config";
 import { openDecisionsDb } from "@/storage/connection";
+import { DecisionFileIndex } from "@/storage/decision-file-index";
+import { DecisionFileStore } from "@/storage/decision-file-store";
+import { DecisionSync } from "@/storage/decision-sync";
 import { EdgeRepository } from "@/storage/edge-repository";
 import { EmbeddingRepository } from "@/storage/embedding-repository";
 import { migrate } from "@/storage/migrations";
@@ -25,6 +28,8 @@ export interface CortexRuntime {
 	edges: EdgeRepository;
 	fts: SearchRepository;
 	embeddings: EmbeddingRepository;
+	decisionFiles: DecisionFileStore;
+	decisionFileIndex: DecisionFileIndex;
 	provider: GemmaProvider | null;
 	queue: EmbedQueue | null;
 	semanticSearch: SemanticSearch;
@@ -68,6 +73,15 @@ export async function buildRuntime(cwd: string): Promise<CortexRuntime> {
 	const codeIndex = new LazyCodeIndex(repoRoot);
 	const projectCanonicalId = getCanonicalProjectId(repoRoot) ?? repoRoot;
 	const projectNodeId = nodes.ensureProject(projectCanonicalId);
+	const decisionFiles = new DecisionFileStore(join(cortexDir, "decisions"));
+	const decisionFileIndex = new DecisionFileIndex(db);
+	await new DecisionSync({
+		files: decisionFiles,
+		index: decisionFileIndex,
+		nodes,
+		edges,
+		projectId: projectNodeId,
+	}).run();
 	let sessionNodeId: string | null = null;
 	const ensureSession = (): string => {
 		sessionNodeId ??= nodes.createSession(projectNodeId);
@@ -84,6 +98,8 @@ export async function buildRuntime(cwd: string): Promise<CortexRuntime> {
 		edges,
 		fts,
 		embeddings,
+		decisionFiles,
+		decisionFileIndex,
 		provider,
 		queue,
 		semanticSearch,

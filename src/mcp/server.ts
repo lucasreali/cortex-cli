@@ -17,8 +17,21 @@ export function createServer(runtime: CortexRuntime): McpServer {
 
 export async function serveStdio(cwd: string): Promise<void> {
 	const runtime = await buildRuntime(cwd);
+	embedPulledDecisions(runtime);
 	const server = createServer(runtime);
 	await server.connect(new StdioServerTransport());
+}
+
+// Decisions arriving via git pull land without local embeddings; the
+// long-lived server hydrates them in the background instead of leaving
+// them keyword-only until someone runs `cortex embed --missing`.
+function embedPulledDecisions(runtime: CortexRuntime): void {
+	if (!runtime.queue) return;
+	for (const nodeId of runtime.embeddings.listMissingNodeIds(
+		runtime.pinnedModelId,
+	)) {
+		runtime.queue.enqueue(nodeId);
+	}
 }
 
 if (import.meta.main) {
