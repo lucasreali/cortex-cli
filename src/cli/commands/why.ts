@@ -1,57 +1,103 @@
 import { parseArgs } from "node:util";
 import type { CortexRuntime } from "@/app/runtime";
 import type { Decision } from "@/domain";
+import { printJson } from "../json";
 import { openInitializedRuntime } from "../open-runtime";
 import { style } from "../style";
 
+interface SymbolMatch {
+	filePath: string;
+	line: number;
+	decisions: Decision[];
+}
+
+type WhyReport =
+	| { target: string; matchedBy: "path"; decisions: Decision[] }
+	| { target: string; matchedBy: "symbol"; locations: SymbolMatch[] }
+	| { target: string; matchedBy: null };
+
 export async function runWhy(args: string[], cwd: string): Promise<number> {
-	const { positionals } = parseArgs({ args, allowPositionals: true });
+	const { values, positionals } = parseArgs({
+		args,
+		options: { json: { type: "boolean", default: false } },
+		allowPositionals: true,
+	});
 	const target = positionals[0];
 	if (!target) {
-		console.error("usage: cortex why <path|symbol>");
+		console.error("usage: cortex why <path|symbol> [--json]");
 		return 1;
 	}
 	const runtime = await openInitializedRuntime(cwd);
 	if (!runtime) return 1;
 	try {
-		const byPath = runtime.nodes.listByAnchorPath(target);
-		if (byPath.length > 0) {
-			console.log(style.cyan(target));
-			printDecisions(byPath, "  ");
+		const report = await buildReport(runtime, target);
+		if (values.json) {
+			printJson(report);
 			return 0;
 		}
-		if (!target.includes("/") && (await printSymbol(runtime, target))) {
-			return 0;
-		}
-		console.log(style.dim(`No decisions anchored to ${target}.`));
+		render(report);
 		return 0;
 	} finally {
 		runtime.dispose();
 	}
 }
 
-async function printSymbol(
+async function buildReport(
+	runtime: CortexRuntime,
+	target: string,
+): Promise<WhyReport> {
+	const byPath = runtime.nodes.listByAnchorPath(target);
+	if (byPath.length > 0) {
+		return { target, matchedBy: "path", decisions: byPath };
+	}
+	if (!target.includes("/")) {
+		const locations = await findSymbolMatches(runtime, target);
+		if (locations.length > 0) {
+			return { target, matchedBy: "symbol", locations };
+		}
+	}
+	return { target, matchedBy: null };
+}
+
+async function findSymbolMatches(
 	runtime: CortexRuntime,
 	symbol: string,
-): Promise<boolean> {
+): Promise<SymbolMatch[]> {
 	const code = await runtime.codeIndex.repository();
-	const locations = code.findSymbol(symbol);
-	if (locations.length === 0) return false;
+	return code.findSymbol(symbol).map((location) => ({
+		filePath: location.filePath,
+		line: location.line,
+		decisions: runtime.nodes.listByFileAnchorOrSymbol(
+			location.filePath,
+			symbol,
+		),
+	}));
+}
+
+function render(report: WhyReport): void {
+	if (report.matchedBy === "path") {
+		console.log(style.cyan(report.target));
+		printDecisions(report.decisions, "  ");
+		return;
+	}
+	if (report.matchedBy === "symbol") {
+		renderSymbolMatches(report.target, report.locations);
+		return;
+	}
+	console.log(style.dim(`No decisions anchored to ${report.target}.`));
+}
+
+function renderSymbolMatches(symbol: string, locations: SymbolMatch[]): void {
 	for (const location of locations) {
 		console.log(
 			`${style.bold(symbol)} — ${style.cyan(`${location.filePath}:${location.line}`)}`,
 		);
-		const decisions = runtime.nodes.listByFileAnchorOrSymbol(
-			location.filePath,
-			symbol,
-		);
-		if (decisions.length === 0) {
+		if (location.decisions.length === 0) {
 			console.log(style.dim("  no decisions anchored here"));
 			continue;
 		}
-		printDecisions(decisions, "  ");
+		printDecisions(location.decisions, "  ");
 	}
-	return true;
 }
 
 function printDecisions(decisions: Decision[], indent = ""): void {

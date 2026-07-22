@@ -4,18 +4,22 @@ import {
 	type DecisionImpact,
 	decisionImpact,
 } from "@/app/decision-impact";
+import { printJson } from "../json";
 import { openInitializedRuntime } from "../open-runtime";
 import { failure, style, warning } from "../style";
 
 export async function runImpact(args: string[], cwd: string): Promise<number> {
 	const { values, positionals } = parseArgs({
 		args,
-		options: { depth: { type: "string" } },
+		options: {
+			depth: { type: "string" },
+			json: { type: "boolean", default: false },
+		},
 		allowPositionals: true,
 	});
 	const id = positionals[0];
 	if (!id) {
-		console.error("usage: cortex impact <id> [--depth N]");
+		console.error("usage: cortex impact <id> [--depth N] [--json]");
 		return 1;
 	}
 	const runtime = await openInitializedRuntime(cwd);
@@ -29,6 +33,10 @@ export async function runImpact(args: string[], cwd: string): Promise<number> {
 		if (!impact) {
 			console.error(failure(`decision not found: ${id}`));
 			return 1;
+		}
+		if (values.json) {
+			printJson(impact);
+			return 0;
 		}
 		printDependsOnTree(impact);
 		printCodeImpact(impact);

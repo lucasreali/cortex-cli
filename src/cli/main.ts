@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { CORTEX_VERSION } from "@/version";
 import { runIndex } from "./commands/code-index";
 import { runDoctor } from "./commands/doctor";
 import { runEmbed } from "./commands/embed";
@@ -31,22 +32,22 @@ const COMMANDS: Record<string, Command> = {
 	},
 	log: {
 		run: runLog,
-		usage: "log [--module M] [--since SHA]",
+		usage: "log [--module M] [--since SHA] [--json]",
 		description: "list active decisions",
 	},
 	why: {
 		run: runWhy,
-		usage: "why <path|symbol>",
+		usage: "why <path|symbol> [--json]",
 		description: "show decisions anchored to a path or symbol",
 	},
 	search: {
 		run: runSearch,
-		usage: "search <terms...> [--exact]",
+		usage: "search <terms...> [--exact] [--json]",
 		description: "search decisions by meaning or keyword",
 	},
 	impact: {
 		run: runImpact,
-		usage: "impact <id> [--depth N]",
+		usage: "impact <id> [--depth N] [--json]",
 		description: "trace decisions and code affected by a decision",
 	},
 	index: {
@@ -61,7 +62,7 @@ const COMMANDS: Record<string, Command> = {
 	},
 	doctor: {
 		run: runDoctor,
-		usage: "doctor",
+		usage: "doctor [--json]",
 		description: "check store and index health",
 	},
 	"prompt-hook": {
@@ -80,19 +81,37 @@ const USAGE_COLUMN = Math.max(
 	...VISIBLE_COMMANDS.map((command) => command.usage.length),
 );
 
+const GLOBAL_FLAGS = [
+	{ usage: "-v, --version", description: "print the version" },
+	{ usage: "-h, --help", description: "show this help" },
+];
+
 function printUsage(): void {
 	console.log(
-		`${style.bold("cortex")} ${style.dim("— persistent decision memory for coding agents")}`,
+		`${style.bold("cortex")} ${style.dim(`v${CORTEX_VERSION} — persistent decision memory for coding agents`)}`,
 	);
 	console.log("\nusage: cortex <command>\n\ncommands:");
 	for (const command of VISIBLE_COMMANDS) {
 		const usage = style.cyan(command.usage.padEnd(USAGE_COLUMN));
 		console.log(`  ${usage}  ${command.description}`);
 	}
+	console.log("\nflags:");
+	for (const flag of GLOBAL_FLAGS) {
+		const usage = style.cyan(flag.usage.padEnd(USAGE_COLUMN));
+		console.log(`  ${usage}  ${flag.description}`);
+	}
 }
 
 async function main(): Promise<void> {
 	const [name, ...args] = process.argv.slice(2);
+	if (name === "--version" || name === "-v") {
+		console.log(CORTEX_VERSION);
+		return;
+	}
+	if (name === "--help" || name === "-h") {
+		printUsage();
+		return;
+	}
 	const command = name ? COMMANDS[name] : undefined;
 	if (!command) {
 		if (name) console.error(failure(`unknown command: ${name}`));

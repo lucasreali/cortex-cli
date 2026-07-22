@@ -138,6 +138,19 @@ existentes ficam stale silenciosamente.
 
 ### 5. Flags de CLI: `--version`, `--help`, `--json`
 
+**Feito (2026-07-22).** `version` no `package.json` como fonte única, exposta
+por `src/version.ts` (`CORTEX_VERSION`) e usada pela CLI e pelo servidor MCP
+(fim do `0.1.0` hardcoded). `--version`/`-v` e `--help`/`-h` interceptados em
+`src/cli/main.ts` antes do dispatch; o usage ganhou seção `flags` e a versão
+no cabeçalho. `--json` nos cinco comandos de leitura via `printJson`
+(`src/cli/json.ts`): `log`/`search` serializam os resultados direto,
+`impact` emite o `DecisionImpact` inteiro, `why` virou report tipado por
+`matchedBy` (path/symbol/null) renderizado depois, e o `DoctorReport` passou
+a acumular checks para emitir `{checks, issues}` mantendo o exit code.
+Dispatch continua hand-rolled com `parseArgs`. Aceite em
+`tests/cli/cli.test.ts` (flags, JSON parseável por comando, versão do MCP
+igual à do pacote).
+
 - Adicionar campo `version` ao `package.json` como fonte única da verdade;
   ler na CLI e no servidor MCP (substitui o `0.1.0` hardcoded em
   `src/mcp/server.ts:10`).

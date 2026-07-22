@@ -1,23 +1,31 @@
 import { parseArgs } from "node:util";
 import { searchDecisions } from "@/app/search-decisions";
 import type { SemanticSearchResult } from "@/embedding/semantic-search";
+import { printJson } from "../json";
 import { openInitializedRuntime } from "../open-runtime";
 import { style } from "../style";
 
 export async function runSearch(args: string[], cwd: string): Promise<number> {
 	const { values, positionals } = parseArgs({
 		args,
-		options: { exact: { type: "boolean", default: false } },
+		options: {
+			exact: { type: "boolean", default: false },
+			json: { type: "boolean", default: false },
+		},
 		allowPositionals: true,
 	});
 	if (positionals.length === 0) {
-		console.error("usage: cortex search <terms...> [--exact]");
+		console.error("usage: cortex search <terms...> [--exact] [--json]");
 		return 1;
 	}
 	const runtime = await openInitializedRuntime(cwd);
 	if (!runtime) return 1;
 	try {
 		const results = await searchDecisions(runtime, positionals, values.exact);
+		if (values.json) {
+			printJson(results);
+			return 0;
+		}
 		if (results.length === 0) {
 			console.log(style.dim("No results."));
 			return 0;

@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { parseArgs } from "node:util";
 import type { CortexRuntime } from "@/app/runtime";
 import { symbolHint } from "@/app/symbol-hints";
 import { GEMMA_MODEL } from "@/embedding/model";
@@ -12,13 +13,18 @@ import { openCodeRepository } from "@/storage/code-db";
 import type { CodeRepository } from "@/storage/code-repository";
 import { readConfig } from "@/storage/config";
 import { CODE_SCHEMA_VERSION, SCHEMA_VERSION } from "@/storage/migrations";
+import { printJson } from "../json";
 import { openInitializedRuntime } from "../open-runtime";
 import { success, warning } from "../style";
 
 const MINIMUM_KEYWORDS = 5;
 const MINIMUM_RESOLUTION_RATE = 0.85;
 
-export async function runDoctor(_args: string[], cwd: string): Promise<number> {
+export async function runDoctor(args: string[], cwd: string): Promise<number> {
+	const { values } = parseArgs({
+		args,
+		options: { json: { type: "boolean", default: false } },
+	});
 	const runtime = await openInitializedRuntime(cwd);
 	if (!runtime) return 1;
 	try {
@@ -29,33 +35,58 @@ export async function runDoctor(_args: string[], cwd: string): Promise<number> {
 		checkKeywords(runtime, report);
 		checkModelDownloaded(report);
 		await checkCodeIndex(runtime, report);
-		return report.finish();
+		return values.json ? report.finishJson() : report.finish();
 	} finally {
 		runtime.dispose();
 	}
 }
 
+interface DoctorCheck {
+	level: "ok" | "warn";
+	message: string;
+}
+
 class DoctorReport {
-	private issues = 0;
+	private checks: DoctorCheck[] = [];
 
 	ok(message: string): void {
-		console.log(success(message));
+		this.checks.push({ level: "ok", message });
 	}
 
 	warn(message: string): void {
-		this.issues++;
-		console.log(warning(message));
+		this.checks.push({ level: "warn", message });
 	}
 
 	finish(): number {
+		for (const check of this.checks) {
+			console.log(paint(check));
+		}
 		console.log(`\n${this.summary()}`);
-		return this.issues === 0 ? 0 : 1;
+		return this.exitCode();
+	}
+
+	finishJson(): number {
+		printJson({ checks: this.checks, issues: this.issueCount() });
+		return this.exitCode();
+	}
+
+	private issueCount(): number {
+		return this.checks.filter((check) => check.level === "warn").length;
+	}
+
+	private exitCode(): number {
+		return this.issueCount() === 0 ? 0 : 1;
 	}
 
 	private summary(): string {
-		if (this.issues === 0) return success("All checks passed.");
-		return warning(`${this.issues} issue(s) found.`);
+		if (this.issueCount() === 0) return success("All checks passed.");
+		return warning(`${this.issueCount()} issue(s) found.`);
 	}
+}
+
+function paint(check: DoctorCheck): string {
+	if (check.level === "ok") return success(check.message);
+	return warning(check.message);
 }
 
 async function checkConfig(

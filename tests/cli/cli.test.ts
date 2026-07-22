@@ -17,6 +17,7 @@ import { openCodeRepository } from "@/storage/code-db";
 import { openDecisionsDb } from "@/storage/connection";
 import { CODE_SCHEMA_VERSION } from "@/storage/migrations";
 import { NodeRepository, type SaveContext } from "@/storage/node-repository";
+import { CORTEX_VERSION } from "@/version";
 
 const MAIN_PATH = new URL("../../src/cli/main.ts", import.meta.url).pathname;
 
@@ -152,6 +153,23 @@ describe("cortex CLI", () => {
 		expect(result.stdout).toContain("usage: cortex");
 	});
 
+	test("--version and -v print the package.json version", () => {
+		for (const flag of ["--version", "-v"]) {
+			const result = cli(flag);
+			expect(result.code).toBe(0);
+			expect(result.stdout.trim()).toBe(CORTEX_VERSION);
+		}
+	});
+
+	test("--help and -h print usage and exit 0", () => {
+		for (const flag of ["--help", "-h"]) {
+			const result = cli(flag);
+			expect(result.code).toBe(0);
+			expect(result.stdout).toContain("usage: cortex");
+			expect(result.stdout).toContain("--version");
+		}
+	});
+
 	test("commands require init first", () => {
 		for (const command of ["log", "index"]) {
 			const result = cli(command);
@@ -205,6 +223,24 @@ describe("cortex CLI", () => {
 		expect(filtered.stdout).not.toContain("Refresh tokens");
 	});
 
+	test("log --json prints decisions as JSON and composes with filters", () => {
+		const result = cli("log", "--json");
+		expect(result.code).toBe(0);
+		const decisions: { title: string; keywords: string[] }[] = JSON.parse(
+			result.stdout,
+		);
+		expect(decisions.map((decision) => decision.title)).toContain(
+			"Adotar JWT para autenticação",
+		);
+		expect(decisions[0]?.keywords.length).toBeGreaterThan(0);
+
+		const filtered: { title: string }[] = JSON.parse(
+			cli("log", "--module", "auth", "--json").stdout,
+		);
+		expect(filtered).toHaveLength(1);
+		expect(filtered[0]?.title).toBe("Adotar JWT para autenticação");
+	});
+
 	test("why matches file anchors and directory prefixes", () => {
 		const byFile = cli("why", "src/auth/service.ts");
 		expect(byFile.code).toBe(0);
@@ -229,6 +265,20 @@ describe("cortex CLI", () => {
 		expect(semantic.code).toBe(0);
 		expect(semantic.stdout).toContain("fts");
 		expect(semantic.stdout).toContain("Adotar JWT para autenticação");
+	});
+
+	test("search --json prints scored results as JSON", () => {
+		const result = cli("search", "jwt", "--json");
+		expect(result.code).toBe(0);
+		const results: {
+			score: number;
+			source: string;
+			node: { title: string };
+		}[] = JSON.parse(result.stdout);
+		expect(results.length).toBeGreaterThan(0);
+		expect(results[0]?.source).toBe("fts");
+		expect(typeof results[0]?.score).toBe("number");
+		expect(results[0]?.node.title).toBe("Adotar JWT para autenticação");
 	});
 
 	test("index builds code.db in full, then incrementally, then forced", () => {
@@ -276,6 +326,23 @@ describe("cortex CLI", () => {
 		expect(result.stdout).toContain("anchors: all files exist");
 		expect(result.stdout).toContain("keywords: all decisions have >= 5");
 		expect(result.stdout).toContain("code index: in sync");
+	});
+
+	test("doctor --json reports structured checks and keeps the exit code", () => {
+		const result = cli("doctor", "--json");
+		expect(result.code).toBe(1);
+		const report: {
+			checks: { level: string; message: string }[];
+			issues: number;
+		} = JSON.parse(result.stdout);
+		expect(report.issues).toBeGreaterThan(0);
+		expect(
+			report.checks.some(
+				(check) =>
+					check.level === "warn" && check.message.includes("without embedding"),
+			),
+		).toBe(true);
+		expect(report.checks.some((check) => check.level === "ok")).toBe(true);
 	});
 
 	test("doctor flags an outdated code index, low resolution and orphan symbols", () => {
@@ -335,6 +402,25 @@ describe("cortex CLI", () => {
 		expect(result.stdout).toContain("Decisão do endpoint de login");
 	});
 
+	test("impact --json serializes root, graph and code impact", () => {
+		const result = cli("impact", decisionA, "--json");
+		expect(result.code).toBe(0);
+		const impact: {
+			root: { id: string };
+			impacted: { node: { title: string } }[];
+			codeImpacted: { filePath: string }[];
+			codeWarning: string | null;
+		} = JSON.parse(result.stdout);
+		expect(impact.root.id).toBe(decisionA);
+		expect(impact.impacted.map((entry) => entry.node.title)).toContain(
+			"Refresh tokens em cookie httpOnly",
+		);
+		expect(impact.codeImpacted.map((entry) => entry.filePath)).toContain(
+			"src/api/login.ts",
+		);
+		expect(impact.codeWarning).toBeNull();
+	});
+
 	test("why resolves a bare symbol to its file and anchored decisions", () => {
 		const result = cli("why", "ok");
 		expect(result.code).toBe(0);
@@ -344,6 +430,24 @@ describe("cortex CLI", () => {
 		const unknown = cli("why", "GhostSymbol");
 		expect(unknown.code).toBe(0);
 		expect(unknown.stdout).toContain("No decisions anchored to GhostSymbol.");
+	});
+
+	test("why --json distinguishes path, symbol and no-match targets", () => {
+		const byPath = JSON.parse(
+			cli("why", "src/auth/service.ts", "--json").stdout,
+		);
+		expect(byPath.matchedBy).toBe("path");
+		expect(
+			byPath.decisions.map((decision: { title: string }) => decision.title),
+		).toContain("Adotar JWT para autenticação");
+
+		const bySymbol = JSON.parse(cli("why", "ok", "--json").stdout);
+		expect(bySymbol.matchedBy).toBe("symbol");
+		expect(bySymbol.locations[0].filePath).toBe("src/auth/service.ts");
+		expect(bySymbol.locations[0].line).toBe(2);
+
+		const none = JSON.parse(cli("why", "GhostSymbol", "--json").stdout);
+		expect(none.matchedBy).toBeNull();
 	});
 
 	test("serve requires --mcp", () => {
@@ -365,6 +469,7 @@ describe("cortex CLI", () => {
 		try {
 			const tools = await client.listTools();
 			expect(tools.tools).toHaveLength(4);
+			expect(client.getServerVersion()?.version).toBe(CORTEX_VERSION);
 		} finally {
 			await client.close();
 		}

@@ -1,12 +1,17 @@
 import { parseArgs } from "node:util";
 import type { Decision } from "@/domain";
+import { printJson } from "../json";
 import { openInitializedRuntime } from "../open-runtime";
 import { style } from "../style";
 
 export async function runLog(args: string[], cwd: string): Promise<number> {
 	const { values } = parseArgs({
 		args,
-		options: { module: { type: "string" }, since: { type: "string" } },
+		options: {
+			module: { type: "string" },
+			since: { type: "string" },
+			json: { type: "boolean", default: false },
+		},
 	});
 	const runtime = await openInitializedRuntime(cwd);
 	if (!runtime) return 1;
@@ -15,6 +20,10 @@ export async function runLog(args: string[], cwd: string): Promise<number> {
 			module: values.module,
 			sinceSha: values.since,
 		});
+		if (values.json) {
+			printJson(decisions);
+			return 0;
+		}
 		if (decisions.length === 0) {
 			console.log(style.dim("No active decisions."));
 			return 0;
