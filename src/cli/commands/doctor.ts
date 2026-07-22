@@ -5,12 +5,12 @@ import { GEMMA_MODEL } from "@/embedding/model";
 import { computeDrift } from "@/indexer/code-indexer";
 import { listSourceFiles } from "@/indexer/source-walker";
 import { TsconfigAliases } from "@/indexer/tsconfig-aliases";
-import type { CortexRuntime } from "@/mcp/runtime";
+import type { CortexRuntime } from "@/app/runtime";
 import { CodeRepository } from "@/storage/code-repository";
 import { readConfig } from "@/storage/config";
 import { openCodeDb } from "@/storage/connection";
 import { migrateCode, SCHEMA_VERSION } from "@/storage/migrations";
-import { cortexDirOf, openInitializedRuntime } from "../open-runtime";
+import { openInitializedRuntime } from "../open-runtime";
 
 const MINIMUM_KEYWORDS = 5;
 const MINIMUM_RESOLUTION_RATE = 0.85;
@@ -58,7 +58,7 @@ async function checkConfig(
 	runtime: CortexRuntime,
 	report: DoctorReport,
 ): Promise<void> {
-	const config = await readConfig(cortexDirOf(runtime));
+	const config = await readConfig(runtime.cortexDir);
 	if (!config) {
 		report.warn("config missing — run: cortex init");
 		return;
@@ -121,11 +121,11 @@ async function checkCodeIndex(
 	runtime: CortexRuntime,
 	report: DoctorReport,
 ): Promise<void> {
-	if (!existsSync(join(cortexDirOf(runtime), "code.db"))) {
+	if (!existsSync(join(runtime.cortexDir, "code.db"))) {
 		report.warn("code index not built — run: cortex index");
 		return;
 	}
-	const database = openCodeDb(cortexDirOf(runtime));
+	const database = openCodeDb(runtime.cortexDir);
 	try {
 		migrateCode(database);
 		const repository = new CodeRepository(database);

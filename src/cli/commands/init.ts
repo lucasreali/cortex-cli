@@ -2,7 +2,7 @@ import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { GEMMA_MODEL } from "@/embedding/model";
 import { getRepoRoot } from "@/git";
-import { buildRuntime } from "@/mcp/runtime";
+import { buildRuntime } from "@/app/runtime";
 import { readConfig, writeConfig } from "@/storage/config";
 import { SCHEMA_VERSION } from "@/storage/migrations";
 

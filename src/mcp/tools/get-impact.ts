@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { Decision } from "@/domain";
 import { CodeImpactAnalysis } from "@/storage/code-impact";
-import type { CortexRuntime } from "../runtime";
+import type { CortexRuntime } from "@/app/runtime";
 import { errorResult, jsonResult } from "./results";
 
 const DESCRIPTION = `List every decision affected by changing a given decision, through two lenses.

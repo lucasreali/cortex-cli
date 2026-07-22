@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { buildRuntime, type CortexRuntime } from "@/app/runtime";
 import { getRepoRoot } from "@/git";
-import { buildRuntime, type CortexRuntime } from "@/mcp/runtime";
 
 export async function openInitializedRuntime(
 	cwd: string,
@@ -12,8 +12,4 @@ export async function openInitializedRuntime(
 		return null;
 	}
 	return buildRuntime(cwd);
-}
-
-export function cortexDirOf(runtime: CortexRuntime): string {
-	return join(runtime.repoRoot, ".cortex");
 }

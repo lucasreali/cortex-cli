@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { type CreateDecisionInput, createDecisionSchema } from "@/domain";
 import type { CodeRepository } from "@/storage/code-repository";
-import type { CortexRuntime } from "../runtime";
+import type { CortexRuntime } from "@/app/runtime";
 import { errorResult, jsonResult } from "./results";
 
 const DESCRIPTION = `Record a technical decision in the project's persistent memory (Cortex).

@@ -1,6 +1,6 @@
 import { parseArgs } from "node:util";
 import type { Decision } from "@/domain";
-import type { CortexRuntime } from "@/mcp/runtime";
+import type { CortexRuntime } from "@/app/runtime";
 import { CodeImpactAnalysis } from "@/storage/code-impact";
 import { openInitializedRuntime } from "../open-runtime";
 

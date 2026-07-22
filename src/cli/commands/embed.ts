@@ -1,9 +1,9 @@
 import { parseArgs } from "node:util";
 import { decisionPassage } from "@/embedding/queue";
-import type { CortexRuntime } from "@/mcp/runtime";
+import type { CortexRuntime } from "@/app/runtime";
 import { readConfig, writeConfig } from "@/storage/config";
 import { SCHEMA_VERSION } from "@/storage/migrations";
-import { cortexDirOf, openInitializedRuntime } from "../open-runtime";
+import { openInitializedRuntime } from "../open-runtime";
 
 export async function runEmbed(args: string[], cwd: string): Promise<number> {
 	const { values } = parseArgs({
@@ -53,10 +53,9 @@ async function rebuild(
 	);
 	if (code !== 0 || !runtime.provider) return code;
 
-	const cortexDir = cortexDirOf(runtime);
-	const config = await readConfig(cortexDir);
+	const config = await readConfig(runtime.cortexDir);
 	if (config?.model_id !== runtime.provider.modelId) {
-		await writeConfig(cortexDir, {
+		await writeConfig(runtime.cortexDir, {
 			model_id: runtime.provider.modelId,
 			schema_version: config?.schema_version ?? SCHEMA_VERSION,
 		});

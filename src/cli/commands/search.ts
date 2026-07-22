@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import type { CortexRuntime } from "@/mcp/runtime";
+import type { CortexRuntime } from "@/app/runtime";
 import { openInitializedRuntime } from "../open-runtime";
 
 export async function runSearch(args: string[], cwd: string): Promise<number> {

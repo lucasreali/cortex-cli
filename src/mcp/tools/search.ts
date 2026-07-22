@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import type { CortexRuntime } from "../runtime";
+import type { CortexRuntime } from "@/app/runtime";
 import { jsonResult } from "./results";
 
 const DESCRIPTION = `Keyword and semantic search over the project's recorded decisions (Cortex).

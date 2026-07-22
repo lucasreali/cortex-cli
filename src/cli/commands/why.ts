@@ -1,6 +1,6 @@
 import { parseArgs } from "node:util";
 import type { Decision } from "@/domain";
-import type { CortexRuntime } from "@/mcp/runtime";
+import type { CortexRuntime } from "@/app/runtime";
 import { openInitializedRuntime } from "../open-runtime";
 
 export async function runWhy(args: string[], cwd: string): Promise<number> {

@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { buildRuntime, type CortexRuntime } from "./runtime";
+import { buildRuntime, type CortexRuntime } from "@/app/runtime";
 import { registerGetContext } from "./tools/get-context";
 import { registerGetImpact } from "./tools/get-impact";
 import { registerSaveDecision } from "./tools/save-decision";

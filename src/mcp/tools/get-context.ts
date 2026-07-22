@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { Decision } from "@/domain";
 import type { SemanticSearchResult } from "@/embedding/semantic-search";
-import type { CortexRuntime } from "../runtime";
+import type { CortexRuntime } from "@/app/runtime";
 import { jsonResult } from "./results";
 
 const DESCRIPTION = `Fetch decision context from the project's persistent memory (Cortex).

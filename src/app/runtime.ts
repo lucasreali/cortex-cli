@@ -17,6 +17,7 @@ import { SearchRepository } from "@/storage/search-repository";
 
 export interface CortexRuntime {
 	repoRoot: string;
+	cortexDir: string;
 	projectNodeId: string;
 	projectCanonicalId: string;
 	pinnedModelId: string;
@@ -75,6 +76,7 @@ export async function buildRuntime(cwd: string): Promise<CortexRuntime> {
 
 	return {
 		repoRoot,
+		cortexDir,
 		projectNodeId,
 		projectCanonicalId,
 		pinnedModelId,
