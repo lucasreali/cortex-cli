@@ -1,14 +1,7 @@
-import type { Database } from "bun:sqlite";
 import { join } from "node:path";
-import { CodeRepository } from "@/storage/code-repository";
-import { openCodeDb } from "@/storage/connection";
-import { migrateCode } from "@/storage/migrations";
+import { type OpenCodeRepository, openCodeRepository } from "@/storage/code-db";
+import type { CodeRepository } from "@/storage/code-repository";
 import { CodeIndexer } from "./code-indexer";
-
-interface OpenIndex {
-	database: Database;
-	repository: CodeRepository;
-}
 
 export interface CodeIndex {
 	repository(): Promise<CodeRepository>;
@@ -18,7 +11,7 @@ export interface CodeIndex {
 // MCP sessions reconcile the code index lazily: the first query that touches
 // code.db pays for the catch-up of edits made while the server was down.
 export class LazyCodeIndex implements CodeIndex {
-	private open: OpenIndex | null = null;
+	private open: OpenCodeRepository | null = null;
 
 	constructor(private readonly repoRoot: string) {}
 
@@ -32,12 +25,10 @@ export class LazyCodeIndex implements CodeIndex {
 		this.open = null;
 	}
 
-	private async reconcile(): Promise<OpenIndex> {
-		const database = openCodeDb(join(this.repoRoot, ".cortex"));
-		migrateCode(database);
-		const repository = new CodeRepository(database);
-		const indexer = await CodeIndexer.create(this.repoRoot, repository);
+	private async reconcile(): Promise<OpenCodeRepository> {
+		const open = openCodeRepository(join(this.repoRoot, ".cortex"));
+		const indexer = await CodeIndexer.create(this.repoRoot, open.repository);
 		await indexer.run();
-		return { database, repository };
+		return open;
 	}
 }

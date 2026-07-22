@@ -1,21 +1,21 @@
+import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { buildRuntime } from "@/app/runtime";
 import { GEMMA_MODEL } from "@/embedding/model";
-import { getRepoRoot } from "@/git";
+import { getCanonicalProjectId, getRepoRoot } from "@/git";
 import { readConfig, writeConfig } from "@/storage/config";
-import { SCHEMA_VERSION } from "@/storage/migrations";
+import { openDecisionsDb } from "@/storage/connection";
+import { migrate, SCHEMA_VERSION } from "@/storage/migrations";
+import { NodeRepository } from "@/storage/node-repository";
 
 export async function runInit(args: string[], cwd: string): Promise<number> {
 	const { values } = parseArgs({
 		args,
 		options: { yes: { type: "boolean", default: false } },
 	});
-	const runtime = await buildRuntime(cwd);
-	runtime.dispose();
-
 	const root = getRepoRoot(cwd) ?? resolve(cwd);
 	const cortexDir = join(root, ".cortex");
+	initializeStorage(root, cortexDir);
 	if (!(await readConfig(cortexDir))) {
 		await writeConfig(cortexDir, {
 			model_id: GEMMA_MODEL.modelId,
@@ -31,6 +31,17 @@ export async function runInit(args: string[], cwd: string): Promise<number> {
 	console.log("  2. decisions saved via save_decision become searchable with");
 	console.log("       cortex search <terms> | cortex log | cortex why <path>");
 	return 0;
+}
+
+function initializeStorage(root: string, cortexDir: string): void {
+	mkdirSync(cortexDir, { recursive: true });
+	const db = openDecisionsDb(cortexDir);
+	try {
+		migrate(db);
+		new NodeRepository(db).ensureProject(getCanonicalProjectId(root) ?? root);
+	} finally {
+		db.close();
+	}
 }
 
 async function ensureGitignore(

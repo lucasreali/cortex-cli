@@ -7,10 +7,10 @@ import { GEMMA_MODEL } from "@/embedding/model";
 import { computeDrift } from "@/indexer/code-indexer";
 import { listSourceFiles } from "@/indexer/source-walker";
 import { TsconfigAliases } from "@/indexer/tsconfig-aliases";
-import { CodeRepository } from "@/storage/code-repository";
+import { openCodeRepository } from "@/storage/code-db";
+import type { CodeRepository } from "@/storage/code-repository";
 import { readConfig } from "@/storage/config";
-import { openCodeDb } from "@/storage/connection";
-import { migrateCode, SCHEMA_VERSION } from "@/storage/migrations";
+import { SCHEMA_VERSION } from "@/storage/migrations";
 import { openInitializedRuntime } from "../open-runtime";
 
 const MINIMUM_KEYWORDS = 5;
@@ -126,10 +126,8 @@ async function checkCodeIndex(
 		report.warn("code index not built — run: cortex index");
 		return;
 	}
-	const database = openCodeDb(runtime.cortexDir);
+	const { database, repository } = openCodeRepository(runtime.cortexDir);
 	try {
-		migrateCode(database);
-		const repository = new CodeRepository(database);
 		checkCodeDrift(runtime, repository, report);
 		await checkImportResolution(runtime, repository, report);
 		checkSymbolAnchors(runtime, repository, report);

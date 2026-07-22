@@ -3,9 +3,7 @@ import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { getRepoRoot } from "@/git";
 import { CodeIndexer } from "@/indexer/code-indexer";
-import { CodeRepository } from "@/storage/code-repository";
-import { openCodeDb } from "@/storage/connection";
-import { migrateCode } from "@/storage/migrations";
+import { openCodeRepository } from "@/storage/code-db";
 
 export async function runIndex(args: string[], cwd: string): Promise<number> {
 	const { values } = parseArgs({
@@ -17,13 +15,9 @@ export async function runIndex(args: string[], cwd: string): Promise<number> {
 		console.error("Cortex is not initialized here. Run: cortex init");
 		return 1;
 	}
-	const database = openCodeDb(join(root, ".cortex"));
+	const { database, repository } = openCodeRepository(join(root, ".cortex"));
 	try {
-		migrateCode(database);
-		const indexer = await CodeIndexer.create(
-			root,
-			new CodeRepository(database),
-		);
+		const indexer = await CodeIndexer.create(root, repository);
 		const started = performance.now();
 		const report = await indexer.run({ force: values.force });
 		const elapsed = Math.round(performance.now() - started);
