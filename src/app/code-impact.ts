@@ -1,6 +1,9 @@
 import type { Decision, ImportProvenance } from "@/domain";
-import type { CodeRepository, TransitiveImporter } from "./code-repository";
-import type { NodeRepository } from "./node-repository";
+import type {
+	CodeRepository,
+	TransitiveImporter,
+} from "@/storage/code-repository";
+import type { NodeRepository } from "@/storage/node-repository";
 
 export interface CodeImpactedDecision {
 	decision: Decision;

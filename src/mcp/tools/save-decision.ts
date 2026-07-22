@@ -1,9 +1,10 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { CortexRuntime } from "@/app/runtime";
+import { symbolHint } from "@/app/symbol-hints";
 import { type CreateDecisionInput, createDecisionSchema } from "@/domain";
 import type { CodeRepository } from "@/storage/code-repository";
-import type { CortexRuntime } from "@/app/runtime";
 import { errorResult, jsonResult } from "./results";
 
 const DESCRIPTION = `Record a technical decision in the project's persistent memory (Cortex).
@@ -13,8 +14,6 @@ Call this whenever a non-trivial choice is made, confirmed, or reversed during t
 Link related decisions: depends_on = ids this decision builds on (impact analysis walks these links); replaces = id of the decision this one supersedes (the old decision is archived, never deleted). anchors tie the decision to the files/symbols it governs so future readers of that code can find it. Symbol anchors use the qualified name from the code index (e.g. "AuthService.validateToken").
 
 Returns { id, warnings } — warnings flag anchor files missing from the working tree and anchor symbols missing from the code index, with close-match suggestions (the decision is still saved).`;
-
-const SUGGESTION_LIMIT = 3;
 
 export function registerSaveDecision(
 	server: McpServer,
@@ -84,8 +83,6 @@ function symbolWarning(
 	symbol: string,
 ): string[] {
 	if (code.hasSymbol(filePath, symbol)) return [];
-	const suggestions = code.suggestSymbols(filePath, symbol, SUGGESTION_LIMIT);
-	const hint =
-		suggestions.length > 0 ? ` — did you mean: ${suggestions.join(", ")}?` : "";
+	const hint = symbolHint(code, filePath, symbol);
 	return [`symbol not found in code index: ${symbol} (${filePath})${hint}`];
 }

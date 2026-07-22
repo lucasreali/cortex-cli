@@ -1,6 +1,6 @@
 import { parseArgs } from "node:util";
-import { decisionPassage } from "@/embedding/queue";
 import type { CortexRuntime } from "@/app/runtime";
+import { decisionPassage } from "@/embedding/queue";
 import { readConfig, writeConfig } from "@/storage/config";
 import { SCHEMA_VERSION } from "@/storage/migrations";
 import { openInitializedRuntime } from "../open-runtime";

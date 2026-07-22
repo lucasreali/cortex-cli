@@ -1,11 +1,12 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { CortexRuntime } from "@/app/runtime";
+import { symbolHint } from "@/app/symbol-hints";
 import { GEMMA_MODEL } from "@/embedding/model";
 import { computeDrift } from "@/indexer/code-indexer";
 import { listSourceFiles } from "@/indexer/source-walker";
 import { TsconfigAliases } from "@/indexer/tsconfig-aliases";
-import type { CortexRuntime } from "@/app/runtime";
 import { CodeRepository } from "@/storage/code-repository";
 import { readConfig } from "@/storage/config";
 import { openCodeDb } from "@/storage/connection";
@@ -202,15 +203,7 @@ function checkSymbolAnchors(
 		return;
 	}
 	for (const { anchor, title } of orphans) {
-		const suggestions = repository.suggestSymbols(
-			anchor.filePath,
-			anchor.symbol,
-			3,
-		);
-		const hint =
-			suggestions.length > 0
-				? ` — did you mean: ${suggestions.join(", ")}?`
-				: "";
+		const hint = symbolHint(repository, anchor.filePath, anchor.symbol);
 		report.warn(
 			`orphan symbol anchor: ${anchor.filePath}#${anchor.symbol} (${title})${hint}`,
 		);

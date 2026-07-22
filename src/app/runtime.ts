@@ -6,7 +6,7 @@ import { GEMMA_MODEL } from "@/embedding/model";
 import { EmbedQueue } from "@/embedding/queue";
 import { SemanticSearch } from "@/embedding/semantic-search";
 import { getCanonicalProjectId, getHead, getRepoRoot } from "@/git";
-import { LazyCodeIndex } from "@/indexer/lazy-code-index";
+import { type CodeIndex, LazyCodeIndex } from "@/indexer/lazy-code-index";
 import { readConfig } from "@/storage/config";
 import { openDecisionsDb } from "@/storage/connection";
 import { EdgeRepository } from "@/storage/edge-repository";
@@ -28,7 +28,7 @@ export interface CortexRuntime {
 	provider: GemmaProvider | null;
 	queue: EmbedQueue | null;
 	semanticSearch: SemanticSearch;
-	codeIndex: LazyCodeIndex;
+	codeIndex: CodeIndex;
 	ensureSession(): string;
 	saveContext(): SaveContext;
 	dispose(): void;
