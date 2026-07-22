@@ -5,12 +5,13 @@ import type { CortexRuntime } from "@/app/runtime";
 import { symbolHint } from "@/app/symbol-hints";
 import { GEMMA_MODEL } from "@/embedding/model";
 import { computeDrift } from "@/indexer/code-indexer";
+import { EXTRACTION_VERSION } from "@/indexer/extraction-version";
 import { listSourceFiles } from "@/indexer/source-walker";
 import { TsconfigAliases } from "@/indexer/tsconfig-aliases";
 import { openCodeRepository } from "@/storage/code-db";
 import type { CodeRepository } from "@/storage/code-repository";
 import { readConfig } from "@/storage/config";
-import { SCHEMA_VERSION } from "@/storage/migrations";
+import { CODE_SCHEMA_VERSION, SCHEMA_VERSION } from "@/storage/migrations";
 import { openInitializedRuntime } from "../open-runtime";
 import { success, warning } from "../style";
 
@@ -130,12 +131,35 @@ async function checkCodeIndex(
 	}
 	const { database, repository } = openCodeRepository(runtime.cortexDir);
 	try {
+		checkCodeVersions(repository, report);
 		checkCodeDrift(runtime, repository, report);
 		await checkImportResolution(runtime, repository, report);
 		checkSymbolAnchors(runtime, repository, report);
 	} finally {
 		database.close();
 	}
+}
+
+function checkCodeVersions(
+	repository: CodeRepository,
+	report: DoctorReport,
+): void {
+	const stamped = repository.extractionVersion();
+	if (stamped === EXTRACTION_VERSION) {
+		report.ok(
+			`code index: schema v${CODE_SCHEMA_VERSION}, extraction v${EXTRACTION_VERSION}`,
+		);
+		return;
+	}
+	report.warn(
+		`code index extraction ${describeStamp(stamped)} != current v${EXTRACTION_VERSION} ` +
+			`— stale content, run: cortex index`,
+	);
+}
+
+function describeStamp(stamped: number | null): string {
+	if (stamped === null) return "unstamped";
+	return `v${stamped}`;
 }
 
 function checkCodeDrift(

@@ -100,7 +100,10 @@ describe("code.db migrations", () => {
 	test("running twice on the same connection is a no-op", () => {
 		migrateCode(db);
 		const rows = db.query("SELECT id, name FROM _migrations").all();
-		expect(rows).toEqual([{ id: 1, name: "code-schema" }]);
+		expect(rows).toEqual([
+			{ id: 1, name: "code-schema" },
+			{ id: 2, name: "code-meta" },
+		]);
 	});
 
 	test("running again after reopening the database is a no-op", () => {
@@ -108,15 +111,33 @@ describe("code.db migrations", () => {
 		db = openCodeDb(dir);
 		migrateCode(db);
 		expect(db.query("SELECT count(*) AS n FROM _migrations").get()).toEqual({
-			n: 1,
+			n: 2,
 		});
 	});
 
 	test("creates the code.db tables", () => {
 		const tables = schemaNames("table");
-		for (const table of ["files", "symbols", "imports", "_migrations"]) {
+		for (const table of [
+			"files",
+			"symbols",
+			"imports",
+			"meta",
+			"_migrations",
+		]) {
 			expect(tables).toContain(table);
 		}
+	});
+
+	test("upgrades a v1 database in place, preserving indexed data", () => {
+		repository.wipeAndRebuild([entryFixture()]);
+		db.run("DROP TABLE meta");
+		db.run("DELETE FROM _migrations WHERE id = 2");
+
+		migrateCode(db);
+
+		expect(schemaNames("table")).toContain("meta");
+		expect(repository.getFile("src/auth/service.ts")).not.toBeNull();
+		expect(repository.extractionVersion()).toBeNull();
 	});
 
 	test("creates the indexes", () => {
@@ -248,6 +269,26 @@ describe("CodeRepository symbol lookups", () => {
 		expect(repository.suggestSymbols("src/ghost.ts", "login", 3)).toEqual([
 			"login",
 		]);
+	});
+});
+
+describe("CodeRepository extraction version", () => {
+	test("is null until stamped", () => {
+		expect(repository.extractionVersion()).toBeNull();
+	});
+
+	test("stamping stores and restamping overwrites", () => {
+		repository.stampExtractionVersion(1);
+		expect(repository.extractionVersion()).toBe(1);
+
+		repository.stampExtractionVersion(2);
+		expect(repository.extractionVersion()).toBe(2);
+	});
+
+	test("survives wipeAndRebuild", () => {
+		repository.stampExtractionVersion(3);
+		repository.wipeAndRebuild([entryFixture()]);
+		expect(repository.extractionVersion()).toBe(3);
 	});
 });
 

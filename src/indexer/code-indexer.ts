@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import type { CodeImport, FileIndexEntry, IndexedFile } from "@/domain";
 import type { CodeRepository } from "@/storage/code-repository";
+import { EXTRACTION_VERSION } from "./extraction-version";
 import { ensureGrammar } from "./grammar";
 import { ImportResolver } from "./import-resolver";
 import { listSourceFiles, type SourceFile } from "./source-walker";
@@ -61,10 +62,15 @@ export class CodeIndexer {
 			this.repoRoot,
 			sources.map((source) => source.path),
 		);
-		if (options.force || this.repository.listFiles().length === 0) {
+		if (options.force || this.needsFullIndex()) {
 			return this.fullIndex(sources, resolver);
 		}
 		return this.incrementalIndex(sources, resolver);
+	}
+
+	private needsFullIndex(): boolean {
+		if (this.repository.listFiles().length === 0) return true;
+		return this.repository.extractionVersion() !== EXTRACTION_VERSION;
 	}
 
 	private async fullIndex(
@@ -76,6 +82,7 @@ export class CodeIndexer {
 			entries.push(await this.toEntry(source, resolver));
 		}
 		this.repository.wipeAndRebuild(entries);
+		this.repository.stampExtractionVersion(EXTRACTION_VERSION);
 		return { mode: "full", indexed: entries.length, unchanged: 0, removed: 0 };
 	}
 

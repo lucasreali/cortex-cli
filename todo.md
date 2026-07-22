@@ -101,6 +101,19 @@ agente, ambas vindas do codegraph (`src/mcp/tools.ts:35-52`, `:520`):
 
 ### 4. Versionamento de conteúdo do `code.db` (dois eixos)
 
+**Feito (2026-07-22).** `EXTRACTION_VERSION` em
+`src/indexer/extraction-version.ts`, gravada na tabela `meta` do `code.db`
+(migration id 2 `code-meta`, `003-code-meta.sql` — a primeira de evolução
+real; upgrade in place coberto em `tests/storage/code-db.test.ts`).
+`CodeIndexer.run` trata stamp ausente ou antigo como full index e re-stampa
+após o rebuild, então CLI e `LazyCodeIndex` se auto-corrigem no próximo
+reconcile (aceite em `tests/indexer/code-indexer.test.ts` e
+`tests/indexer/lazy-code-index.test.ts`). `doctor` mostra o par
+`schema v2, extraction v1` e alerta stamp desatualizado recomendando
+`cortex index` (`tests/cli/cli.test.ts`). Validado no próprio repo: o
+`code.db` pré-feature veio unstamped e o `cortex index` seguinte fez
+rebuild completo sem `--force`.
+
 O banco de decisões já tem os dois eixos: `schema_version` (migrável) e o
 `model_id` pinado (mismatch → re-embed, falha alto). O `code.db` só tem o
 eixo de schema: se o `tsx-extractor.ts` mudar o que extrai, índices

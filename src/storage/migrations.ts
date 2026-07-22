@@ -3,6 +3,7 @@ import decisionsSchema from "./migrations/001-decisions-schema.sql" with {
 	type: "text",
 };
 import codeSchema from "./migrations/002-code-schema.sql" with { type: "text" };
+import codeMeta from "./migrations/003-code-meta.sql" with { type: "text" };
 
 interface Migration {
 	id: number;
@@ -24,10 +25,18 @@ const codeMigrations: Migration[] = [
 		name: "code-schema",
 		up: (db) => db.run(codeSchema),
 	},
+	{
+		id: 2,
+		name: "code-meta",
+		up: (db) => db.run(codeMeta),
+	},
 ];
 
 export const SCHEMA_VERSION =
 	decisionsMigrations[decisionsMigrations.length - 1]?.id ?? 0;
+
+export const CODE_SCHEMA_VERSION =
+	codeMigrations[codeMigrations.length - 1]?.id ?? 0;
 
 export function migrate(db: Database): void {
 	applyAll(db, decisionsMigrations);

@@ -69,6 +69,26 @@ export class CodeRepository {
 		this.db.transaction(() => this.deleteFileRows(path))();
 	}
 
+	extractionVersion(): number | null {
+		const row = this.db
+			.query<{ value: string }, []>(
+				"SELECT value FROM meta WHERE key = 'extraction_version'",
+			)
+			.get();
+		if (!row) return null;
+		const parsed = Number.parseInt(row.value, 10);
+		return Number.isFinite(parsed) ? parsed : null;
+	}
+
+	stampExtractionVersion(version: number): void {
+		this.db
+			.query(
+				`INSERT INTO meta (key, value) VALUES ('extraction_version', ?)
+				 ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+			)
+			.run(String(version));
+	}
+
 	touchFile(file: IndexedFile): void {
 		this.db
 			.query(

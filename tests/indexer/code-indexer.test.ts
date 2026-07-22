@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodeIndexer, computeDrift } from "@/indexer/code-indexer";
+import { EXTRACTION_VERSION } from "@/indexer/extraction-version";
 import { listSourceFiles } from "@/indexer/source-walker";
 import { CodeRepository } from "@/storage/code-repository";
 import { openCodeDb } from "@/storage/connection";
@@ -147,6 +148,31 @@ describe("CodeIndexer", () => {
 
 		expect(report.indexed).toBe(1);
 		expect(repository.getFile("src/fresh.ts")).not.toBeNull();
+	});
+
+	test("a full index stamps the current extraction version", async () => {
+		await indexer.run();
+		expect(repository.extractionVersion()).toBe(EXTRACTION_VERSION);
+	});
+
+	test("a stale extraction stamp forces a full rebuild", async () => {
+		await indexer.run();
+		repository.stampExtractionVersion(EXTRACTION_VERSION - 1);
+
+		const report = await indexer.run();
+
+		expect(report.mode).toBe("full");
+		expect(report.indexed).toBe(FILE_COUNT);
+		expect(repository.extractionVersion()).toBe(EXTRACTION_VERSION);
+	});
+
+	test("an unstamped populated index forces a full rebuild", async () => {
+		await indexer.run();
+		db.query("DELETE FROM meta WHERE key = 'extraction_version'").run();
+
+		const report = await indexer.run();
+
+		expect(report.mode).toBe("full");
 	});
 
 	test("force always rebuilds from scratch", async () => {

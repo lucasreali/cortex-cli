@@ -12,7 +12,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { EXTRACTION_VERSION } from "@/indexer/extraction-version";
+import { openCodeRepository } from "@/storage/code-db";
 import { openDecisionsDb } from "@/storage/connection";
+import { CODE_SCHEMA_VERSION } from "@/storage/migrations";
 import { NodeRepository, type SaveContext } from "@/storage/node-repository";
 
 const MAIN_PATH = new URL("../../src/cli/main.ts", import.meta.url).pathname;
@@ -294,6 +297,26 @@ describe("cortex CLI", () => {
 		expect(result.stdout).toContain(
 			"orphan symbol anchor: src/auth/service.ts#Ghost.method",
 		);
+	});
+
+	test("doctor shows the code.db version pair and flags a stale stamp", () => {
+		expect(cli("index").code).toBe(0);
+		const healthy = cli("doctor");
+		expect(healthy.stdout).toContain(
+			`code index: schema v${CODE_SCHEMA_VERSION}, extraction v${EXTRACTION_VERSION}`,
+		);
+
+		const { database, repository } = openCodeRepository(join(dir, ".cortex"));
+		repository.stampExtractionVersion(EXTRACTION_VERSION - 1);
+		database.close();
+
+		const stale = cli("doctor");
+		expect(stale.stdout).toContain(
+			`code index extraction v${EXTRACTION_VERSION - 1} != current ` +
+				`v${EXTRACTION_VERSION} — stale content, run: cortex index`,
+		);
+
+		expect(cli("index").stdout).toContain("(full)");
 	});
 
 	test("impact shows decisions reached through code imports", () => {
