@@ -7,7 +7,7 @@ import { jsonResult } from "./results";
 
 const DESCRIPTION = `Fetch decision context from the project's persistent memory (Cortex).
 
-Call this when starting work on a task, before proposing an architectural change, or whenever you need to know why something is the way it is. With "intent" — a natural-language question, Portuguese or English, e.g. "como autenticamos usuários?" or "how do we paginate lists?" — it runs semantic search and returns the most relevant decisions ranked by score. Without "intent" it returns the project identity, the list of known modules (valid values for the module filter), the most recent active decisions and recent session summaries.
+Call this when starting work on a task, before proposing an architectural change, or whenever you need to know why something is the way it is. With "intent" — a natural-language question, Portuguese or English, e.g. "como autenticamos usuários?" or "how do we paginate lists?" — it runs semantic search and returns the most relevant decisions ranked by score, each tagged with source ("vector" = semantic match; "fts" = textual fallback, used while the embedding model is cold or unavailable). Without "intent" it returns the project identity, the list of known modules (valid values for the module filter), the most recent active decisions and recent session summaries.
 
 Results are compact (id, title, summary). Use get_impact on an id to see what a decision affects, or search for keyword lookup.`;
 

@@ -5,7 +5,7 @@ import { jsonResult } from "./results";
 
 const DESCRIPTION = `Keyword and semantic search over the project's recorded decisions (Cortex).
 
-Pass several terms, mixing Portuguese and English variants of the same concept — e.g. ["autenticação", "authentication", "jwt", "login"] — terms are OR-ed and matching ignores accents ("decisao" finds "decisão"). With exact=true only literal full-text matches return (fast and precise, good for error messages, library names, identifiers). Default (false) also ranks semantically when the embedding model is available, so conceptually related decisions surface even without term overlap.
+Pass several terms, mixing Portuguese and English variants of the same concept — e.g. ["autenticação", "authentication", "jwt", "login"] — terms are OR-ed and matching ignores accents ("decisao" finds "decisão"). With exact=true only literal full-text matches return (fast and precise, good for error messages, library names, and qualified symbols like "AuthService.validateToken"). Default (false) also ranks semantically when the embedding model is available, so conceptually related decisions surface even without term overlap.
 
 Returns compact results: id, title, score, and source ("vector" = semantic match, "fts" = textual match). Use get_impact on an id before changing what you find.`;
 

@@ -7,7 +7,7 @@ import { errorResult, jsonResult } from "./results";
 
 const DESCRIPTION = `List every decision affected by changing a given decision, through two lenses.
 
-Call this before modifying, replacing, or contradicting a recorded decision. "impacted" walks explicit DEPENDS_ON links in both directions — decisions this one builds on, and decisions built on it — up to max_depth hops. "code_impacted" walks the code: decisions anchored to files that transitively import the files this decision is anchored to, up to code_depth import hops. Code entries carry provenance — "exact" import chains are reliably resolved, "heuristic" ones come from inferred resolution and may be wrong; treat them as leads, not proof. Use the returned ids with get_context or search for full detail.`;
+Call this before modifying, replacing, or contradicting a recorded decision. "impacted" walks explicit DEPENDS_ON links in both directions — decisions this one builds on, and decisions built on it — up to max_depth hops. "code_impacted" walks the code: decisions anchored to files that transitively import the files this decision is anchored to, up to code_depth import hops. Code entries carry provenance — "exact" import chains are reliably resolved, "heuristic" ones come from inferred resolution and may be wrong; treat them as leads, not proof. If the code index cannot be loaded, code_impacted comes back empty with a code_warning explaining why. Use the returned ids with get_context or search for full detail.`;
 
 const DEFAULT_DEPTH = 3;
 

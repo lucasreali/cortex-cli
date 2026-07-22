@@ -100,6 +100,27 @@ function seedDecisions(): void {
 	db.close();
 }
 
+function seedLoginDecision(): void {
+	const db: Database = openDecisionsDb(join(dir, ".cortex"));
+	const nodes = new NodeRepository(db);
+	const projectId = nodes.ensureProject("github.com/acme/demo");
+	nodes.createDecision(
+		{
+			title: "Decisão do endpoint de login",
+			body: "O endpoint de login consome o serviço de autenticação diretamente.",
+			keywords: ["login", "endpoint", "api", "auth", "serviço"],
+			anchors: [{ file_path: "src/api/login.ts" }],
+		},
+		{
+			projectId,
+			sessionId: nodes.createSession(projectId),
+			commitSha: "sha-3",
+			commitDirty: false,
+		},
+	);
+	db.close();
+}
+
 function seedGhostSymbolDecision(): void {
 	const db: Database = openDecisionsDb(join(dir, ".cortex"));
 	const nodes = new NodeRepository(db);
@@ -201,17 +222,6 @@ describe("cortex CLI", () => {
 		expect(semantic.stdout).toContain("Adotar JWT para autenticação");
 	});
 
-	test("impact prints the indented dependency tree", () => {
-		const result = cli("impact", decisionA);
-		expect(result.code).toBe(0);
-		expect(result.stdout).toContain("Adotar JWT para autenticação");
-		expect(result.stdout).toContain("  └─ Refresh tokens em cookie httpOnly");
-
-		const missing = cli("impact", "01890000-0000-7000-8000-000000000000");
-		expect(missing.code).toBe(1);
-		expect(missing.stderr).toContain("decision not found");
-	});
-
 	test("index builds code.db in full, then incrementally, then forced", () => {
 		const first = cli("index");
 		expect(first.code).toBe(0);
@@ -225,6 +235,17 @@ describe("cortex CLI", () => {
 
 		const forced = cli("index", "--force");
 		expect(forced.stdout).toContain("(full)");
+	});
+
+	test("impact prints the indented dependency tree", () => {
+		const result = cli("impact", decisionA);
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain("Adotar JWT para autenticação");
+		expect(result.stdout).toContain("  └─ Refresh tokens em cookie httpOnly");
+
+		const missing = cli("impact", "01890000-0000-7000-8000-000000000000");
+		expect(missing.code).toBe(1);
+		expect(missing.stderr).toContain("decision not found");
 	});
 
 	test("embed --missing fails loudly when embeddings are disabled", () => {
@@ -267,6 +288,22 @@ describe("cortex CLI", () => {
 		expect(result.stdout).toContain(
 			"orphan symbol anchor: src/auth/service.ts#Ghost.method",
 		);
+	});
+
+	test("impact shows decisions reached through code imports", () => {
+		mkdirSync(join(dir, "src/api"), { recursive: true });
+		writeFileSync(
+			join(dir, "src/api/login.ts"),
+			'import { ok } from "../auth/service";\nexport const login = () => ok();\n',
+		);
+		seedLoginDecision();
+
+		const result = cli("impact", decisionA);
+
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain("Via code (imports):");
+		expect(result.stdout).toContain("src/api/login.ts (1 hop, heuristic)");
+		expect(result.stdout).toContain("Decisão do endpoint de login");
 	});
 
 	test("why resolves a bare symbol to its file and anchored decisions", () => {
