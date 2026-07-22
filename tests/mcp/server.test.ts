@@ -1,47 +1,28 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import {
-	mkdirSync,
-	mkdtempSync,
-	realpathSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-
-const SERVER_PATH = new URL("../../src/mcp/server.ts", import.meta.url)
-	.pathname;
-const CLI_PATH = new URL("../../src/cli/main.ts", import.meta.url).pathname;
+import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import {
+	CLI_PATH,
+	callTool as callToolOn,
+	connect,
+	makeTempDir,
+	run as runIn,
+} from "./harness";
 
 let dir: string;
 let client: Client;
 
 function run(...command: string[]): void {
-	const result = Bun.spawnSync(command, { cwd: dir, stderr: "pipe" });
-	if (result.exitCode !== 0) {
-		throw new Error(`${command.join(" ")}: ${result.stderr.toString()}`);
-	}
+	runIn(dir, ...command);
 }
 
 async function callTool(name: string, args: Record<string, unknown>) {
-	let result: Awaited<ReturnType<Client["callTool"]>>;
-	try {
-		result = await client.callTool({ name, arguments: args });
-	} catch (error) {
-		return { isError: true, payload: null, message: String(error) };
-	}
-	const content = result.content as Array<{ type: string; text: string }>;
-	const text = content[0]?.text ?? "";
-	if (result.isError === true) {
-		return { isError: true, payload: null, message: text };
-	}
-	return { isError: false, payload: JSON.parse(text), message: text };
+	return callToolOn(client, name, args);
 }
 
 beforeAll(async () => {
-	dir = realpathSync(mkdtempSync(join(tmpdir(), "cortex-mcp-")));
+	dir = makeTempDir("cortex-mcp-");
 	run("git", "init", "-b", "main");
 	run("git", "remote", "add", "origin", "git@github.com:acme/demo.git");
 	mkdirSync(join(dir, "src/auth"), { recursive: true });
@@ -68,15 +49,7 @@ beforeAll(async () => {
 	);
 	run("bun", CLI_PATH, "init", "--yes");
 
-	client = new Client({ name: "e2e", version: "0.0.0" });
-	await client.connect(
-		new StdioClientTransport({
-			command: "bun",
-			args: [SERVER_PATH],
-			cwd: dir,
-			env: { ...process.env, CORTEX_DISABLE_EMBEDDINGS: "1" },
-		}),
-	);
+	client = await connect(dir);
 }, 30_000);
 
 afterAll(async () => {
@@ -96,6 +69,18 @@ describe("cortex MCP server e2e", () => {
 			"save_decision",
 			"search",
 		]);
+	});
+
+	test("read tools advertise the read-only contract", async () => {
+		const tools = await client.listTools();
+		const annotations = new Map(
+			tools.tools.map((tool) => [tool.name, tool.annotations]),
+		);
+		for (const name of ["get_context", "get_impact", "search"]) {
+			expect(annotations.get(name)?.readOnlyHint).toBe(true);
+			expect(annotations.get(name)?.destructiveHint).toBe(false);
+		}
+		expect(annotations.get("save_decision")?.readOnlyHint).toBeUndefined();
 	});
 
 	test("save_decision returns id, records head and warns on missing anchors", async () => {
@@ -221,11 +206,13 @@ describe("cortex MCP server e2e", () => {
 		expect(anchorless.payload.code_impacted).toEqual([]);
 	});
 
-	test("get_impact on an unknown id errors without crashing", async () => {
-		const { isError } = await callTool("get_impact", {
+	test("get_impact on an unknown id returns guidance, not an error", async () => {
+		const { isError, payload } = await callTool("get_impact", {
 			decision_id: "01890000-0000-7000-8000-000000000000",
 		});
-		expect(isError).toBe(true);
+		expect(isError).toBe(false);
+		expect(payload.status).toBe("not_found");
+		expect(payload.guidance).toContain("get_context");
 	});
 
 	test("replace hides the old decision from get_context", async () => {
@@ -265,5 +252,43 @@ describe("cortex MCP server e2e", () => {
 		expect(
 			payload.results.every((r: { source: string }) => r.source === "fts"),
 		).toBe(true);
+	});
+
+	test("save_decision with unknown linked ids returns guidance, not an error", async () => {
+		const ghost = "01890000-0000-7000-8000-00000000dead";
+		const { isError, payload } = await callTool("save_decision", {
+			title: "Tentativa de link inválido",
+			body: "Corpo suficiente para o schema de decisão aceitar este registro.",
+			keywords: ["link", "inválido", "invalid", "teste", "guidance"],
+			depends_on: [ghost],
+		});
+		expect(isError).toBe(false);
+		expect(payload.status).toBe("not_found");
+		expect(payload.guidance).toContain(ghost);
+
+		const lookup = await callTool("search", {
+			terms: ["inválido"],
+			exact: true,
+		});
+		expect(lookup.payload.results).toEqual([]);
+	});
+
+	test("search with unmatched terms returns empty results with guidance", async () => {
+		const { isError, payload } = await callTool("search", {
+			terms: ["kubernetes"],
+			exact: true,
+		});
+		expect(isError).toBe(false);
+		expect(payload.results).toEqual([]);
+		expect(payload.guidance).toContain("get_context");
+	});
+
+	test("get_context with an unmatched intent returns guidance", async () => {
+		const { isError, payload } = await callTool("get_context", {
+			intent: "observability opentelemetry tracing",
+		});
+		expect(isError).toBe(false);
+		expect(payload.decisions).toEqual([]);
+		expect(payload.guidance).toContain("search");
 	});
 });

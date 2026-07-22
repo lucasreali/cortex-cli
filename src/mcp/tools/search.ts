@@ -4,6 +4,7 @@ import type { CortexRuntime } from "@/app/runtime";
 import { searchDecisions } from "@/app/search-decisions";
 import type { SemanticSearchResult } from "@/embedding/semantic-search";
 import type { RuntimeRegistry } from "../runtime-registry";
+import { READ_ONLY_ANNOTATIONS } from "./annotations";
 import { projectPathField, scopedToProject } from "./project-scope";
 import { jsonResult } from "./results";
 
@@ -13,6 +14,10 @@ Pass several terms, mixing Portuguese and English variants of the same concept â
 
 Returns compact results: id, title, score, and source ("vector" = semantic match, "fts" = textual match). Use get_impact on an id before changing what you find.`;
 
+const NO_MATCH_GUIDANCE =
+	"No decision matched these terms. Retry with broader PT/EN variants, or " +
+	"call get_context without intent to browse what is recorded.";
+
 export function registerSearch(
 	server: McpServer,
 	registry: RuntimeRegistry,
@@ -21,6 +26,7 @@ export function registerSearch(
 		"search",
 		{
 			description: DESCRIPTION,
+			annotations: READ_ONLY_ANNOTATIONS,
 			inputSchema: {
 				terms: z
 					.array(z.string().min(1))
@@ -50,7 +56,10 @@ async function search(
 		args.terms,
 		args.exact === true,
 	);
-	return jsonResult({ results: results.map(resultEntry) });
+	return jsonResult({
+		results: results.map(resultEntry),
+		...(results.length === 0 ? { guidance: NO_MATCH_GUIDANCE } : {}),
+	});
 }
 
 function resultEntry(result: SemanticSearchResult) {

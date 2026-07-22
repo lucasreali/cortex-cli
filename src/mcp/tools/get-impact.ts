@@ -4,8 +4,9 @@ import type { DecisionImpact } from "@/app/decision-impact";
 import { decisionImpact } from "@/app/decision-impact";
 import type { CortexRuntime } from "@/app/runtime";
 import type { RuntimeRegistry } from "../runtime-registry";
+import { READ_ONLY_ANNOTATIONS } from "./annotations";
 import { projectPathField, scopedToProject } from "./project-scope";
-import { errorResult, jsonResult } from "./results";
+import { guidanceResult, jsonResult } from "./results";
 
 const DESCRIPTION = `List every decision affected by changing a given decision, through two lenses.
 
@@ -19,6 +20,7 @@ export function registerGetImpact(
 		"get_impact",
 		{
 			description: DESCRIPTION,
+			annotations: READ_ONLY_ANNOTATIONS,
 			inputSchema: {
 				decision_id: z
 					.uuid()
@@ -54,7 +56,14 @@ async function getImpact(
 		maxDepth: args.max_depth,
 		codeDepth: args.code_depth,
 	});
-	if (!impact) return errorResult(`decision not found: ${args.decision_id}`);
+	if (!impact) {
+		return guidanceResult(
+			"not_found",
+			`No decision ${args.decision_id} in this project's store. List valid ` +
+				"ids with get_context or search; if the decision lives in another " +
+				"project, pass its projectPath.",
+		);
+	}
 	return jsonResult(toPayload(impact));
 }
 

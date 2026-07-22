@@ -4,6 +4,7 @@ import type { CortexRuntime } from "@/app/runtime";
 import type { Decision } from "@/domain";
 import type { SemanticSearchResult } from "@/embedding/semantic-search";
 import type { RuntimeRegistry } from "../runtime-registry";
+import { READ_ONLY_ANNOTATIONS } from "./annotations";
 import { projectPathField, scopedToProject } from "./project-scope";
 import { jsonResult } from "./results";
 
@@ -16,6 +17,14 @@ Results are compact (id, title, summary). Use get_impact on an id to see what a 
 const RECENT_LIMIT = 10;
 const SESSION_LIMIT = 5;
 
+const NO_MATCH_GUIDANCE =
+	"No recorded decision matched this intent. Retry via search with PT/EN " +
+	"keyword variants, or omit intent to browse recent decisions.";
+const EMPTY_STORE_GUIDANCE =
+	"No active decisions here yet. If module was set, check it against the " +
+	"modules list; otherwise record decisions with save_decision as choices " +
+	"are made.";
+
 export function registerGetContext(
 	server: McpServer,
 	registry: RuntimeRegistry,
@@ -24,6 +33,7 @@ export function registerGetContext(
 		"get_context",
 		{
 			description: DESCRIPTION,
+			annotations: READ_ONLY_ANNOTATIONS,
 			inputSchema: {
 				intent: z
 					.string()
@@ -49,21 +59,33 @@ async function getContext(
 	runtime: CortexRuntime,
 	args: { intent?: string; module?: string },
 ) {
-	if (args.intent) {
-		const results = await runtime.semanticSearch.search(args.intent);
-		const filtered = args.module
-			? results.filter((result) => result.node.module === args.module)
-			: results;
-		return jsonResult({ decisions: filtered.map(searchEntry) });
-	}
-	const recent = runtime.nodes
-		.listActive({ module: args.module })
-		.slice(0, RECENT_LIMIT);
+	if (args.intent) return intentContext(runtime, args.intent, args.module);
+	return overviewContext(runtime, args.module);
+}
+
+async function intentContext(
+	runtime: CortexRuntime,
+	intent: string,
+	module?: string,
+) {
+	const results = await runtime.semanticSearch.search(intent);
+	const filtered = module
+		? results.filter((result) => result.node.module === module)
+		: results;
+	return jsonResult({
+		decisions: filtered.map(searchEntry),
+		...(filtered.length === 0 ? { guidance: NO_MATCH_GUIDANCE } : {}),
+	});
+}
+
+function overviewContext(runtime: CortexRuntime, module?: string) {
+	const recent = runtime.nodes.listActive({ module }).slice(0, RECENT_LIMIT);
 	return jsonResult({
 		project: runtime.projectCanonicalId,
 		modules: runtime.nodes.listModules(),
 		decisions: recent.map(decisionEntry),
 		sessions: runtime.nodes.listSessionSummaries(SESSION_LIMIT),
+		...(recent.length === 0 ? { guidance: EMPTY_STORE_GUIDANCE } : {}),
 	});
 }
 

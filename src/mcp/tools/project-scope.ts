@@ -2,7 +2,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { CortexRuntime } from "@/app/runtime";
 import type { RuntimeRegistry } from "../runtime-registry";
-import { jsonResult } from "./results";
+import { guidanceResult } from "./results";
 
 const RESOLUTION_HINT =
 	"Absolute path to the project to target — any directory inside it works; " +
@@ -30,10 +30,7 @@ export function scopedToProject<Args extends Record<string, unknown>>(
 	return async ({ projectPath, ...args }) => {
 		const resolution = await registry.resolve(projectPath);
 		if (!resolution.ok) {
-			return jsonResult({
-				status: "not_initialized",
-				guidance: resolution.guidance,
-			});
+			return guidanceResult("not_initialized", resolution.guidance);
 		}
 		return handler(resolution.runtime, args as unknown as Args);
 	};

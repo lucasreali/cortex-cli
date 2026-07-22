@@ -71,6 +71,20 @@ nível do usuário, em vez de um `claude mcp add` por projeto.
 
 ### 3. Disciplina de resultado no MCP: `readOnlyHint` + orientação em vez de erro
 
+**Feito (2026-07-22).** `READ_ONLY_ANNOTATIONS` compartilhadas
+(`src/mcp/tools/annotations.ts`: readOnly/idempotent/não-destrutivo/closed-world,
+como o codegraph) nas três tools de leitura; `guidanceResult(status, guidance)`
+em `src/mcp/tools/results.ts` generaliza o formato-sucesso-com-orientação:
+`get_impact` com id desconhecido e `save_decision` com `replaces`/`depends_on`
+inexistentes (antes estourava FK crua do SQLite como `isError`) retornam
+`{status: "not_found", guidance}`; `search`/`get_context` vazios ganham
+`guidance` no payload. `errorResult` ficou só para falha genuína
+(catch do `save_decision`). Aceite coberto: harness e2e extraído para
+`tests/mcp/harness.ts`; `tests/mcp/result-discipline.test.ts` prova ausência
+de `isError` com `code.db` corrompido (get_impact → `code_warning`,
+save_decision → warning); caminho não inicializado já coberto em
+`tests/mcp/multi-project.test.ts`.
+
 Duas mudanças baratas com efeito desproporcional no comportamento do
 agente, ambas vindas do codegraph (`src/mcp/tools.ts:35-52`, `:520`):
 

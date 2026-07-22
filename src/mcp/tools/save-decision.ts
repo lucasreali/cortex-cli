@@ -7,7 +7,7 @@ import { type CreateDecisionInput, createDecisionSchema } from "@/domain";
 import type { CodeRepository } from "@/storage/code-repository";
 import type { RuntimeRegistry } from "../runtime-registry";
 import { projectPathField, scopedToProject } from "./project-scope";
-import { errorResult, jsonResult } from "./results";
+import { errorResult, guidanceResult, jsonResult } from "./results";
 
 const DESCRIPTION = `Record a technical decision in the project's persistent memory (Cortex).
 
@@ -38,6 +38,15 @@ async function saveDecision(
 	runtime: CortexRuntime,
 	input: CreateDecisionInput,
 ) {
+	const missing = missingLinkedDecisions(runtime, input);
+	if (missing.length > 0) {
+		return guidanceResult(
+			"not_found",
+			`Linked decisions not found in this store: ${missing.join(", ")}. ` +
+				"Nothing was saved — check the ids with get_context or search, then " +
+				"retry with valid links or without them.",
+		);
+	}
 	const warnings = [
 		...anchorWarnings(runtime, input),
 		...(await symbolWarnings(runtime, input)),
@@ -53,6 +62,17 @@ async function saveDecision(
 	} catch (error) {
 		return errorResult(error);
 	}
+}
+
+function missingLinkedDecisions(
+	runtime: CortexRuntime,
+	input: CreateDecisionInput,
+): string[] {
+	const linked = [
+		...(input.depends_on ?? []),
+		...(input.replaces ? [input.replaces] : []),
+	];
+	return linked.filter((id) => runtime.nodes.getById(id) === null);
 }
 
 function anchorWarnings(
