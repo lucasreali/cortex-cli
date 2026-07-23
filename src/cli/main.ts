@@ -132,6 +132,10 @@ async function main(): Promise<void> {
 		printUsage();
 		process.exit(name ? 1 : 0);
 	}
+	if (args.includes("--help") || args.includes("-h")) {
+		console.log(`usage: cortex ${command.usage}\n\n${command.description}`);
+		return;
+	}
 	try {
 		const code = await command.run(args, process.cwd());
 		if (code !== null) process.exit(code);

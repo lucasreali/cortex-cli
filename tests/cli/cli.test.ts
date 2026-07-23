@@ -177,6 +177,15 @@ describe("cortex CLI", () => {
 		}
 	});
 
+	test("subcommand --help and -h print its usage and exit 0", () => {
+		for (const flag of ["--help", "-h"]) {
+			const result = cli("search", flag);
+			expect(result.code).toBe(0);
+			expect(result.stdout).toContain("usage: cortex search");
+			expect(result.stdout).toContain("search decisions by meaning or keyword");
+		}
+	});
+
 	test("internal commands stay out of the usage listing", () => {
 		const result = cli("--help");
 		for (const internal of ["prompt-hook", "embed-worker", "embed-daemon"]) {
@@ -319,6 +328,18 @@ describe("cortex CLI", () => {
 		const missing = cli("impact", "01890000-0000-7000-8000-000000000000");
 		expect(missing.code).toBe(1);
 		expect(missing.stderr).toContain("decision not found");
+	});
+
+	test("impact validates --depth and still accepts explicit integers", () => {
+		for (const bad of ["banana", "-1", "1.5"]) {
+			const result = cli("impact", decisionA, `--depth=${bad}`);
+			expect(result.code).toBe(1);
+			expect(result.stderr).toContain("non-negative integer");
+		}
+
+		const explicit = cli("impact", decisionA, "--depth", "1");
+		expect(explicit.code).toBe(0);
+		expect(explicit.stdout).toContain("Refresh tokens em cookie httpOnly");
 	});
 
 	test("embed --missing fails loudly when embeddings are disabled", () => {

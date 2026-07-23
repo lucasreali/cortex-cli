@@ -22,10 +22,16 @@ export async function runImpact(args: string[], cwd: string): Promise<number> {
 		console.error("usage: cortex impact <id> [--depth N] [--json]");
 		return 1;
 	}
+	const depth = parseDepth(values.depth);
+	if (depth === null) {
+		console.error(
+			"usage: cortex impact <id> [--depth N] [--json] — N must be a non-negative integer",
+		);
+		return 1;
+	}
 	const runtime = await openInitializedRuntime(cwd);
 	if (!runtime) return 1;
 	try {
-		const depth = values.depth ? Number(values.depth) : DEFAULT_IMPACT_DEPTH;
 		const impact = await decisionImpact(runtime, id, {
 			maxDepth: depth,
 			codeDepth: depth,
@@ -44,6 +50,12 @@ export async function runImpact(args: string[], cwd: string): Promise<number> {
 	} finally {
 		runtime.dispose();
 	}
+}
+
+function parseDepth(raw: string | undefined): number | null {
+	if (raw === undefined) return DEFAULT_IMPACT_DEPTH;
+	const depth = Number(raw);
+	return Number.isInteger(depth) && depth >= 0 ? depth : null;
 }
 
 function printDependsOnTree(impact: DecisionImpact): void {
