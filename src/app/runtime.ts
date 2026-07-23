@@ -55,9 +55,10 @@ export async function buildRuntimeAt(
 	const edges = new EdgeRepository(db);
 	const fts = new SearchRepository(db);
 	const embeddings = new EmbeddingRepository(db);
-	// The config is the single source of truth for the embedding space
-	// (spec §2.5): the provider is built from the pinned model_id, and an
-	// unknown id fails the startup loudly instead of drifting silently.
+	// The config is the single source of truth for the embedding space: the
+	// provider is built from the pinned model_id, and an unknown id fails the
+	// startup loudly instead of drifting silently. Mixing vectors from
+	// different models in one store would corrupt every similarity score.
 	const config = await readConfig(cortexDir);
 	const pinnedModelId = config?.model_id ?? GEMMA_MODEL.modelId;
 	const provider = embeddingsDisabled()

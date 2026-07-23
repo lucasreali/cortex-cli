@@ -269,21 +269,17 @@ e wiring dos comandos ocultos em `tests/cli/cli.test.ts`.
 
 ## Manutenção
 
-- [ ] `--help` em subcomando falha em vez de mostrar a usage:
-  `cortex search --help` cai no modo strict do `parseArgs` ("Unknown option
-  '--help'", exit 1). Interceptar `-h`/`--help` em `src/cli/main.ts` antes
-  de delegar e imprimir `usage`/`description` do comando (~5 linhas; o
-  registro `COMMANDS` já tem os dados).
-- [ ] `cortex impact <id> --depth banana` vira `NaN` silencioso:
-  `src/cli/commands/impact.ts:28` faz `Number(values.depth)` sem validar.
-  Rejeitar não-inteiro/negativo com erro de usage e exit 1.
-- [ ] Corrigir typo do model id no comentário do schema:
-  `src/storage/migrations/001-decisions-schema.sql:38` diz
-  `embeddinggemma-300m-q@256`, o id real é `embeddinggemma-300m-q8@256`.
-- [ ] Substituir o `CLAUDE.md` genérico de boilerplate Bun (documenta
-  `Bun.serve`/HTML imports que esta CLI não usa) por orientação específica
-  do cortex: mapa da arquitetura, fluxo de dogfooding, convenções de
-  teste.
+- [x] **Feito (2026-07-23).** `--help`/`-h` em subcomando interceptados em
+  `src/cli/main.ts` antes de delegar, imprimindo `usage`/`description` do
+  registro `COMMANDS`; aceite em `tests/cli/cli.test.ts`.
+- [x] **Feito (2026-07-23).** `cortex impact --depth` valida a entrada
+  (`parseDepth` em `src/cli/commands/impact.ts`): não-inteiro/negativo →
+  erro de usage e exit 1, em vez de `NaN` silencioso.
+- [x] **Feito (2026-07-23).** Typo do model id no comentário de
+  `001-decisions-schema.sql` corrigido para `embeddinggemma-300m-q8@256`.
+- [x] **Feito (2026-07-23).** `CLAUDE.md` reescrito com o mapa real do
+  projeto: arquitetura, topologia de processos do embedding, convenções e
+  fluxo de dogfooding, no lugar do boilerplate Bun genérico.
 
 ---
 

@@ -35,7 +35,7 @@ CREATE INDEX idx_edges_reverse ON edges (to_id, kind, from_id);
 
 CREATE TABLE embeddings (
 	node_id    TEXT PRIMARY KEY REFERENCES nodes(id) ON DELETE CASCADE,
-	model_id   TEXT NOT NULL,                      -- 'embeddinggemma-300m-q@256'
+	model_id   TEXT NOT NULL,                      -- 'embeddinggemma-300m-q8@256'
 	dims       INTEGER NOT NULL,
 	vector     BLOB NOT NULL,                      -- Float32Array
 	created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))

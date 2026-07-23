@@ -1,106 +1,73 @@
+# cortex-cli
 
-Default to using Bun instead of Node.js.
+Persistent decision memory for coding agents: a Bun CLI plus MCP server that
+stores decisions in SQLite and links them to code through a tree-sitter index.
+`README.md` documents user-facing behavior; this file is the map for working
+on the code.
 
-- Use `bun <file>` instead of `node <file>` or `ts-node <file>`
-- Use `bun test` instead of `jest` or `vitest`
-- Use `bun build <file.html|file.ts|file.css>` instead of `webpack` or `esbuild`
-- Use `bun install` instead of `npm install` or `yarn install` or `pnpm install`
-- Use `bun run <script>` instead of `npm run <script>` or `yarn run <script>` or `pnpm run <script>`
-- Use `bunx <package> <command>` instead of `npx <package> <command>`
-- Bun automatically loads .env, so don't use dotenv.
+## Commands
 
-## APIs
+- `bun test` — full suite (real SQLite, CLI covered end-to-end via subprocess)
+- `bun run test:coverage` — 100% line/function threshold enforced (`bunfig.toml`)
+- `RUN_MODEL_TESTS=1 bun test` — also loads the real embedding model
+- `bun run typecheck` / `bun run check` — strict tsc / Biome (writes fixes)
+- `bun run build` — compile the single-file binary; `bun run smoke:compiled` verifies it
+- `bun src/cli/main.ts <command>` — run the CLI from source
 
-- `Bun.serve()` supports WebSockets, HTTPS, and routes. Don't use `express`.
-- `bun:sqlite` for SQLite. Don't use `better-sqlite3`.
-- `Bun.redis` for Redis. Don't use `ioredis`.
-- `Bun.sql` for Postgres. Don't use `pg` or `postgres.js`.
-- `WebSocket` is built-in. Don't use `ws`.
-- Prefer `Bun.file` over `node:fs`'s readFile/writeFile
-- Bun.$`ls` instead of execa.
+## Architecture
 
-## Testing
+Dependency direction, no cycles:
+`cli`/`mcp` → `app` → `embedding`/`indexer`/`storage`/`git` → `domain`
 
-Use `bun test` to run tests.
+- `domain/` — pure types + Zod schemas; depends only on zod. Shared
+  invariants (e.g. `MINIMUM_KEYWORDS`) are defined here, nowhere else.
+- `storage/` — thin repositories over `bun:sqlite`. Two databases per
+  project, on purpose: `decisions.db` (permanent, the product) and `code.db`
+  (disposable, wiped and rebuilt freely) — never merge them. `nodes_fts` is
+  insert-only; `SearchRepository` joins `nodes` on `status = 'active'`, so
+  replaced decisions never leave the index and consumers do not re-filter.
+- `git/` — subprocess git: repo root, HEAD, canonical project identity.
+- `indexer/` — tree-sitter code index (TS/JS only), reconciled lazily on
+  first use; no file watcher (deliberate — see todo.md).
+- `embedding/` — the hard part; see topology below.
+- `app/` — use cases; `runtime.ts` is the composition root. Use cases narrow
+  `CortexRuntime` with `Pick<>` instead of introducing interfaces.
+- `cli/` — hand-rolled dispatch table in `main.ts` (deliberate, no CLI
+  framework); one file per command in `cli/commands/`.
+- `mcp/` — server with 4 tools; `RuntimeRegistry` caches one runtime per
+  resolved project root. Recoverable states return `guidanceResult`, never
+  `isError`.
 
-```ts#index.test.ts
-import { test, expect } from "bun:test";
+## Embedding process topology
 
-test("hello world", () => {
-  expect(1).toBe(1);
-});
-```
+Three processes, reachable as hidden CLI subcommands (`prompt-hook`,
+`embed-worker`, `embed-daemon`) so the compiled binary can spawn itself
+(`embedding/subprocess-command.ts`):
 
-## Frontend
+- CLI commands spawn a private worker subprocess (NDJSON on stdio, WASM
+  transformers.js — native addons would break the single-file binary).
+- The MCP server prefers the per-user shared daemon (Unix socket), falling
+  back to a private worker.
+- Degradation ladder — never weaken it: shared daemon → private worker →
+  pure FTS. The vector path never blocks a query: hung workers are killed by
+  timeout and FTS answers instead.
 
-Use HTML imports with `Bun.serve()`. Don't use `vite`. HTML imports fully support React, CSS, Tailwind.
+`prompt-hook` bypasses `app/runtime` and opens the database read-only on
+purpose: it runs on every prompt and must never fail or migrate state.
 
-Server:
+## Conventions
 
-```ts#index.ts
-import index from "./index.html"
+- Bun-native APIs throughout (`bun:sqlite`, `Bun.spawn`, `Bun.file`); never
+  reach for Node equivalents when Bun has one.
+- DDL, migrations and non-trivial queries (recursive CTEs) live in `.sql`
+  files loaded with Bun text imports; small repository queries stay inline.
+- Cross-directory imports use the `@/` alias; same-directory stay relative.
+- Coverage counts only files imported in-process: `src/cli` is exercised by
+  spawning the CLI from `tests/cli/`, keeping it out of the coverage report.
 
-Bun.serve({
-  routes: {
-    "/": index,
-    "/api/users/:id": {
-      GET: (req) => {
-        return new Response(JSON.stringify({ id: req.params.id }));
-      },
-    },
-  },
-  // optional websocket support
-  websocket: {
-    open: (ws) => {
-      ws.send("Hello, world!");
-    },
-    message: (ws, message) => {
-      ws.send(message);
-    },
-    close: (ws) => {
-      // handle close
-    }
-  },
-  development: {
-    hmr: true,
-    console: true,
-  }
-})
-```
+## Dogfooding
 
-HTML files can import .tsx, .jsx or .js files directly and Bun's bundler will transpile & bundle automatically. `<link>` tags can point to stylesheets and Bun's CSS bundler will bundle.
-
-```html#index.html
-<html>
-  <body>
-    <h1>Hello, world!</h1>
-    <script type="module" src="./frontend.tsx"></script>
-  </body>
-</html>
-```
-
-With the following `frontend.tsx`:
-
-```tsx#frontend.tsx
-import React from "react";
-import { createRoot } from "react-dom/client";
-
-// import .css files directly and it works
-import './index.css';
-
-const root = createRoot(document.body);
-
-export default function Frontend() {
-  return <h1>Hello, world!</h1>;
-}
-
-root.render(<Frontend />);
-```
-
-Then, run index.ts
-
-```sh
-bun --hot ./index.ts
-```
-
-For more information, read the Bun API docs in `node_modules/bun-types/docs/**.mdx`.
+This repo records its own technical decisions in `.cortex/decisions.db`
+(committed; `code.db` is gitignored). After a decision is confirmed, save it
+through the real interface — `save_decision` against `cortex serve --mcp` —
+then run `cortex embed --missing` and `cortex doctor`.
