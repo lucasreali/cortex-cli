@@ -244,6 +244,14 @@ repo, isso duplica um model load pesado por sessão.
 
 ## Manutenção
 
+- [ ] `--help` em subcomando falha em vez de mostrar a usage:
+  `cortex search --help` cai no modo strict do `parseArgs` ("Unknown option
+  '--help'", exit 1). Interceptar `-h`/`--help` em `src/cli/main.ts` antes
+  de delegar e imprimir `usage`/`description` do comando (~5 linhas; o
+  registro `COMMANDS` já tem os dados).
+- [ ] `cortex impact <id> --depth banana` vira `NaN` silencioso:
+  `src/cli/commands/impact.ts:28` faz `Number(values.depth)` sem validar.
+  Rejeitar não-inteiro/negativo com erro de usage e exit 1.
 - [ ] Corrigir typo do model id no comentário do schema:
   `src/storage/migrations/001-decisions-schema.sql:38` diz
   `embeddinggemma-300m-q@256`, o id real é `embeddinggemma-300m-q8@256`.
