@@ -1,0 +1,182 @@
+import { chmodSync, unlinkSync } from "node:fs";
+import type { Socket } from "bun";
+import type { GemmaProvider } from "@/embedding/gemma-provider";
+import { LineBuffer } from "@/embedding/line-buffer";
+import type { WorkerRequest, WorkerResponse } from "@/embedding/protocol";
+import { withTimeout } from "@/embedding/with-timeout";
+import { DAEMON_PROTOCOL, encodeDaemonHello } from "./hello";
+
+export interface EmbeddingDaemonOptions {
+	socketPath: string;
+	version: string;
+	provider: GemmaProvider;
+	idleTimeoutMs?: number;
+	requestTimeoutMs?: number;
+}
+
+const DEFAULT_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
+
+interface ClientState {
+	lines: LineBuffer;
+}
+
+type ClientSocket = Socket<ClientState>;
+
+interface SocketListener {
+	stop(closeActiveConnections?: boolean): void;
+}
+
+export class EmbeddingDaemon {
+	private readonly clients = new Set<ClientSocket>();
+	private readonly closedState = Promise.withResolvers<string>();
+	private listener: SocketListener | null = null;
+	private idleTimer: ReturnType<typeof setTimeout> | null = null;
+	private stopping = false;
+
+	constructor(private readonly options: EmbeddingDaemonOptions) {}
+
+	start(): void {
+		removeSocketFile(this.options.socketPath);
+		this.listener = Bun.listen<ClientState>({
+			unix: this.options.socketPath,
+			socket: {
+				open: (socket) => this.acceptClient(socket),
+				data: (socket, chunk) => this.receive(socket, chunk),
+				close: (socket) => this.dropClient(socket),
+				error: (socket) => {
+					socket.end();
+				},
+			},
+		});
+		restrictToOwner(this.options.socketPath);
+		this.armIdleTimer();
+	}
+
+	get clientCount(): number {
+		return this.clients.size;
+	}
+
+	get closed(): Promise<string> {
+		return this.closedState.promise;
+	}
+
+	stop(reason: string): void {
+		if (this.stopping) return;
+		this.stopping = true;
+		this.clearIdleTimer();
+		for (const client of this.clients) {
+			client.end();
+		}
+		this.clients.clear();
+		this.listener?.stop(true);
+		this.options.provider.dispose();
+		removeSocketFile(this.options.socketPath);
+		this.closedState.resolve(reason);
+	}
+
+	private acceptClient(socket: ClientSocket): void {
+		socket.data = { lines: new LineBuffer() };
+		this.clients.add(socket);
+		this.clearIdleTimer();
+		socket.write(
+			encodeDaemonHello({
+				cortex: this.options.version,
+				protocol: DAEMON_PROTOCOL,
+				pid: process.pid,
+				modelId: this.options.provider.modelId,
+			}),
+		);
+	}
+
+	private dropClient(socket: ClientSocket): void {
+		if (!this.clients.delete(socket)) return;
+		if (this.clients.size === 0) this.armIdleTimer();
+	}
+
+	private receive(socket: ClientSocket, chunk: Uint8Array): void {
+		for (const line of socket.data.lines.push(chunk)) {
+			void this.respond(socket, line);
+		}
+	}
+
+	private async respond(socket: ClientSocket, line: string): Promise<void> {
+		const request = decodeRequest(line);
+		if (!request) return;
+		this.deliver(socket, await this.serve(request));
+	}
+
+	private async serve(request: WorkerRequest): Promise<WorkerResponse> {
+		try {
+			const vectors = await this.embedWithTimeout(request);
+			return { id: request.id, vectors: vectors.map((vector) => [...vector]) };
+		} catch (error) {
+			return { id: request.id, error: errorMessage(error) };
+		}
+	}
+
+	// A wedged worker must not wedge the daemon for every session: on timeout
+	// the inner provider is disposed and respawns on the next request.
+	private embedWithTimeout(request: WorkerRequest): Promise<Float32Array[]> {
+		const timeoutMs =
+			this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+		return withTimeout(
+			this.options.provider.embed(request.kind, request.texts),
+			timeoutMs,
+			() => this.options.provider.dispose(),
+		);
+	}
+
+	private deliver(socket: ClientSocket, response: WorkerResponse): void {
+		if (!this.clients.has(socket)) return;
+		socket.write(`${JSON.stringify(response)}\n`);
+	}
+
+	private armIdleTimer(): void {
+		if (this.stopping) return;
+		const timeoutMs = this.options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
+		if (timeoutMs <= 0) return;
+		this.clearIdleTimer();
+		this.idleTimer = setTimeout(() => {
+			if (this.clients.size === 0) this.stop("idle timeout");
+		}, timeoutMs);
+		this.idleTimer.unref?.();
+	}
+
+	private clearIdleTimer(): void {
+		if (this.idleTimer) clearTimeout(this.idleTimer);
+		this.idleTimer = null;
+	}
+}
+
+function decodeRequest(line: string): WorkerRequest | null {
+	try {
+		const parsed = JSON.parse(line) as Partial<WorkerRequest>;
+		if (typeof parsed?.id !== "number") return null;
+		if (parsed.kind !== "query" && parsed.kind !== "passages") return null;
+		if (!Array.isArray(parsed.texts)) return null;
+		return parsed as WorkerRequest;
+	} catch {
+		return null;
+	}
+}
+
+function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+function removeSocketFile(socketPath: string): void {
+	try {
+		unlinkSync(socketPath);
+	} catch {
+		// A missing socket file is the normal case.
+	}
+}
+
+function restrictToOwner(socketPath: string): void {
+	try {
+		chmodSync(socketPath, 0o600);
+	} catch {
+		// Best-effort: the daemon directory is already user-only.
+	}
+}

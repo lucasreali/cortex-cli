@@ -1,8 +1,8 @@
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createProvider } from "@/embedding/create-provider";
-import type { GemmaProvider } from "@/embedding/gemma-provider";
 import { GEMMA_MODEL } from "@/embedding/model";
+import type { EmbeddingProvider } from "@/embedding/provider";
 import { EmbedQueue } from "@/embedding/queue";
 import { SemanticSearch } from "@/embedding/semantic-search";
 import { getCanonicalProjectId, getHead, getRepoRoot } from "@/git";
@@ -25,7 +25,7 @@ export interface CortexRuntime {
 	edges: EdgeRepository;
 	fts: SearchRepository;
 	embeddings: EmbeddingRepository;
-	provider: GemmaProvider | null;
+	provider: EmbeddingProvider | null;
 	queue: EmbedQueue | null;
 	semanticSearch: SemanticSearch;
 	codeIndex: CodeIndex;
@@ -34,11 +34,18 @@ export interface CortexRuntime {
 	dispose(): void;
 }
 
+export interface RuntimeOptions {
+	sharedEmbedding?: boolean;
+}
+
 export async function buildRuntime(cwd: string): Promise<CortexRuntime> {
 	return buildRuntimeAt(getRepoRoot(cwd) ?? resolve(cwd));
 }
 
-export async function buildRuntimeAt(repoRoot: string): Promise<CortexRuntime> {
+export async function buildRuntimeAt(
+	repoRoot: string,
+	options: RuntimeOptions = {},
+): Promise<CortexRuntime> {
 	const cortexDir = join(repoRoot, ".cortex");
 	mkdirSync(cortexDir, { recursive: true });
 	const db = openDecisionsDb(cortexDir);
@@ -53,7 +60,11 @@ export async function buildRuntimeAt(repoRoot: string): Promise<CortexRuntime> {
 	// unknown id fails the startup loudly instead of drifting silently.
 	const config = await readConfig(cortexDir);
 	const pinnedModelId = config?.model_id ?? GEMMA_MODEL.modelId;
-	const provider = embeddingsDisabled() ? null : createProvider(pinnedModelId);
+	const provider = embeddingsDisabled()
+		? null
+		: createProvider(pinnedModelId, {
+				shared: options.sharedEmbedding === true,
+			});
 	const semanticSearch = new SemanticSearch({
 		nodes,
 		embeddings,
@@ -102,7 +113,7 @@ export async function buildRuntimeAt(repoRoot: string): Promise<CortexRuntime> {
 			};
 		},
 		dispose() {
-			provider?.dispose();
+			provider?.dispose?.();
 			codeIndex.dispose();
 			db.close();
 		},

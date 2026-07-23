@@ -1,9 +1,11 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Subprocess } from "bun";
+import { LineBuffer } from "./line-buffer";
 import { GEMMA_MODEL } from "./model";
-import type { EmbedKind, WorkerRequest, WorkerResponse } from "./protocol";
+import type { EmbedKind } from "./protocol";
 import type { EmbeddingProvider } from "./provider";
+import { VectorRequestLedger } from "./request-ledger";
 
 export interface GemmaProviderOptions {
 	idleTimeoutMs?: number;
@@ -15,19 +17,13 @@ const DEFAULT_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 
 type WorkerSubprocess = Subprocess<"pipe", "pipe", "inherit">;
 
-interface PendingRequest {
-	resolve(vectors: number[][]): void;
-	reject(error: Error): void;
-}
-
 class WorkerLink {
-	private readonly pending = new Map<number, PendingRequest>();
-	private nextRequestId = 1;
+	private readonly ledger = new VectorRequestLedger();
 
 	constructor(private readonly subprocess: WorkerSubprocess) {
 		void this.readResponses();
 		void this.subprocess.exited.then(() =>
-			this.rejectAll(new Error("embedding worker exited")),
+			this.ledger.rejectAll(new Error("embedding worker exited")),
 		);
 	}
 
@@ -36,12 +32,10 @@ class WorkerLink {
 	}
 
 	send(kind: EmbedKind, texts: string[]): Promise<number[][]> {
-		const request: WorkerRequest = { id: this.nextRequestId++, kind, texts };
+		const { request, vectors } = this.ledger.open(kind, texts);
 		this.subprocess.stdin.write(`${JSON.stringify(request)}\n`);
 		this.subprocess.stdin.flush();
-		return new Promise((resolve, reject) => {
-			this.pending.set(request.id, { resolve, reject });
-		});
+		return vectors;
 	}
 
 	kill(): void {
@@ -49,37 +43,12 @@ class WorkerLink {
 	}
 
 	private async readResponses(): Promise<void> {
-		const decoder = new TextDecoder();
-		let buffered = "";
+		const lines = new LineBuffer();
 		for await (const chunk of this.subprocess.stdout) {
-			buffered += decoder.decode(chunk, { stream: true });
-			let newline = buffered.indexOf("\n");
-			while (newline >= 0) {
-				this.dispatch(buffered.slice(0, newline).trim());
-				buffered = buffered.slice(newline + 1);
-				newline = buffered.indexOf("\n");
+			for (const line of lines.push(chunk)) {
+				this.ledger.settle(line);
 			}
 		}
-	}
-
-	private dispatch(line: string): void {
-		if (!line) return;
-		const response = JSON.parse(line) as WorkerResponse;
-		const entry = this.pending.get(response.id);
-		if (!entry) return;
-		this.pending.delete(response.id);
-		if ("error" in response) {
-			entry.reject(new Error(response.error));
-			return;
-		}
-		entry.resolve(response.vectors);
-	}
-
-	private rejectAll(error: Error): void {
-		for (const entry of this.pending.values()) {
-			entry.reject(error);
-		}
-		this.pending.clear();
 	}
 }
 
@@ -92,14 +61,18 @@ export class GemmaProvider implements EmbeddingProvider {
 	constructor(private readonly options: GemmaProviderOptions = {}) {}
 
 	async embedQuery(text: string): Promise<Float32Array> {
-		const [vector] = await this.request("query", [text]);
+		const [vector] = await this.embed("query", [text]);
 		if (!vector) throw new Error("embedding worker returned no vector");
 		return vector;
 	}
 
 	async embedPassages(texts: string[]): Promise<Float32Array[]> {
-		if (texts.length === 0) return [];
-		return this.request("passages", texts);
+		return this.embed("passages", texts);
+	}
+
+	embed(kind: EmbedKind, texts: string[]): Promise<Float32Array[]> {
+		if (texts.length === 0) return Promise.resolve([]);
+		return this.request(kind, texts);
 	}
 
 	get workerRunning(): boolean {

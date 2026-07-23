@@ -194,6 +194,30 @@ evidência". Construir o gerador de evidência:
 
 ### 7. Daemon compartilhado para o worker de embedding
 
+**Feito (2026-07-22).** Daemon por usuário — não por projeto: o modelo é
+global, então N repos compartilham o mesmo processo — em
+`src/embedding/daemon/`: processo destacado dono de um único
+`GemmaProvider`, servindo o **mesmo protocolo NDJSON do worker** por
+socket Unix (`~/.cortex/daemon/<model>.sock`), com hello versionado por
+conexão (versão + model_id; mismatch → cliente desiste sem matar o
+daemon), lock `wx` cujo clear exige pid comprovadamente morto, e
+refcount de clientes + idle timeout (5 min;
+`CORTEX_DAEMON_IDLE_TIMEOUT_MS`). Worker travado não trava o daemon:
+timeout por request (60s) descarta e respawna o provider interno.
+Cliente: `SharedEmbeddingProvider` decora o `GemmaProvider` e degrada
+para o worker privado em qualquer falha (probe → spawn destacado → poll
+→ fallback) — compartilhar é otimização, nunca dependência; opt-out
+`CORTEX_NO_DAEMON=1`. Ligado só no caminho MCP
+(`RuntimeRegistry` → `buildRuntimeAt(root, {sharedEmbedding: true})`);
+CLI one-shot mantém worker próprio. De quebra, o split NDJSON e o
+correlacionador request/response foram extraídos
+(`line-buffer.ts`/`request-ledger.ts`), desduplicando provider e worker.
+Aceite em `tests/embedding/{daemon-lock,embedding-daemon,
+shared-provider,daemon-spawn}.test.ts` — o e2e prova duas "sessões"
+compartilhando um daemon destacado real (mesmo pid via hello), cold
+starts concorrentes convergindo num daemon só, e cleanup de
+socket+lock em SIGTERM.
+
 Cada sessão MCP hoje sobe seu próprio subprocess com o
 EmbeddingGemma-300m. Com várias sessões de agente simultâneas no mesmo
 repo, isso duplica um model load pesado por sessão.

@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { LineBuffer } from "./line-buffer";
 import { GEMMA_MODEL } from "./model";
 import type { WorkerRequest, WorkerResponse } from "./protocol";
 
@@ -90,16 +91,10 @@ async function handleLine(line: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
-	const decoder = new TextDecoder();
-	let buffered = "";
+	const lines = new LineBuffer();
 	for await (const chunk of Bun.stdin.stream()) {
-		buffered += decoder.decode(chunk, { stream: true });
-		let newline = buffered.indexOf("\n");
-		while (newline >= 0) {
-			const line = buffered.slice(0, newline).trim();
-			buffered = buffered.slice(newline + 1);
-			if (line) await handleLine(line);
-			newline = buffered.indexOf("\n");
+		for (const line of lines.push(chunk)) {
+			await handleLine(line);
 		}
 	}
 }

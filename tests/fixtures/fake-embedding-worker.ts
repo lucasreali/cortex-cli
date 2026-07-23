@@ -1,7 +1,8 @@
 // Speaks the embedding worker's NDJSON protocol without loading a model.
 // Magic first-texts drive failure modes: "!exit" kills the process before
-// answering, "!error" answers an error, "!empty" answers zero vectors and
-// "!noise" emits garbage lines before the real answer.
+// answering, "!error" answers an error, "!empty" answers zero vectors,
+// "!noise" emits garbage lines before the real answer and "!hang" never
+// answers at all.
 
 interface Request {
 	id: number;
@@ -17,6 +18,7 @@ function handle(line: string): void {
 	const request = JSON.parse(line) as Request;
 	const [first] = request.texts;
 	if (first === "!exit") process.exit(1);
+	if (first === "!hang") return;
 	if (first === "!error") {
 		out({ id: request.id, error: "boom" });
 		return;
