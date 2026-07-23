@@ -12,6 +12,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { probeDaemon } from "@/embedding/daemon/client";
+import { type DaemonPaths, daemonPathsFor } from "@/embedding/daemon/paths";
+import { GEMMA_MODEL } from "@/embedding/model";
 import { EXTRACTION_VERSION } from "@/indexer/extraction-version";
 import { openCodeRepository } from "@/storage/code-db";
 import { openDecisionsDb } from "@/storage/connection";
@@ -20,6 +23,10 @@ import { NodeRepository, type SaveContext } from "@/storage/node-repository";
 import { CORTEX_VERSION } from "@/version";
 
 const MAIN_PATH = new URL("../../src/cli/main.ts", import.meta.url).pathname;
+const FAKE_WORKER_PATH = new URL(
+	"../fixtures/fake-embedding-worker.ts",
+	import.meta.url,
+).pathname;
 
 let dir: string;
 let decisionA: string;
@@ -167,6 +174,13 @@ describe("cortex CLI", () => {
 			expect(result.code).toBe(0);
 			expect(result.stdout).toContain("usage: cortex");
 			expect(result.stdout).toContain("--version");
+		}
+	});
+
+	test("internal commands stay out of the usage listing", () => {
+		const result = cli("--help");
+		for (const internal of ["prompt-hook", "embed-worker", "embed-daemon"]) {
+			expect(result.stdout).not.toContain(internal);
 		}
 	});
 
@@ -642,4 +656,60 @@ describe("cortex CLI in an empty project", () => {
 		expect(doctor.code).toBe(1);
 		expect(doctor.stdout).toContain("code index not built — run: cortex index");
 	});
+});
+
+describe("internal embed commands", () => {
+	test("embed-worker exits cleanly on end of input without loading a model", () => {
+		const result = Bun.spawnSync(["bun", MAIN_PATH, "embed-worker"], {
+			stdin: new Uint8Array(0),
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		expect(result.exitCode).toBe(0);
+		expect(result.stdout.toString()).toBe("");
+	});
+
+	test("embed-daemon serves the worker protocol through the CLI", async () => {
+		const daemonDir = realpathSync(
+			mkdtempSync(join(tmpdir(), "cortex-cli-daemon-")),
+		);
+		const paths = daemonPathsFor(GEMMA_MODEL.modelId, daemonDir);
+		const child = Bun.spawn(
+			["bun", MAIN_PATH, "embed-daemon", GEMMA_MODEL.modelId],
+			{
+				stdout: "ignore",
+				stderr: "pipe",
+				env: {
+					...process.env,
+					CORTEX_DAEMON_DIR: daemonDir,
+					CORTEX_EMBED_WORKER_PATH: FAKE_WORKER_PATH,
+				},
+			},
+		);
+		try {
+			const connection = await connectedDaemon(paths);
+			expect(connection.hello.modelId).toBe(GEMMA_MODEL.modelId);
+			expect(connection.hello.cortex).toBe(CORTEX_VERSION);
+			expect(await connection.embed("query", ["hello"])).toEqual([[5, 0, 1]]);
+			connection.close();
+		} finally {
+			child.kill("SIGTERM");
+			await child.exited;
+			rmSync(daemonDir, { recursive: true, force: true });
+		}
+	}, 15_000);
+
+	async function connectedDaemon(paths: DaemonPaths) {
+		const endpoint = {
+			paths,
+			version: CORTEX_VERSION,
+			modelId: GEMMA_MODEL.modelId,
+		};
+		for (let attempt = 0; attempt < 80; attempt++) {
+			const probe = await probeDaemon(endpoint);
+			if (probe.status === "connected") return probe.connection;
+			await Bun.sleep(50);
+		}
+		throw new Error("daemon did not come up");
+	}
 });

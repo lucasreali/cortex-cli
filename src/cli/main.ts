@@ -3,6 +3,8 @@ import { CORTEX_VERSION } from "@/version";
 import { runIndex } from "./commands/code-index";
 import { runDoctor } from "./commands/doctor";
 import { runEmbed } from "./commands/embed";
+import { runEmbedDaemonCommand } from "./commands/embed-daemon";
+import { runEmbedWorkerCommand } from "./commands/embed-worker";
 import { runImpact } from "./commands/impact";
 import { runInit } from "./commands/init";
 import { runLog } from "./commands/log";
@@ -69,6 +71,18 @@ const COMMANDS: Record<string, Command> = {
 		run: runPromptHook,
 		usage: "prompt-hook",
 		description: "Claude Code UserPromptSubmit hook (JSON on stdin)",
+		hidden: true,
+	},
+	"embed-worker": {
+		run: runEmbedWorkerCommand,
+		usage: "embed-worker",
+		description: "embedding worker subprocess (NDJSON on stdio)",
+		hidden: true,
+	},
+	"embed-daemon": {
+		run: runEmbedDaemonCommand,
+		usage: "embed-daemon [model]",
+		description: "shared embedding daemon (Unix socket)",
 		hidden: true,
 	},
 };

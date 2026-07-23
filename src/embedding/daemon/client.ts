@@ -4,6 +4,7 @@ import type { Socket } from "bun";
 import { LineBuffer } from "@/embedding/line-buffer";
 import type { EmbedKind } from "@/embedding/protocol";
 import { VectorRequestLedger } from "@/embedding/request-ledger";
+import { embedDaemonCommand } from "@/embedding/subprocess-command";
 import { withTimeout } from "@/embedding/with-timeout";
 import { type DaemonHello, helloAccepted, parseDaemonHello } from "./hello";
 import type { DaemonPaths } from "./paths";
@@ -119,11 +120,11 @@ export function spawnDetachedDaemon(
 	endpoint: DaemonEndpoint,
 	options: ConnectOptions = {},
 ): void {
-	const daemonEntry = new URL("./main.ts", import.meta.url).pathname;
+	const command = embedDaemonCommand(endpoint.modelId);
 	mkdirSync(endpoint.paths.directory, { recursive: true, mode: 0o700 });
 	const log = openLogFile(endpoint.paths.logPath);
 	try {
-		const child = spawn(process.execPath, [daemonEntry, endpoint.modelId], {
+		const child = spawn(command.executable, command.argv, {
 			detached: true,
 			stdio: ["ignore", log ?? "ignore", log ?? "ignore"],
 			env: daemonEnvironment(endpoint, options),

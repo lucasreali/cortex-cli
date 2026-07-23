@@ -1,4 +1,7 @@
 import { Language, type Node, Parser, Query, type Tree } from "web-tree-sitter";
+import runtimeWasm from "web-tree-sitter/web-tree-sitter.wasm" with {
+	type: "file",
+};
 import type { CodeSymbol } from "@/domain";
 
 export interface ExtractedSource {
@@ -43,7 +46,10 @@ interface ExtractorQueries {
 
 export class TsxExtractor {
 	static async create(grammarPath: string): Promise<TsxExtractor> {
-		await Parser.init();
+		// The default lookup resolves web-tree-sitter.wasm next to the library's
+		// JS, which no longer exists once bundled into a compiled binary; the
+		// embedded copy works in both worlds.
+		await Parser.init({ locateFile: () => runtimeWasm });
 		return new TsxExtractor(await Language.load(grammarPath));
 	}
 

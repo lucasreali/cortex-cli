@@ -6,6 +6,7 @@ import { GEMMA_MODEL } from "./model";
 import type { EmbedKind } from "./protocol";
 import type { EmbeddingProvider } from "./provider";
 import { VectorRequestLedger } from "./request-ledger";
+import { embedWorkerCommand } from "./subprocess-command";
 
 export interface GemmaProviderOptions {
 	idleTimeoutMs?: number;
@@ -108,10 +109,8 @@ export class GemmaProvider implements EmbeddingProvider {
 	}
 
 	private spawnWorker(): WorkerSubprocess {
-		const workerPath =
-			this.options.workerPath ??
-			new URL("./worker.ts", import.meta.url).pathname;
-		return Bun.spawn(["bun", workerPath], {
+		const command = embedWorkerCommand(this.options.workerPath);
+		return Bun.spawn([command.executable, ...command.argv], {
 			stdin: "pipe",
 			stdout: "pipe",
 			stderr: "inherit",

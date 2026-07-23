@@ -232,11 +232,36 @@ repo, isso duplica um model load pesado por sessão.
 
 ### 8. Distribuição: binário compilado + caminho de instalação
 
-- `bun build --compile` para gerar um executável de arquivo único; tira a
-  exigência do runtime Bun da história de instalação.
-- Verificar que os workarounds WASM (subprocess do `worker.ts`, download
-  de gramática para `~/.cortex/`) sobrevivem à compilação — o entrypoint
-  do subprocess provavelmente precisa ser embutido ou distribuído junto.
+**Feito (2026-07-23), exceto o script de instalação (sem gatilho ainda).**
+`bun run build` (`scripts/build.ts`, `Bun.build --compile`) gera
+`dist/cortex` (~117 MB) sem dependência de Bun/node_modules. Os quatro
+obstáculos previstos, resolvidos:
+
+- **Entrypoints de subprocess** (worker/daemon eram `.ts` soltos): viraram
+  subcomandos ocultos `embed-worker`/`embed-daemon`;
+  `src/embedding/subprocess-command.ts` decide entre re-invocar
+  `process.execPath` (binário) e spawnar os arquivos (checkout, comportamento
+  idêntico ao anterior). O import do transformers no `worker.ts` virou lazy
+  para o grafo da CLI não carregar o modelo.
+- **Nativos do transformers**: o build node importa `sharp` e
+  `onnxruntime-node` estaticamente (fatal sem node_modules — verificado);
+  `scripts/build.ts` os substitui por stubs via plugin. Em runtime nunca são
+  usados: o truque do `process.release.name` pina o backend WASM.
+- **WASM do onnxruntime**: o runtime carrega
+  `ort-wasm-simd-threaded.asyncify.{mjs,wasm}` (flavor confirmado
+  empiricamente) e o `.mjs` exige import dinâmico de arquivo real;
+  `src/embedding/onnxruntime-assets.ts` embute os dois e extrai para
+  `~/.cortex/onnxruntime/<hash>/` na primeira execução (idempotente, rename
+  atômico). No checkout usa `node_modules` direto.
+- **web-tree-sitter**: `Parser.init` com `locateFile` apontando o wasm
+  embutido. Download da gramática tsx para `~/.cortex/` já sobrevivia.
+
+Aceite: `bun run smoke:compiled` roda o binário real de ponta a ponta —
+version, init, index, `save_decision` via MCP, `embed --missing` (worker
+auto-spawnado com modelo real), busca semântica PT→EN e doctor. Unit
+coverage em `tests/embedding/{subprocess-command,onnxruntime-assets}.test.ts`
+e wiring dos comandos ocultos em `tests/cli/cli.test.ts`.
+
 - Script de instalação mínimo vem depois; self-update/telemetria só se a
   ferramenta ganhar usuários externos.
 

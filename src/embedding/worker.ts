@@ -1,42 +1,42 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { pipeline as pipelineType } from "@huggingface/transformers";
 import { LineBuffer } from "./line-buffer";
 import { GEMMA_MODEL } from "./model";
+import { ensureOnnxRuntimeAssets } from "./onnxruntime-assets";
 import type { WorkerRequest, WorkerResponse } from "./protocol";
 
-// transformers.js v4 picks the native onnxruntime-node backend when
-// process.release.name === "node" — and Bun reports itself as "node".
-// Renaming before the import forces the web (WASM) backend; the spec
-// forbids native dependencies.
-process.release.name = "bun";
-const { pipeline, env } = await import("@huggingface/transformers");
-
-if (!env.backends.onnx?.wasm) {
-	throw new Error("onnxruntime WASM backend unavailable");
-}
-env.cacheDir =
-	process.env.CORTEX_MODELS_DIR ?? join(homedir(), ".cortex", "models");
-env.backends.onnx.wasm.wasmPaths = new URL(
-	"../../node_modules/onnxruntime-web/dist/",
-	import.meta.url,
-).href;
-// More than 1 thread does not work in Bun: Emscripten's pthread workers
-// are loaded via blob URL, which Bun's worker_threads cannot resolve.
-env.backends.onnx.wasm.numThreads = 1;
-
-type Extractor = Awaited<ReturnType<typeof pipeline<"feature-extraction">>>;
+type Extractor = Awaited<ReturnType<typeof pipelineType<"feature-extraction">>>;
 
 let extractorPromise: Promise<Extractor> | null = null;
 
 function loadExtractor(): Promise<Extractor> {
+	extractorPromise ??= createExtractor();
+	return extractorPromise;
+}
+
+async function createExtractor(): Promise<Extractor> {
+	// transformers.js v4 picks the native onnxruntime-node backend when
+	// process.release.name === "node" — and Bun reports itself as "node".
+	// Renaming before the import forces the web (WASM) backend; the spec
+	// forbids native dependencies.
+	process.release.name = "bun";
+	const { pipeline, env } = await import("@huggingface/transformers");
+	if (!env.backends.onnx?.wasm) {
+		throw new Error("onnxruntime WASM backend unavailable");
+	}
+	env.cacheDir =
+		process.env.CORTEX_MODELS_DIR ?? join(homedir(), ".cortex", "models");
+	env.backends.onnx.wasm.wasmPaths = `${Bun.pathToFileURL(await ensureOnnxRuntimeAssets()).href}/`;
+	// More than 1 thread does not work in Bun: Emscripten's pthread workers
+	// are loaded via blob URL, which Bun's worker_threads cannot resolve.
+	env.backends.onnx.wasm.numThreads = 1;
 	// q8 is mandatory: q4 uses GatherBlockQuantized, which the wasm
 	// execution provider does not implement.
-	extractorPromise ??= pipeline(
-		"feature-extraction",
-		GEMMA_MODEL.huggingFaceId,
-		{ device: "wasm", dtype: "q8" },
-	);
-	return extractorPromise;
+	return pipeline("feature-extraction", GEMMA_MODEL.huggingFaceId, {
+		device: "wasm",
+		dtype: "q8",
+	});
 }
 
 async function embed(request: WorkerRequest): Promise<number[][]> {
@@ -90,7 +90,7 @@ async function handleLine(line: string): Promise<void> {
 	}
 }
 
-async function main(): Promise<void> {
+export async function runEmbedWorker(): Promise<void> {
 	const lines = new LineBuffer();
 	for await (const chunk of Bun.stdin.stream()) {
 		for (const line of lines.push(chunk)) {
@@ -100,5 +100,5 @@ async function main(): Promise<void> {
 }
 
 if (import.meta.main) {
-	await main();
+	await runEmbedWorker();
 }

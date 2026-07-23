@@ -12,7 +12,9 @@
 		"test:coverage": "bun test --coverage",
 		"eval:search": "bun tests/evaluation/runner.ts",
 		"typecheck": "tsc --noEmit",
-		"check": "bunx --bun @biomejs/biome check --write"
+		"check": "bunx --bun @biomejs/biome check --write",
+		"build": "bun scripts/build.ts",
+		"smoke:compiled": "bun scripts/compiled-smoke.ts"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.5",
