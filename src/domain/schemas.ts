@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export const MINIMUM_KEYWORDS = 5;
+
 export const anchorInputSchema = z.strictObject({
 	file_path: z
 		.string()
@@ -29,7 +31,7 @@ export const createDecisionSchema = z.strictObject({
 		),
 	keywords: z
 		.array(z.string().min(1))
-		.min(5)
+		.min(MINIMUM_KEYWORDS)
 		.describe(
 			"Search terms for this decision. Mix Portuguese and English variants " +
 				"of the concepts involved (e.g. 'autenticação', 'authentication', " +

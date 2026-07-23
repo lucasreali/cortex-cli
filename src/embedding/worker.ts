@@ -1,8 +1,7 @@
-import { homedir } from "node:os";
-import { join } from "node:path";
 import type { pipeline as pipelineType } from "@huggingface/transformers";
 import { LineBuffer } from "./line-buffer";
 import { GEMMA_MODEL } from "./model";
+import { modelsDir } from "./models-dir";
 import { ensureOnnxRuntimeAssets } from "./onnxruntime-assets";
 import type { WorkerRequest, WorkerResponse } from "./protocol";
 
@@ -18,15 +17,15 @@ function loadExtractor(): Promise<Extractor> {
 async function createExtractor(): Promise<Extractor> {
 	// transformers.js v4 picks the native onnxruntime-node backend when
 	// process.release.name === "node" — and Bun reports itself as "node".
-	// Renaming before the import forces the web (WASM) backend; the spec
-	// forbids native dependencies.
+	// Renaming before the import forces the web (WASM) backend; native
+	// dependencies are banned because the compiled single-file binary
+	// cannot ship platform-specific .node addons.
 	process.release.name = "bun";
 	const { pipeline, env } = await import("@huggingface/transformers");
 	if (!env.backends.onnx?.wasm) {
 		throw new Error("onnxruntime WASM backend unavailable");
 	}
-	env.cacheDir =
-		process.env.CORTEX_MODELS_DIR ?? join(homedir(), ".cortex", "models");
+	env.cacheDir = modelsDir();
 	env.backends.onnx.wasm.wasmPaths = `${Bun.pathToFileURL(await ensureOnnxRuntimeAssets()).href}/`;
 	// More than 1 thread does not work in Bun: Emscripten's pthread workers
 	// are loaded via blob URL, which Bun's worker_threads cannot resolve.

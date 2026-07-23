@@ -1,8 +1,7 @@
-import { homedir } from "node:os";
-import { join } from "node:path";
 import type { Subprocess } from "bun";
 import { LineBuffer } from "./line-buffer";
 import { GEMMA_MODEL } from "./model";
+import { modelsDir } from "./models-dir";
 import type { EmbedKind } from "./protocol";
 import type { EmbeddingProvider } from "./provider";
 import { VectorRequestLedger } from "./request-ledger";
@@ -114,12 +113,11 @@ export class GemmaProvider implements EmbeddingProvider {
 			stdin: "pipe",
 			stdout: "pipe",
 			stderr: "inherit",
-			env: { ...process.env, CORTEX_MODELS_DIR: this.modelsDir() },
+			env: {
+				...process.env,
+				CORTEX_MODELS_DIR: this.options.modelsDir ?? modelsDir(),
+			},
 		});
-	}
-
-	private modelsDir(): string {
-		return this.options.modelsDir ?? join(homedir(), ".cortex", "models");
 	}
 
 	private scheduleIdleKill(): void {

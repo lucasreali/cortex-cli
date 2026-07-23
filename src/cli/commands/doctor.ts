@@ -1,10 +1,11 @@
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import type { CortexRuntime } from "@/app/runtime";
 import { symbolHint } from "@/app/symbol-hints";
+import { MINIMUM_KEYWORDS } from "@/domain";
 import { GEMMA_MODEL } from "@/embedding/model";
+import { modelsDir } from "@/embedding/models-dir";
 import { computeDrift } from "@/indexer/code-indexer";
 import { EXTRACTION_VERSION } from "@/indexer/extraction-version";
 import { listSourceFiles } from "@/indexer/source-walker";
@@ -17,7 +18,6 @@ import { printJson } from "../json";
 import { openInitializedRuntime } from "../open-runtime";
 import { success, warning } from "../style";
 
-const MINIMUM_KEYWORDS = 5;
 const MINIMUM_RESOLUTION_RATE = 0.85;
 
 export async function runDoctor(args: string[], cwd: string): Promise<number> {
@@ -274,9 +274,7 @@ function hasResolvableIntent(
 }
 
 function checkModelDownloaded(report: DoctorReport): void {
-	const modelsDir =
-		process.env.CORTEX_MODELS_DIR ?? join(homedir(), ".cortex", "models");
-	if (existsSync(join(modelsDir, GEMMA_MODEL.huggingFaceId))) {
+	if (existsSync(join(modelsDir(), GEMMA_MODEL.huggingFaceId))) {
 		report.ok(`model downloaded: ${GEMMA_MODEL.huggingFaceId}`);
 		return;
 	}
