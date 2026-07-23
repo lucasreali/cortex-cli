@@ -334,4 +334,25 @@ describe("SemanticSearch — replaced decisions", () => {
 
 		expect(results.map((result) => result.node.id)).toEqual([replacement.id]);
 	});
+
+	test("a decision replaced after the vector cache loaded stays hidden", async () => {
+		const oldId = await createEmbedded(jwtInput, conceptProvider);
+		const search = new SemanticSearch({
+			nodes,
+			embeddings,
+			fts,
+			provider: conceptProvider,
+		});
+		await search.search("jwt");
+
+		const replacement = nodes.replaceDecision(
+			oldId,
+			{ ...jwtInput, title: "JWT com rotação de refresh" },
+			context,
+		);
+
+		const results = await search.search("jwt");
+
+		expect(results.map((result) => result.node.id)).toEqual([replacement.id]);
+	});
 });

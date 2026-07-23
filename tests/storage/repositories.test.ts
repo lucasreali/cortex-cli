@@ -332,6 +332,18 @@ describe("SearchRepository.searchExact", () => {
 	test("returns empty for no terms", () => {
 		expect(search.searchExact([])).toEqual([]);
 	});
+
+	test("excludes replaced decisions at the source", () => {
+		const old = nodes.createDecision(decisionInput(), context);
+		const replacement = nodes.replaceDecision(
+			old.id,
+			decisionInput({ title: "Migrar de JWT para sessões opacas" }),
+			context,
+		);
+
+		const hits = search.searchExact(["jwt"]);
+		expect(hits.map((hit) => hit.nodeId)).toEqual([replacement.id]);
+	});
 });
 
 describe("NodeRepository.listActiveAnchoredToFiles", () => {

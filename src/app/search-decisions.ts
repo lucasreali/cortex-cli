@@ -21,7 +21,6 @@ function exactSearch(
 ): SemanticSearchResult[] {
 	return runtime.fts.searchExact(terms).flatMap((hit) => {
 		const node = runtime.nodes.getById(hit.nodeId);
-		if (node?.status !== "active") return [];
-		return [{ node, score: -hit.rank, source: "fts" as const }];
+		return node ? [{ node, score: -hit.rank, source: "fts" as const }] : [];
 	});
 }

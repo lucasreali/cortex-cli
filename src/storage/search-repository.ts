@@ -20,12 +20,15 @@ export class SearchRepository {
 		return this.match(`${column} : (${toMatchExpression(terms)})`, limit);
 	}
 
+	// nodes_fts is insert-only (replacing a decision never touches it), so the
+	// join is what hides replaced decisions from every consumer of the index.
 	private match(expression: string, limit: number): SearchHit[] {
 		return this.db
 			.query<{ node_id: string; rank: number }, [string, number]>(
 				`SELECT node_id, bm25(nodes_fts) AS rank
 				 FROM nodes_fts
-				 WHERE nodes_fts MATCH ?
+				 JOIN nodes ON nodes.id = nodes_fts.node_id
+				 WHERE nodes_fts MATCH ? AND nodes.status = 'active'
 				 ORDER BY rank
 				 LIMIT ?`,
 			)

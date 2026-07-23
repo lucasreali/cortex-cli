@@ -17,7 +17,6 @@ export type PromptGate =
 const MAX_TERMS = 24;
 const MAX_HIGH_DECISIONS = 3;
 const MAX_MEDIUM_DECISIONS = 5;
-const OVERSCAN = 4;
 
 // Tiers are precision-first: a false injection costs trust on every
 // unrelated prompt, a miss costs nothing (the agent can still call
@@ -54,16 +53,10 @@ function matchColumn(
 	terms: string[],
 	limit: number,
 ): Decision[] {
-	return store.fts
-		.searchColumn(column, terms, limit * OVERSCAN)
-		.flatMap((hit) => activeDecision(store.nodes, hit.nodeId))
-		.slice(0, limit);
-}
-
-function activeDecision(nodes: NodeRepository, nodeId: string): Decision[] {
-	const node = nodes.getById(nodeId);
-	if (node?.status !== "active") return [];
-	return [node];
+	return store.fts.searchColumn(column, terms, limit).flatMap((hit) => {
+		const node = store.nodes.getById(hit.nodeId);
+		return node ? [node] : [];
+	});
 }
 
 function tokenize(prompt: string): string[] {

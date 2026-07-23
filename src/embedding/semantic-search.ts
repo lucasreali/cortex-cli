@@ -27,7 +27,6 @@ export interface SemanticSearchOptions {
 const DEFAULT_TOP_K = 5;
 const DEFAULT_THRESHOLD = 0.3;
 const DEFAULT_QUERY_TIMEOUT_MS = 2000;
-const BM25_OVERSCAN = 4;
 const RRF_K = 60;
 
 export interface FusedRanking {
@@ -80,15 +79,13 @@ export class SemanticSearch {
 		const terms = intentTerms(intent);
 		if (terms.length === 0) return [];
 		return this.dependencies.fts
-			.searchExact(terms, this.topK() * BM25_OVERSCAN)
-			.map((hit) => hit.nodeId)
-			.filter((nodeId) => this.isActive(nodeId));
+			.searchExact(terms, this.topK())
+			.map((hit) => hit.nodeId);
 	}
 
-	private isActive(nodeId: string): boolean {
-		return this.dependencies.nodes.getById(nodeId)?.status === "active";
-	}
-
+	// The status check guards the vector leg only: the vector cache can serve
+	// a decision replaced after it was loaded (invalidation happens when the
+	// replacement finishes embedding). FTS hits are already active-only.
 	private toResult(
 		nodeId: string,
 		score: number,
@@ -109,8 +106,8 @@ export class SemanticSearch {
 	}
 
 	// The vector path must never block a query: a cold worker (model still
-	// loading after an idle-kill) hits the timeout and FTS answers instead,
-	// per spec §2.4. The provider keeps loading for the next query.
+	// loading after an idle-kill) hits the timeout and FTS answers instead.
+	// The provider keeps loading for the next query.
 	private async embedIntent(
 		provider: EmbeddingProvider,
 		intent: string,
