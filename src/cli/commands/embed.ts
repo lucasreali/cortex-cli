@@ -1,10 +1,10 @@
 import { parseArgs } from "node:util";
 import type { CortexRuntime } from "@/app/runtime";
-import { decisionPassage } from "@/embedding/queue";
 import { readConfig, writeConfig } from "@/storage/config";
 import { SCHEMA_VERSION } from "@/storage/migrations";
 import { openInitializedRuntime } from "../open-runtime";
 import { failure, style, success } from "../style";
+import { embedAll } from "./embed-all";
 
 export async function runEmbed(args: string[], cwd: string): Promise<number> {
 	const { values } = parseArgs({
@@ -64,38 +64,6 @@ async function rebuild(
 			success(`Config model_id updated to ${runtime.provider.modelId}`),
 		);
 	}
-	return 0;
-}
-
-async function embedAll(
-	runtime: CortexRuntime,
-	nodeIds: string[],
-): Promise<number> {
-	const { provider } = runtime;
-	if (!provider) {
-		console.error(
-			failure(
-				"Embeddings are disabled (CORTEX_DISABLE_EMBEDDINGS=1); cannot embed.",
-			),
-		);
-		return 1;
-	}
-	let done = 0;
-	for (const nodeId of nodeIds) {
-		const decision = runtime.nodes.getById(nodeId);
-		if (!decision) continue;
-		const [vector] = await provider.embedPassages([decisionPassage(decision)]);
-		if (!vector) {
-			console.error(failure(`no vector returned for ${nodeId}`));
-			return 1;
-		}
-		runtime.embeddings.upsert(nodeId, provider.modelId, vector);
-		done++;
-		console.log(
-			`${style.dim(`[${done}/${nodeIds.length}]`)} ${decision.title}`,
-		);
-	}
-	console.log(success(`Embedded ${done} decision(s).`));
 	return 0;
 }
 

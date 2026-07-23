@@ -15,7 +15,7 @@ export interface EmbedQueueOptions {
 	timeoutMs?: number;
 }
 
-const DEFAULT_EMBED_TIMEOUT_MS = 30_000;
+export const DEFAULT_EMBED_TIMEOUT_MS = 30_000;
 
 export class EmbedQueue {
 	private tail: Promise<void> = Promise.resolve();
