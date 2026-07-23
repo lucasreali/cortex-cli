@@ -11,8 +11,13 @@ export interface OpenedRequest {
 }
 
 export class VectorRequestLedger {
-	private readonly pending = new Map<number, PendingVectors>();
-	private nextRequestId = 1;
+	private readonly pending: Map<number, PendingVectors>;
+	private nextRequestId: number;
+
+	constructor() {
+		this.pending = new Map();
+		this.nextRequestId = 1;
+	}
 
 	open(kind: EmbedKind, texts: string[]): OpenedRequest {
 		const request: WorkerRequest = { id: this.nextRequestId++, kind, texts };

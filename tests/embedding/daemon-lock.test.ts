@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
 	acquireDaemonLock,
 	clearDeadDaemonLock,
@@ -79,5 +79,18 @@ describe("daemon lock", () => {
 	test("isProcessAlive distinguishes live from exited processes", async () => {
 		expect(isProcessAlive(process.pid)).toBe(true);
 		expect(isProcessAlive(await exitedProcessPid())).toBe(false);
+	});
+
+	test("a lock that cannot be unlinked reports failure instead of throwing", async () => {
+		const lockPath = makeLockPath();
+		const directory = dirname(lockPath);
+		acquireDaemonLock(lockPath, makeLock(await exitedProcessPid()));
+		chmodSync(directory, 0o500);
+		try {
+			const holder = readDaemonLock(lockPath);
+			expect(clearDeadDaemonLock(lockPath, holder?.pid ?? -1)).toBe(false);
+		} finally {
+			chmodSync(directory, 0o700);
+		}
 	});
 });

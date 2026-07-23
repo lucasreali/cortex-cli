@@ -135,6 +135,24 @@ describe("EmbeddingDaemon", () => {
 		expect(probe.status).toBe("unreachable");
 	});
 
+	test("probe rejects a listener that never sends a hello", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "cortex-daemon-"));
+		const paths = daemonPathsFor(GEMMA_MODEL.modelId, directory);
+		const silent = Bun.listen({
+			unix: paths.socketPath,
+			socket: { data: () => {} },
+		});
+		try {
+			const probe = await probeDaemon(
+				{ paths, version: CORTEX_VERSION, modelId: GEMMA_MODEL.modelId },
+				{ helloTimeoutMs: 100 },
+			);
+			expect(probe.status).toBe("rejected");
+		} finally {
+			silent.stop(true);
+		}
+	});
+
 	test("exits on idle after the last client disconnects", async () => {
 		const { daemon, endpoint, socketPath } = makeDaemon({
 			idleTimeoutMs: 150,

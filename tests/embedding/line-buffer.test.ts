@@ -22,4 +22,10 @@ describe("LineBuffer", () => {
 		expect(lines.push(encoded.slice(0, 4))).toEqual([]);
 		expect(lines.push(encoded.slice(4))).toEqual(["café"]);
 	});
+
+	test("accepts string chunks alongside binary ones", () => {
+		const lines = new LineBuffer();
+		expect(lines.push("first\nsec")).toEqual(["first"]);
+		expect(lines.push(new TextEncoder().encode("ond\n"))).toEqual(["second"]);
+	});
 });

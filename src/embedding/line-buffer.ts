@@ -1,6 +1,11 @@
 export class LineBuffer {
-	private readonly decoder = new TextDecoder();
-	private buffered = "";
+	private readonly decoder: TextDecoder;
+	private buffered: string;
+
+	constructor() {
+		this.decoder = new TextDecoder();
+		this.buffered = "";
+	}
 
 	push(chunk: Uint8Array | string): string[] {
 		this.buffered +=

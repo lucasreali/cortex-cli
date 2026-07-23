@@ -38,15 +38,14 @@ export class EmbeddingDaemon {
 
 	start(): void {
 		removeSocketFile(this.options.socketPath);
+		const drop = (socket: ClientSocket) => this.dropClient(socket);
 		this.listener = Bun.listen<ClientState>({
 			unix: this.options.socketPath,
 			socket: {
 				open: (socket) => this.acceptClient(socket),
 				data: (socket, chunk) => this.receive(socket, chunk),
-				close: (socket) => this.dropClient(socket),
-				error: (socket) => {
-					socket.end();
-				},
+				close: drop,
+				error: drop,
 			},
 		});
 		restrictToOwner(this.options.socketPath);
@@ -90,6 +89,7 @@ export class EmbeddingDaemon {
 	}
 
 	private dropClient(socket: ClientSocket): void {
+		socket.end();
 		if (!this.clients.delete(socket)) return;
 		if (this.clients.size === 0) this.armIdleTimer();
 	}

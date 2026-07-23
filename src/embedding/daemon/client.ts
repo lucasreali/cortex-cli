@@ -18,6 +18,7 @@ export interface ConnectOptions {
 	spawnDaemon?: boolean;
 	daemonWorkerPath?: string;
 	daemonIdleTimeoutMs?: number;
+	helloTimeoutMs?: number;
 	pollAttempts?: number;
 	pollDelayMs?: number;
 }
@@ -72,7 +73,7 @@ export async function connectToDaemon(
 	endpoint: DaemonEndpoint,
 	options: ConnectOptions = {},
 ): Promise<DaemonConnection | null> {
-	const first = await probeDaemon(endpoint);
+	const first = await probeDaemon(endpoint, options);
 	if (first.status === "connected") return first.connection;
 	if (first.status === "rejected") return null;
 	if (options.spawnDaemon === false) return null;
@@ -82,25 +83,28 @@ export async function connectToDaemon(
 
 export async function probeDaemon(
 	endpoint: DaemonEndpoint,
+	options: ConnectOptions = {},
 ): Promise<DaemonProbe> {
 	const state = newLinkState();
+	const teardown = () => disconnect(state);
 	let socket: Socket<undefined>;
 	try {
 		socket = await Bun.connect({
 			unix: endpoint.paths.socketPath,
 			socket: {
 				data: (_socket, chunk) => deliver(state, chunk),
-				close: () => disconnect(state),
-				error: () => disconnect(state),
+				close: teardown,
+				error: teardown,
 			},
 		});
 	} catch {
 		return { status: "unreachable" };
 	}
 	state.open = true;
-	const hello = await withTimeout(state.hello.promise, HELLO_TIMEOUT_MS).catch(
-		() => null,
-	);
+	const hello = await withTimeout(
+		state.hello.promise,
+		options.helloTimeoutMs ?? HELLO_TIMEOUT_MS,
+	).catch(() => null);
 	if (!hello || !helloAccepted(hello, endpoint.version, endpoint.modelId)) {
 		socket.end();
 		return { status: "rejected" };
@@ -138,7 +142,7 @@ async function pollForDaemon(
 	const delayMs = options.pollDelayMs ?? SPAWN_POLL_DELAY_MS;
 	for (let attempt = 0; attempt < attempts; attempt++) {
 		await Bun.sleep(delayMs);
-		const probe = await probeDaemon(endpoint);
+		const probe = await probeDaemon(endpoint, options);
 		if (probe.status === "connected") return probe.connection;
 		if (probe.status === "rejected") return null;
 	}
