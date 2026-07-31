@@ -49,8 +49,16 @@ Three processes, reachable as hidden CLI subcommands (`prompt-hook`,
 - The MCP server prefers the per-user shared daemon (Unix socket), falling
   back to a private worker.
 - Degradation ladder — never weaken it: shared daemon → private worker →
-  pure FTS. The vector path never blocks a query: hung workers are killed by
-  timeout and FTS answers instead.
+  pure FTS. The vector path never blocks a query: every await on it is bounded
+  by a timeout, and FTS answers when one fires. The two paths differ on
+  purpose: an embed disposes of the worker on timeout (`embedding/queue.ts`,
+  `cli/commands/embed-all.ts`, the daemon), while a query leaves it alone
+  (`embedding/semantic-search.ts`) so a model still loading after an idle-kill
+  finishes for the next query instead of restarting.
+- The daemon serves one worker to every session, and the worker embeds one
+  request at a time, so the daemon queues rather than pipelines: a request's
+  deadline starts when it reaches the worker, never while it waits behind
+  another session (`embedding/serial-lane.ts`).
 
 `prompt-hook` bypasses `app/runtime` and opens the database read-only on
 purpose: it runs on every prompt and must never fail or migrate state.
