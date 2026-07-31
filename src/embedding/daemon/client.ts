@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { closeSync, mkdirSync, openSync } from "node:fs";
 import type { Socket } from "bun";
 import { LineBuffer } from "@/embedding/line-buffer";
@@ -124,9 +123,11 @@ export function spawnDetachedDaemon(
 	mkdirSync(endpoint.paths.directory, { recursive: true, mode: 0o700 });
 	const log = openLogFile(endpoint.paths.logPath);
 	try {
-		const child = spawn(command.executable, command.argv, {
+		const child = Bun.spawn([command.executable, ...command.argv], {
 			detached: true,
-			stdio: ["ignore", log ?? "ignore", log ?? "ignore"],
+			stdin: "ignore",
+			stdout: log ?? "ignore",
+			stderr: log ?? "ignore",
 			env: daemonEnvironment(endpoint, options),
 		});
 		child.unref();
