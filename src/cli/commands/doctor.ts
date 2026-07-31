@@ -10,7 +10,7 @@ import { computeDrift } from "@/indexer/code-indexer";
 import { EXTRACTION_VERSION } from "@/indexer/extraction-version";
 import { listSourceFiles } from "@/indexer/source-walker";
 import { TsconfigAliases } from "@/indexer/tsconfig-aliases";
-import { openCodeRepository } from "@/storage/code-db";
+import { type OpenCodeRepository, openCodeRepository } from "@/storage/code-db";
 import type { CodeRepository } from "@/storage/code-repository";
 import { readConfig } from "@/storage/config";
 import { CODE_SCHEMA_VERSION, SCHEMA_VERSION } from "@/storage/migrations";
@@ -160,14 +160,30 @@ async function checkCodeIndex(
 		report.warn("code index not built — run: cortex index");
 		return;
 	}
-	const { database, repository } = openCodeRepository(runtime.cortexDir);
+	const opened = openReadableCodeIndex(runtime, report);
+	if (!opened) return;
 	try {
-		checkCodeVersions(repository, report);
-		checkCodeDrift(runtime, repository, report);
-		await checkImportResolution(runtime, repository, report);
-		checkSymbolAnchors(runtime, repository, report);
+		checkCodeVersions(opened.repository, report);
+		checkCodeDrift(runtime, opened.repository, report);
+		await checkImportResolution(runtime, opened.repository, report);
+		checkSymbolAnchors(runtime, opened.repository, report);
 	} finally {
-		database.close();
+		opened.database.close();
+	}
+}
+
+// Diagnosing the index is doctor's job, so an unreadable code.db is a finding
+// to report, not a reason to abort the remaining checks.
+function openReadableCodeIndex(
+	runtime: CortexRuntime,
+	report: DoctorReport,
+): OpenCodeRepository | null {
+	try {
+		return openCodeRepository(runtime.cortexDir);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		report.warn(`code index unreadable: ${message} — run: cortex index`);
+		return null;
 	}
 }
 

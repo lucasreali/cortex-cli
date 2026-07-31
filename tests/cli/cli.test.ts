@@ -679,6 +679,59 @@ describe("cortex CLI in an empty project", () => {
 	});
 });
 
+describe("cortex CLI with an unreadable code index", () => {
+	let brokenDir: string;
+
+	beforeAll(() => {
+		brokenDir = realpathSync(mkdtempSync(join(tmpdir(), "cortex-cli-broken-")));
+		mkdirSync(join(brokenDir, "src"), { recursive: true });
+		writeFileSync(
+			join(brokenDir, "src/service.ts"),
+			"export const answer = 42;\n",
+		);
+		Bun.spawnSync(["bun", MAIN_PATH, "init"], { cwd: brokenDir });
+		writeFileSync(join(brokenDir, ".cortex/code.db"), "not a sqlite database");
+	});
+
+	afterAll(() => {
+		rmSync(brokenDir, { recursive: true, force: true });
+	});
+
+	function cliBroken(...args: string[]) {
+		const result = Bun.spawnSync(["bun", MAIN_PATH, ...args], {
+			cwd: brokenDir,
+			stdout: "pipe",
+			stderr: "pipe",
+			env: { ...process.env, CORTEX_DISABLE_EMBEDDINGS: "1" },
+		});
+		return { code: result.exitCode ?? 1, stdout: result.stdout.toString() };
+	}
+
+	test("why reports the unavailable index instead of crashing", () => {
+		const result = cliBroken("why", "answer");
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain("code index unavailable");
+	});
+
+	test("why --json carries the warning", () => {
+		const result = cliBroken("why", "answer", "--json");
+		expect(result.code).toBe(0);
+		expect(JSON.parse(result.stdout)).toMatchObject({
+			target: "answer",
+			matchedBy: null,
+			codeWarning: expect.stringContaining("code index unavailable"),
+		});
+	});
+
+	test("doctor reports the unreadable index and still runs its other checks", () => {
+		const result = cliBroken("doctor");
+		expect(result.code).toBe(1);
+		expect(result.stdout).toContain("code index unreadable");
+		expect(result.stdout).toContain("run: cortex index");
+		expect(result.stdout).toContain("config: model");
+	});
+});
+
 describe("internal embed commands", () => {
 	test("embed-worker exits cleanly on end of input without loading a model", () => {
 		const result = Bun.spawnSync(["bun", MAIN_PATH, "embed-worker"], {

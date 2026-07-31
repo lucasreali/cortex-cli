@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { accessCodeIndex } from "@/app/code-index-access";
 import type { CortexRuntime } from "@/app/runtime";
 import { symbolHint } from "@/app/symbol-hints";
 import { type CreateDecisionInput, createDecisionSchema } from "@/domain";
@@ -92,17 +93,13 @@ async function symbolWarnings(
 ): Promise<string[]> {
 	const anchored = (input.anchors ?? []).filter((anchor) => anchor.symbol);
 	if (anchored.length === 0) return [];
-	try {
-		const code = await runtime.codeIndex.repository();
-		return anchored.flatMap((anchor) =>
-			symbolWarning(code, anchor.file_path, anchor.symbol as string),
-		);
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		return [
-			`symbol anchors not validated — code index unavailable: ${message}`,
-		];
+	const access = await accessCodeIndex(runtime.codeIndex);
+	if (!access.ok) {
+		return [`symbol anchors not validated — ${access.warning}`];
 	}
+	return anchored.flatMap((anchor) =>
+		symbolWarning(access.code, anchor.file_path, anchor.symbol as string),
+	);
 }
 
 function symbolWarning(

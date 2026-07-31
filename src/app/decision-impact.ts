@@ -1,5 +1,6 @@
 import type { Decision } from "@/domain";
 import { CodeImpactAnalysis, type CodeImpactedDecision } from "./code-impact";
+import { accessCodeIndex } from "./code-index-access";
 import type { CortexRuntime } from "./runtime";
 
 export interface ImpactedDecision {
@@ -52,18 +53,13 @@ async function codeImpact(
 	if (root.anchors.length === 0) {
 		return { codeImpacted: [], codeWarning: null };
 	}
-	try {
-		const code = await runtime.codeIndex.repository();
-		const analysis = new CodeImpactAnalysis(runtime.nodes, code);
-		return {
-			codeImpacted: analysis.forDecision(root, depth),
-			codeWarning: null,
-		};
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		return {
-			codeImpacted: [],
-			codeWarning: `code index unavailable: ${message}`,
-		};
+	const access = await accessCodeIndex(runtime.codeIndex);
+	if (!access.ok) {
+		return { codeImpacted: [], codeWarning: access.warning };
 	}
+	const analysis = new CodeImpactAnalysis(runtime.nodes, access.code);
+	return {
+		codeImpacted: analysis.forDecision(root, depth),
+		codeWarning: null,
+	};
 }

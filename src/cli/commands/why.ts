@@ -1,9 +1,10 @@
 import { parseArgs } from "node:util";
+import { accessCodeIndex } from "@/app/code-index-access";
 import type { CortexRuntime } from "@/app/runtime";
 import type { Decision } from "@/domain";
 import { printJson } from "../json";
 import { openInitializedRuntime } from "../open-runtime";
-import { style } from "../style";
+import { style, warning } from "../style";
 
 interface SymbolMatch {
 	filePath: string;
@@ -14,7 +15,7 @@ interface SymbolMatch {
 type WhyReport =
 	| { target: string; matchedBy: "path"; decisions: Decision[] }
 	| { target: string; matchedBy: "symbol"; locations: SymbolMatch[] }
-	| { target: string; matchedBy: null };
+	| { target: string; matchedBy: null; codeWarning?: string };
 
 export async function runWhy(args: string[], cwd: string): Promise<number> {
 	const { values, positionals } = parseArgs({
@@ -50,21 +51,21 @@ async function buildReport(
 	if (byPath.length > 0) {
 		return { target, matchedBy: "path", decisions: byPath };
 	}
-	if (!target.includes("/")) {
-		const locations = await findSymbolMatches(runtime, target);
-		if (locations.length > 0) {
-			return { target, matchedBy: "symbol", locations };
-		}
+	if (target.includes("/")) {
+		return { target, matchedBy: null };
 	}
-	return { target, matchedBy: null };
+	return (await symbolReport(runtime, target)) ?? { target, matchedBy: null };
 }
 
-async function findSymbolMatches(
+async function symbolReport(
 	runtime: CortexRuntime,
 	symbol: string,
-): Promise<SymbolMatch[]> {
-	const code = await runtime.codeIndex.repository();
-	return code.findSymbol(symbol).map((location) => ({
+): Promise<WhyReport | null> {
+	const access = await accessCodeIndex(runtime.codeIndex);
+	if (!access.ok) {
+		return { target: symbol, matchedBy: null, codeWarning: access.warning };
+	}
+	const locations = access.code.findSymbol(symbol).map((location) => ({
 		filePath: location.filePath,
 		line: location.line,
 		decisions: runtime.nodes.listByFileAnchorOrSymbol(
@@ -72,6 +73,8 @@ async function findSymbolMatches(
 			symbol,
 		),
 	}));
+	if (locations.length === 0) return null;
+	return { target: symbol, matchedBy: "symbol", locations };
 }
 
 function render(report: WhyReport): void {
@@ -82,6 +85,10 @@ function render(report: WhyReport): void {
 	}
 	if (report.matchedBy === "symbol") {
 		renderSymbolMatches(report.target, report.locations);
+		return;
+	}
+	if (report.codeWarning) {
+		console.log(warning(report.codeWarning));
 		return;
 	}
 	console.log(style.dim(`No decisions anchored to ${report.target}.`));
