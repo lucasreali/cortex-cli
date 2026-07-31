@@ -174,6 +174,34 @@ describe("EmbeddingDaemon", () => {
 		connection.close();
 	});
 
+	test("a slow session does not spend another session's deadline", async () => {
+		const { endpoint } = makeDaemon({ requestTimeoutMs: 300 });
+		const first = await connect(endpoint);
+		const second = await connect(endpoint);
+		const slow = [1, 2, 3, 4, 5].map(() =>
+			first.embed("passages", ["!slow:100"]),
+		);
+		const queued = second.embed("query", ["queued"]);
+
+		expect(await queued).toEqual([[6, 0, 1]]);
+		expect(await Promise.all(slow)).toHaveLength(5);
+		first.close();
+		second.close();
+	});
+
+	test("killing a hung worker spares the requests queued behind it", async () => {
+		const { endpoint } = makeDaemon({ requestTimeoutMs: 200 });
+		const first = await connect(endpoint);
+		const second = await connect(endpoint);
+		const hung = first.embed("query", ["!hang"]);
+		const queued = second.embed("query", ["queued"]);
+
+		expect(hung).rejects.toThrow("timed out after 200 ms");
+		expect(await queued).toEqual([[6, 0, 1]]);
+		first.close();
+		second.close();
+	});
+
 	test("stop severs connected clients", async () => {
 		const { daemon, endpoint } = makeDaemon();
 		const connection = await connect(endpoint);

@@ -1,8 +1,11 @@
 // Speaks the embedding worker's NDJSON protocol without loading a model.
 // Magic first-texts drive failure modes: "!exit" kills the process before
 // answering, "!error" answers an error, "!empty" answers zero vectors,
-// "!noise" emits garbage lines before the real answer and "!hang" never
-// answers at all.
+// "!noise" emits garbage lines before the real answer, "!hang" never answers
+// at all and "!slow:<ms>" answers normally after that delay.
+//
+// Requests are awaited one at a time, like the real worker, so a slow request
+// delays the ones queued behind it.
 
 interface Request {
 	id: number;
@@ -14,11 +17,14 @@ function out(payload: unknown): void {
 	process.stdout.write(`${JSON.stringify(payload)}\n`);
 }
 
-function handle(line: string): void {
+async function handle(line: string): Promise<void> {
 	const request = JSON.parse(line) as Request;
 	const [first] = request.texts;
 	if (first === "!exit") process.exit(1);
 	if (first === "!hang") return;
+	if (first?.startsWith("!slow:")) {
+		await Bun.sleep(Number(first.slice("!slow:".length)));
+	}
 	if (first === "!error") {
 		out({ id: request.id, error: "boom" });
 		return;
@@ -49,7 +55,7 @@ for await (const chunk of Bun.stdin.stream()) {
 	while (newline >= 0) {
 		const line = buffered.slice(0, newline).trim();
 		buffered = buffered.slice(newline + 1);
-		if (line) handle(line);
+		if (line) await handle(line);
 		newline = buffered.indexOf("\n");
 	}
 }

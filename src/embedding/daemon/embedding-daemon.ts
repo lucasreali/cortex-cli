@@ -3,6 +3,7 @@ import type { Socket } from "bun";
 import type { GemmaProvider } from "@/embedding/gemma-provider";
 import { LineBuffer } from "@/embedding/line-buffer";
 import type { WorkerRequest, WorkerResponse } from "@/embedding/protocol";
+import { SerialLane } from "@/embedding/serial-lane";
 import { withTimeout } from "@/embedding/with-timeout";
 import { DAEMON_PROTOCOL, encodeDaemonHello } from "./hello";
 
@@ -29,6 +30,7 @@ interface SocketListener {
 
 export class EmbeddingDaemon {
 	private readonly clients = new Set<ClientSocket>();
+	private readonly lane = new SerialLane();
 	private readonly closedState = Promise.withResolvers<string>();
 	private listener: SocketListener | null = null;
 	private idleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -108,7 +110,7 @@ export class EmbeddingDaemon {
 
 	private async serve(request: WorkerRequest): Promise<WorkerResponse> {
 		try {
-			const vectors = await this.embedWithTimeout(request);
+			const vectors = await this.lane.run(() => this.embedWithTimeout(request));
 			return { id: request.id, vectors: vectors.map((vector) => [...vector]) };
 		} catch (error) {
 			return { id: request.id, error: errorMessage(error) };
@@ -116,7 +118,11 @@ export class EmbeddingDaemon {
 	}
 
 	// A wedged worker must not wedge the daemon for every session: on timeout
-	// the inner provider is disposed and respawns on the next request.
+	// the inner provider is disposed and respawns on the next request. The
+	// worker embeds one request at a time, so the daemon queues instead of
+	// pipelining: the deadline below starts when a request reaches the worker,
+	// never while it waits behind another session, and the dispose can only
+	// lose the single request the worker is holding.
 	private embedWithTimeout(request: WorkerRequest): Promise<Float32Array[]> {
 		const timeoutMs =
 			this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
