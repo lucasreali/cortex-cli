@@ -11,18 +11,30 @@ export interface CodeIndex {
 // MCP sessions reconcile the code index lazily: the first query that touches
 // code.db pays for the catch-up of edits made while the server was down.
 export class LazyCodeIndex implements CodeIndex {
-	private open: OpenCodeRepository | null = null;
+	private opening: Promise<OpenCodeRepository> | null = null;
 
 	constructor(private readonly repoRoot: string) {}
 
+	// Concurrent callers share the reconcile in flight: caching the promise
+	// rather than its result keeps a session from opening a second connection
+	// to code.db while the first one is still catching up. A failed reconcile
+	// is not cached, so the next call retries it.
 	async repository(): Promise<CodeRepository> {
-		this.open ??= await this.reconcile();
-		return this.open.repository;
+		this.opening ??= this.reconcile().catch((error) => {
+			this.opening = null;
+			throw error;
+		});
+		const open = await this.opening;
+		return open.repository;
 	}
 
 	dispose(): void {
-		this.open?.database.close();
-		this.open = null;
+		const pending = this.opening;
+		this.opening = null;
+		void pending?.then(
+			(open) => open.database.close(),
+			() => undefined,
+		);
 	}
 
 	private async reconcile(): Promise<OpenCodeRepository> {

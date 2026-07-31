@@ -72,6 +72,39 @@ describe("LazyCodeIndex", () => {
 		second.dispose();
 	});
 
+	test("concurrent access shares one reconcile and one connection", async () => {
+		const lazy = new LazyCodeIndex(dir);
+
+		const [first, second] = await Promise.all([
+			lazy.repository(),
+			lazy.repository(),
+		]);
+
+		expect(first).toBe(second);
+		lazy.dispose();
+	});
+
+	test("a failed reconcile is not cached and the next access retries", async () => {
+		writeFileSync(join(dir, ".cortex/code.db"), "not a sqlite database");
+		const lazy = new LazyCodeIndex(dir);
+		expect(lazy.repository()).rejects.toThrow();
+
+		await Bun.sleep(0);
+		rmSync(join(dir, ".cortex/code.db"));
+
+		expect((await lazy.repository()).listFiles()).toHaveLength(1);
+		lazy.dispose();
+	});
+
+	test("dispose during a doomed reconcile leaves nothing pending", async () => {
+		writeFileSync(join(dir, ".cortex/code.db"), "not a sqlite database");
+		const lazy = new LazyCodeIndex(dir);
+		const doomed = lazy.repository();
+		lazy.dispose();
+
+		expect(doomed).rejects.toThrow();
+	});
+
 	test("dispose is safe to call twice and allows reopening", async () => {
 		const lazy = new LazyCodeIndex(dir);
 		await lazy.repository();
