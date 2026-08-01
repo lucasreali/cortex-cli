@@ -10,9 +10,11 @@
 	"scripts": {
 		"test": "bun test",
 		"test:coverage": "bun test --coverage",
+		"coverage:audit": "bun scripts/coverage-audit.ts",
 		"eval:search": "bun tests/evaluation/runner.ts",
 		"typecheck": "tsc --noEmit",
 		"check": "bunx --bun @biomejs/biome check --write",
+		"lint:ci": "bunx --bun @biomejs/biome ci",
 		"build": "bun scripts/build.ts",
 		"smoke:compiled": "bun scripts/compiled-smoke.ts"
 	},

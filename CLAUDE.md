@@ -9,8 +9,11 @@ on the code.
 
 - `bun test` — full suite (real SQLite, CLI covered end-to-end via subprocess)
 - `bun run test:coverage` — 100% line/function threshold enforced (`bunfig.toml`)
+- `bun run coverage:audit` — fails when a source file is missing from the
+  coverage report entirely; needs a preceding run with `--coverage-reporter=lcov`
 - `RUN_MODEL_TESTS=1 bun test` — also loads the real embedding model
-- `bun run typecheck` / `bun run check` — strict tsc / Biome (writes fixes)
+- `bun run typecheck` / `bun run check` — strict tsc / Biome (writes fixes);
+  `bun run lint:ci` is the read-only Biome used by CI
 - `bun run build` — compile the single-file binary; `bun run smoke:compiled` verifies it
 - `bun src/cli/main.ts <command>` — run the CLI from source
 
@@ -79,6 +82,11 @@ purpose: it runs on every prompt and must never fail or migrate state.
   `detect_suffix` and `release/target.ts` must keep agreeing.
 - Coverage counts only files imported in-process: `src/cli` is exercised by
   spawning the CLI from `tests/cli/`, keeping it out of the coverage report.
+  A file that never loads in-process is therefore invisible rather than 0%, so
+  `scripts/coverage-audit.ts` holds the explicit list of files allowed to be
+  absent (subprocess-covered or type-only) and fails on anything else — a new
+  untested file cannot slip past the threshold. Both directions are checked:
+  an exemption that becomes instrumented or deleted fails too.
 
 ## Dogfooding
 

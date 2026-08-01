@@ -1,0 +1,73 @@
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+    tags-ignore: ["**"]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUN_VERSION: "1.3.14"
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - run: bun install --frozen-lockfile
+
+      - name: Cache the downloaded tree-sitter grammar
+        uses: actions/cache@v4
+        with:
+          path: ~/.cortex/grammars
+          key: grammars-${{ runner.os }}-${{ hashFiles('src/indexer/grammar.ts') }}
+
+      - run: bun run lint:ci
+
+      - run: bun run typecheck
+
+      - name: Tests — 100% line and function coverage enforced
+        run: bun test --coverage --coverage-reporter=text --coverage-reporter=lcov
+
+      - name: Audit what the coverage report cannot see
+        run: bun run coverage:audit
+
+      - name: Upload the coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lcov
+          path: coverage/lcov.info
+          if-no-files-found: ignore
+
+  binary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - run: bun install --frozen-lockfile
+
+      - name: Cache the grammar, model and onnxruntime downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cortex/grammars
+            ~/.cortex/models
+            ~/.cortex/onnxruntime
+          key: assets-${{ runner.os }}-${{ hashFiles('src/indexer/grammar.ts', 'src/embedding/model.ts', 'src/embedding/onnxruntime-assets.ts') }}
+
+      - name: Compiled binary smoke test
+        run: bun run smoke:compiled
