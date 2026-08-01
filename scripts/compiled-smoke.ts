@@ -12,9 +12,9 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { CORTEX_VERSION } from "@/version";
+import { DEFAULT_OUTFILE, ROOT } from "./compile";
 
-const ROOT = new URL("..", import.meta.url).pathname;
-const BINARY = join(ROOT, "dist", "cortex");
+const BINARY = DEFAULT_OUTFILE;
 
 interface CommandResult {
 	code: number;

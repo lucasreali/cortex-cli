@@ -1,3 +1,4 @@
+import { parseJsonOrNull } from "@/support/json";
 import type { EmbedKind, WorkerRequest, WorkerResponse } from "./protocol";
 
 interface PendingVectors {
@@ -28,7 +29,7 @@ export class VectorRequestLedger {
 	}
 
 	settle(line: string): void {
-		const response = decodeResponse(line);
+		const response = parseJsonOrNull<WorkerResponse>(line);
 		if (!response) return;
 		const entry = this.pending.get(response.id);
 		if (!entry) return;
@@ -45,13 +46,5 @@ export class VectorRequestLedger {
 			entry.reject(error);
 		}
 		this.pending.clear();
-	}
-}
-
-function decodeResponse(line: string): WorkerResponse | null {
-	try {
-		return JSON.parse(line) as WorkerResponse;
-	} catch {
-		return null;
 	}
 }

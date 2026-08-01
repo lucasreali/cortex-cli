@@ -1,8 +1,4 @@
-export function sha256Hex(bytes: Uint8Array): string {
-	const hasher = new Bun.CryptoHasher("sha256");
-	hasher.update(bytes);
-	return hasher.digest("hex");
-}
+import { sha256Hex } from "@/support/hash";
 
 // checksums.txt covers every platform's asset, so a release is only trusted
 // through the one line naming the asset we downloaded — the same discipline

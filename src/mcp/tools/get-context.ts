@@ -4,9 +4,12 @@ import type { CortexRuntime } from "@/app/runtime";
 import type { Decision } from "@/domain";
 import type { SemanticSearchResult } from "@/embedding/semantic-search";
 import type { RuntimeRegistry } from "@/mcp/runtime-registry";
+import { truncate } from "@/support/text";
 import { READ_ONLY_ANNOTATIONS } from "./annotations";
 import { projectPathField, scopedToProject } from "./project-scope";
 import { jsonResult } from "./results";
+
+const SUMMARY_LIMIT = 200;
 
 const DESCRIPTION = `Fetch decision context from the project's persistent memory (Cortex).
 
@@ -101,12 +104,8 @@ function decisionEntry(decision: Decision) {
 	return {
 		id: decision.id,
 		title: decision.title,
-		summary: truncate(decision.body, 200),
+		summary: truncate(decision.body, SUMMARY_LIMIT),
 		module: decision.module,
 		createdAt: decision.createdAt,
 	};
-}
-
-function truncate(text: string, max: number): string {
-	return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }

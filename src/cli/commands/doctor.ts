@@ -17,6 +17,7 @@ import { type OpenCodeRepository, openCodeRepository } from "@/storage/code-db";
 import type { CodeRepository } from "@/storage/code-repository";
 import { readConfig } from "@/storage/config";
 import { CODE_SCHEMA_VERSION, SCHEMA_VERSION } from "@/storage/migrations";
+import { errorMessage } from "@/support/errors";
 
 const MINIMUM_RESOLUTION_RATE = 0.85;
 
@@ -181,7 +182,7 @@ function openReadableCodeIndex(
 	try {
 		return openCodeRepository(runtime.cortexDir);
 	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
+		const message = errorMessage(error);
 		report.warn(`code index unreadable: ${message} — run: cortex index`);
 		return null;
 	}

@@ -1,6 +1,6 @@
-import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { writeAtomically } from "@/support/atomic-write";
+import { userCortexDir } from "@/support/cortex-home";
 // onnxruntime-web does not export ./dist/* through its exports map, so the
 // two runtime files the WASM backend loads must be reached by relative path.
 import onnxModule from "../../node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.mjs" with {
@@ -31,7 +31,7 @@ const CANONICAL_BINARY = "ort-wasm-simd-threaded.asyncify.wasm";
 // filesystem and must be extracted first.
 export async function ensureOnnxRuntimeAssets(
 	assets: OnnxRuntimeAssets = EMBEDDED_ONNX_ASSETS,
-	cacheDir: string = join(homedir(), ".cortex", "onnxruntime"),
+	cacheDir: string = userCortexDir("onnxruntime", process.env.CORTEX_ONNX_DIR),
 ): Promise<string> {
 	if (hasCanonicalLayout(assets)) return dirname(assets.module);
 	const directory = join(cacheDir, cacheKey(assets));

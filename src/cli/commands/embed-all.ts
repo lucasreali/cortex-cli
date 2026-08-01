@@ -4,6 +4,7 @@ import type { Decision } from "@/domain";
 import type { EmbeddingProvider } from "@/embedding/provider";
 import { DEFAULT_EMBED_TIMEOUT_MS, decisionPassage } from "@/embedding/queue";
 import { withTimeout } from "@/embedding/with-timeout";
+import { errorMessage } from "@/support/errors";
 
 export type EmbedDependencies = Pick<
 	CortexRuntime,
@@ -59,9 +60,7 @@ async function embedDecision(
 		);
 		return vector ?? null;
 	} catch (error) {
-		console.error(
-			failure(error instanceof Error ? error.message : String(error)),
-		);
+		console.error(failure(errorMessage(error)));
 		return null;
 	}
 }

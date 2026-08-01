@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { downloadRelease, latestTag } from "@/release/catalog";
-import { sha256Hex } from "@/release/checksums";
 import { assetName } from "@/release/target";
+import { sha256Hex } from "@/support/hash";
 import { makeTarball } from "./tarball";
 
 const TAG = "v9.9.9";

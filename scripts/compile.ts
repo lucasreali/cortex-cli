@@ -4,6 +4,10 @@ import type { BunPlugin } from "bun";
 export const ROOT = new URL("..", import.meta.url).pathname;
 export const DEFAULT_OUTFILE = join(ROOT, "dist", "cortex");
 
+export function sizeInMegabytes(path: string): string {
+	return (Bun.file(path).size / 1024 / 1024).toFixed(1);
+}
+
 // transformers.js's node build imports its native backends (sharp for image
 // pipelines, onnxruntime-node for native inference) at module top level, and
 // neither exists outside node_modules. cortex pins the WASM execution

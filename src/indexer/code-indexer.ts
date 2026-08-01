@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import type { CodeImport, FileIndexEntry, IndexedFile } from "@/domain";
 import type { CodeRepository } from "@/storage/code-repository";
+import { sha256Hex } from "@/support/hash";
 import { EXTRACTION_VERSION } from "./extraction-version";
 import { ensureGrammar } from "./grammar";
 import { ImportResolver } from "./import-resolver";
@@ -24,6 +25,12 @@ export interface IndexDrift {
 	removed: number;
 }
 
+// doctor reports drift from computeDrift while index acts on reconcileSource;
+// they have to agree on what "stale" means or doctor calls a stale index clean.
+function isUnchanged(previous: IndexedFile, source: SourceFile): boolean {
+	return previous.size === source.size && previous.mtime === source.mtime;
+}
+
 export function computeDrift(
 	sources: SourceFile[],
 	indexed: IndexedFile[],
@@ -34,8 +41,7 @@ export function computeDrift(
 		const previous = known.get(source.path);
 		known.delete(source.path);
 		if (!previous) drift.added++;
-		else if (previous.size !== source.size || previous.mtime !== source.mtime)
-			drift.changed++;
+		else if (!isUnchanged(previous, source)) drift.changed++;
 	}
 	drift.removed = known.size;
 	return drift;
@@ -117,11 +123,7 @@ export class CodeIndexer {
 	): Promise<void> {
 		const previous = known.get(source.path);
 		known.delete(source.path);
-		if (
-			previous &&
-			previous.size === source.size &&
-			previous.mtime === source.mtime
-		) {
+		if (previous && isUnchanged(previous, source)) {
 			report.unchanged++;
 			return;
 		}
@@ -135,7 +137,7 @@ export class CodeIndexer {
 		report: IndexReport,
 	): Promise<void> {
 		const content = await Bun.file(join(this.repoRoot, source.path)).text();
-		const hash = sha256(content);
+		const hash = sha256Hex(content);
 		if (previous?.hash === hash) {
 			this.repository.touchFile({ ...source, hash });
 			report.unchanged++;
@@ -150,7 +152,7 @@ export class CodeIndexer {
 		resolver: ImportResolver,
 	): Promise<FileIndexEntry> {
 		const content = await Bun.file(join(this.repoRoot, source.path)).text();
-		return this.toEntryOf(source, sha256(content), content, resolver);
+		return this.toEntryOf(source, sha256Hex(content), content, resolver);
 	}
 
 	private toEntryOf(
@@ -181,10 +183,4 @@ export class CodeIndexer {
 			provenance: resolved.provenance,
 		};
 	}
-}
-
-function sha256(content: string): string {
-	const hasher = new Bun.CryptoHasher("sha256");
-	hasher.update(content);
-	return hasher.digest("hex");
 }

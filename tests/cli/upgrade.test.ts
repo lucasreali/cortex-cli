@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { makeTarball } from "@tests/release/tarball";
-import { sha256Hex } from "@/release/checksums";
 import { buildTarget } from "@/release/target";
+import { sha256Hex } from "@/support/hash";
 import { CORTEX_VERSION } from "@/version";
 
 const MAIN_PATH = new URL("../../src/cli/main.ts", import.meta.url).pathname;

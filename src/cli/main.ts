@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { errorMessage } from "@/support/errors";
 import { CORTEX_VERSION } from "@/version";
 import { runIndex } from "./commands/code-index";
 import { runDoctor } from "./commands/doctor";
@@ -146,9 +147,7 @@ async function main(): Promise<void> {
 		const code = await command.run(args, process.cwd());
 		if (code !== null) process.exit(code);
 	} catch (error) {
-		console.error(
-			failure(error instanceof Error ? error.message : String(error)),
-		);
+		console.error(failure(errorMessage(error)));
 		process.exit(1);
 	}
 }

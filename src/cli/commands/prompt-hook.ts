@@ -9,6 +9,8 @@ import type { Decision } from "@/domain";
 import { findNearestCortexRoot } from "@/storage/locate-store";
 import { NodeRepository } from "@/storage/node-repository";
 import { SearchRepository } from "@/storage/search-repository";
+import { parseJsonOrNull } from "@/support/json";
+import { truncate } from "@/support/text";
 
 const BODY_LIMIT = 700;
 const BUSY_TIMEOUT_MS = 1000;
@@ -51,15 +53,11 @@ function injectContext(startDir: string, prompt: string): void {
 }
 
 function parsePayload(raw: string): { prompt: string; cwd: string | null } {
-	try {
-		const data = JSON.parse(raw) as { prompt?: unknown; cwd?: unknown };
-		return {
-			prompt: typeof data.prompt === "string" ? data.prompt : "",
-			cwd: typeof data.cwd === "string" ? data.cwd : null,
-		};
-	} catch {
-		return { prompt: "", cwd: null };
-	}
+	const data = parseJsonOrNull<{ prompt?: unknown; cwd?: unknown }>(raw);
+	return {
+		prompt: typeof data?.prompt === "string" ? data.prompt : "",
+		cwd: typeof data?.cwd === "string" ? data.cwd : null,
+	};
 }
 
 type HookStore = PromptGateStore & { close(): void };
@@ -102,10 +100,6 @@ function fullEntry(decision: Decision): string {
 
 function titleEntry(decision: Decision): string {
 	return `- ${decision.title} (${decision.id})`;
-}
-
-function truncate(text: string, max: number): string {
-	return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }
 
 function printInstallHint(): number {

@@ -1,6 +1,5 @@
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { userCortexDir } from "@/support/cortex-home";
 
 export function modelsDir(): string {
-	return process.env.CORTEX_MODELS_DIR ?? join(homedir(), ".cortex", "models");
+	return userCortexDir("models", process.env.CORTEX_MODELS_DIR);
 }

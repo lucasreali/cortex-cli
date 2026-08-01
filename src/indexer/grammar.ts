@@ -1,6 +1,6 @@
-import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { writeAtomically } from "@/support/atomic-write";
+import { userCortexDir } from "@/support/cortex-home";
 import { sha256Hex } from "@/support/hash";
 
 export interface GrammarSource {
@@ -16,7 +16,7 @@ const DOWNLOAD_TIMEOUT_MS = 60_000;
 const TSX_GRAMMAR: GrammarSource = {
 	url: "https://github.com/tree-sitter/tree-sitter-typescript/releases/download/v0.23.2/tree-sitter-tsx.wasm",
 	sha256: "79e5da75ea62855a0cd67177685f0164eac87d5f630b3cbe1e0a099751ad30f8",
-	cacheDir: join(homedir(), ".cortex", "grammars"),
+	cacheDir: userCortexDir("grammars", process.env.CORTEX_GRAMMARS_DIR),
 };
 
 export async function ensureGrammar(

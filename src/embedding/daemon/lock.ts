@@ -1,5 +1,7 @@
 import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { errnoCode } from "@/support/errors";
+import { parseJsonOrNull } from "@/support/json";
 
 export interface DaemonLock {
 	pid: number;
@@ -19,7 +21,7 @@ export function acquireDaemonLock(lockPath: string, lock: DaemonLock): boolean {
 		writeFileSync(lockPath, JSON.stringify(lock), { flag: "wx", mode: 0o600 });
 		return true;
 	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+		if (errnoCode(error) === "EEXIST") return false;
 		throw error;
 	}
 }
@@ -56,12 +58,12 @@ export function isProcessAlive(pid: number): boolean {
 		return true;
 	} catch (error) {
 		// EPERM means the process exists but is not ours to signal.
-		return (error as NodeJS.ErrnoException).code === "EPERM";
+		return errnoCode(error) === "EPERM";
 	}
 }
 
 function decodeLock(raw: string): DaemonLock | null {
-	const parsed = JSON.parse(raw) as Partial<DaemonLock>;
+	const parsed = parseJsonOrNull<Partial<DaemonLock>>(raw);
 	if (typeof parsed?.pid !== "number") return null;
 	if (typeof parsed.version !== "string") return null;
 	if (typeof parsed.modelId !== "string") return null;

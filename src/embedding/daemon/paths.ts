@@ -1,5 +1,5 @@
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { userCortexDir } from "@/support/cortex-home";
 
 export interface DaemonPaths {
 	directory: string;
@@ -22,7 +22,7 @@ export function daemonPathsFor(
 }
 
 export function defaultDaemonDirectory(): string {
-	return process.env.CORTEX_DAEMON_DIR ?? join(homedir(), ".cortex", "daemon");
+	return userCortexDir("daemon", process.env.CORTEX_DAEMON_DIR);
 }
 
 function fileSafe(modelId: string): string {

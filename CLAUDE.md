@@ -20,10 +20,14 @@ on the code.
 ## Architecture
 
 Dependency direction, no cycles:
-`cli`/`mcp` → `app` → `embedding`/`indexer`/`storage`/`git` → `domain`
+`cli`/`mcp` → `app` → `embedding`/`indexer`/`storage`/`git` → `domain`/`support`
 
 - `domain/` — pure types + Zod schemas; depends only on zod. Shared
   invariants (e.g. `MINIMUM_KEYWORDS`) are defined here, nowhere else.
+- `support/` — dependency-free leaf helpers (`errorMessage`, `errnoCode`,
+  `parseJsonOrNull`, `sha256Hex`, `truncate`, `writeAtomically`,
+  `userCortexDir`). Anything may import it, including `release/`; it imports
+  nothing. Put a helper here only once a third call site wants it.
 - `storage/` — thin repositories over `bun:sqlite`. Two databases per
   project, on purpose: `decisions.db` (permanent, the product) and `code.db`
   (disposable, wiped and rebuilt freely) — never merge them. `nodes_fts` is
@@ -35,7 +39,8 @@ Dependency direction, no cycles:
 - `embedding/` — the hard part; see topology below.
 - `release/` — self-update: resolve a GitHub release, verify its checksum,
   unpack the ustar member, replace the running binary by atomic rename. It
-  imports nothing from the other `src/` directories, on purpose.
+  imports nothing from the other `src/` directories except `support/`, on
+  purpose: the upgrade path must not drag the store or the model in behind it.
 - `app/` — use cases; `runtime.ts` is the composition root. Use cases narrow
   `CortexRuntime` with `Pick<>` instead of introducing interfaces.
 - `cli/` — hand-rolled dispatch table in `main.ts` (deliberate, no CLI

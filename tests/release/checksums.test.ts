@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { Checksums, sha256Hex } from "@/release/checksums";
+import { Checksums } from "@/release/checksums";
+import { sha256Hex } from "@/support/hash";
 
 const ASSET = "cortex-v0.2.0-linux-x64.tar.gz";
 const BYTES = new TextEncoder().encode("pretend-tarball");
@@ -7,14 +8,6 @@ const BYTES = new TextEncoder().encode("pretend-tarball");
 function listing(entries: Array<[string, string]>): string {
 	return `${entries.map(([digest, name]) => `${digest}  ${name}`).join("\n")}\n`;
 }
-
-describe("sha256Hex", () => {
-	test("matches the digest the release workflow publishes", () => {
-		const hasher = new Bun.CryptoHasher("sha256");
-		hasher.update(BYTES);
-		expect(sha256Hex(BYTES)).toBe(hasher.digest("hex"));
-	});
-});
 
 describe("Checksums", () => {
 	test("accepts an asset whose digest matches its line", () => {

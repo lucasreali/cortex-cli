@@ -1,5 +1,6 @@
 import { chmodSync, realpathSync, renameSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
+import { errnoCode } from "@/support/errors";
 
 const PROBE_TIMEOUT_MS = 10_000;
 
@@ -63,7 +64,7 @@ function discard(staging: string): void {
 }
 
 function describe(error: unknown, targetPath: string): Error {
-	const code = (error as NodeJS.ErrnoException).code;
+	const code = errnoCode(error);
 	if (code === "EACCES" || code === "EPERM" || code === "EROFS") {
 		return new Error(
 			`cannot replace ${targetPath}: ${dirname(targetPath)} is not writable — ` +

@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { parseJsonOrNull } from "@/support/json";
 
 export interface CortexConfig {
 	model_id: string;
@@ -10,11 +11,7 @@ export async function readConfig(
 ): Promise<CortexConfig | null> {
 	const file = Bun.file(configPath(cortexDir));
 	if (!(await file.exists())) return null;
-	try {
-		return (await file.json()) as CortexConfig;
-	} catch {
-		return null;
-	}
+	return parseJsonOrNull<CortexConfig>(await file.text());
 }
 
 export async function writeConfig(

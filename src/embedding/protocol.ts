@@ -1,3 +1,5 @@
+import { parseJsonOrNull } from "@/support/json";
+
 export type EmbedKind = "query" | "passages";
 
 export interface WorkerRequest {
@@ -14,13 +16,9 @@ export type WorkerResponse =
 // unknown id would settle someone else's request, and throwing would take the
 // whole worker down over one bad line.
 export function decodeRequest(line: string): WorkerRequest | null {
-	try {
-		const parsed = JSON.parse(line) as Partial<WorkerRequest>;
-		if (typeof parsed?.id !== "number") return null;
-		if (parsed.kind !== "query" && parsed.kind !== "passages") return null;
-		if (!Array.isArray(parsed.texts)) return null;
-		return parsed as WorkerRequest;
-	} catch {
-		return null;
-	}
+	const parsed = parseJsonOrNull<Partial<WorkerRequest>>(line);
+	if (typeof parsed?.id !== "number") return null;
+	if (parsed.kind !== "query" && parsed.kind !== "passages") return null;
+	if (!Array.isArray(parsed.texts)) return null;
+	return parsed as WorkerRequest;
 }

@@ -9,6 +9,7 @@ import {
 } from "@/embedding/protocol";
 import { SerialLane } from "@/embedding/serial-lane";
 import { withTimeout } from "@/embedding/with-timeout";
+import { errorMessage } from "@/support/errors";
 import { DAEMON_PROTOCOL, encodeDaemonHello } from "./hello";
 
 export interface EmbeddingDaemonOptions {
@@ -168,10 +169,6 @@ export class EmbeddingDaemon {
 		if (this.idleTimer) clearTimeout(this.idleTimer);
 		this.idleTimer = null;
 	}
-}
-
-function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
 }
 
 function removeSocketFileIfPresent(socketPath: string): void {

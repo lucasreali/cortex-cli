@@ -1,3 +1,5 @@
+import { parseJsonOrNull } from "@/support/json";
+
 export const DAEMON_PROTOCOL = 1;
 
 export interface DaemonHello {
@@ -12,7 +14,7 @@ export function encodeDaemonHello(hello: DaemonHello): string {
 }
 
 export function parseDaemonHello(line: string): DaemonHello | null {
-	const parsed = decode(line);
+	const parsed = parseJsonOrNull<Partial<DaemonHello>>(line);
 	if (typeof parsed?.cortex !== "string") return null;
 	if (parsed.protocol !== DAEMON_PROTOCOL) return null;
 	if (typeof parsed.pid !== "number") return null;
@@ -26,12 +28,4 @@ export function helloAccepted(
 	modelId: string,
 ): boolean {
 	return hello.cortex === version && hello.modelId === modelId;
-}
-
-function decode(line: string): Partial<DaemonHello> | null {
-	try {
-		return JSON.parse(line) as Partial<DaemonHello>;
-	} catch {
-		return null;
-	}
 }

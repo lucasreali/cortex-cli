@@ -1,7 +1,8 @@
 import { chmodSync, mkdirSync, rmSync, utimesSync } from "node:fs";
 import { join } from "node:path";
+import { sha256Hex } from "@/support/hash";
 import { CORTEX_VERSION } from "@/version";
-import { compile, ROOT } from "./compile";
+import { compile, ROOT, sizeInMegabytes } from "./compile";
 
 const TARGETS: ReadonlyArray<{
 	target: Bun.Build.CompileTarget;
@@ -63,9 +64,7 @@ async function archive(stageDir: string, outfile: string): Promise<void> {
 }
 
 async function sha256(path: string): Promise<string> {
-	const hasher = new Bun.CryptoHasher("sha256");
-	hasher.update(await Bun.file(path).arrayBuffer());
-	return hasher.digest("hex");
+	return sha256Hex(new Uint8Array(await Bun.file(path).arrayBuffer()));
 }
 
 async function packageTarget(
@@ -79,10 +78,6 @@ async function packageTarget(
 	await archive(stageDir, join(RELEASE_DIR, asset));
 	console.log(`${asset} (${sizeInMegabytes(join(RELEASE_DIR, asset))} MB)`);
 	return { asset, stageDir };
-}
-
-function sizeInMegabytes(path: string): string {
-	return (Bun.file(path).size / 1024 / 1024).toFixed(1);
 }
 
 rmSync(RELEASE_DIR, { recursive: true, force: true });

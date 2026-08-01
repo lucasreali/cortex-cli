@@ -1,6 +1,7 @@
 import type { Decision } from "@/domain";
 import type { EmbeddingRepository } from "@/storage/embedding-repository";
 import type { NodeRepository } from "@/storage/node-repository";
+import { errorMessage } from "@/support/errors";
 import type { EmbeddingProvider } from "./provider";
 import { withTimeout } from "./with-timeout";
 
@@ -31,7 +32,7 @@ export class EmbedQueue {
 			.catch((error) => {
 				console.error(
 					`[cortex] embedding for ${nodeId} left pending:`,
-					error instanceof Error ? error.message : error,
+					errorMessage(error),
 				);
 			});
 	}
