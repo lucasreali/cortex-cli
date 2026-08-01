@@ -75,7 +75,19 @@ purpose: it runs on every prompt and must never fail or migrate state.
   reach for Node equivalents when Bun has one.
 - DDL, migrations and non-trivial queries (recursive CTEs) live in `.sql`
   files loaded with Bun text imports; small repository queries stay inline.
+- Comments are a last resort, not a default. Before writing one, judge whether
+  the code can carry the meaning itself — extract a named function, constant or
+  variable, and the comment becomes unnecessary. Write one only for what code
+  cannot express: a non-obvious external constraint (OS semantics, a protocol
+  contract, a library quirk, a rejected alternative) or the reasoning behind a
+  deliberate trade-off. Never restate what the line below already says. A
+  comment that survives that test has earned its place — keep it, and keep it
+  accurate.
 - Cross-directory imports use the `@/` alias; same-directory stay relative.
+  Descending imports (`./commands/x`, `./tools/y`, `./queries/z.sql`) also stay
+  relative — the alias rule targets imports that climb out of a directory with
+  `../`, and `lint:ci` fails on those.
+- Comments and markdown are written in English, `.sql` files included.
 - The release asset suffix is baked into each cross-compiled binary through
   `Bun.build`'s `define` (`scripts/compile.ts`), because musl and baseline
   builds are indistinguishable from the inside at runtime. `install.sh`'s
