@@ -3,7 +3,7 @@ import { failure, style, success } from "@/cli/style";
 import type { Decision } from "@/domain";
 import type { EmbeddingProvider } from "@/embedding/provider";
 import { DEFAULT_EMBED_TIMEOUT_MS, decisionPassage } from "@/embedding/queue";
-import { withTimeout } from "@/embedding/with-timeout";
+import { disposingOnTimeout } from "@/embedding/with-timeout";
 import { errorMessage } from "@/support/errors";
 
 export type EmbedDependencies = Pick<
@@ -44,19 +44,16 @@ export async function embedAll(
 	return 0;
 }
 
-// Same discipline as EmbedQueue: a hung worker must never wedge the command,
-// so a timeout disposes the provider (killing the subprocess) and fails the
-// run with the decision left pending.
 async function embedDecision(
 	provider: EmbeddingProvider,
 	decision: Decision,
 	timeoutMs: number,
 ): Promise<Float32Array | null> {
 	try {
-		const [vector] = await withTimeout(
+		const [vector] = await disposingOnTimeout(
+			provider,
 			provider.embedPassages([decisionPassage(decision)]),
 			timeoutMs,
-			() => provider.dispose?.(),
 		);
 		return vector ?? null;
 	} catch (error) {

@@ -7,8 +7,8 @@ import {
 import { type DaemonPaths, daemonPathsFor } from "@/embedding/daemon/paths";
 import { CORTEX_VERSION } from "@/version";
 import type { GemmaProvider } from "./gemma-provider";
+import { KindEmbeddingProvider } from "./kind-provider";
 import type { EmbedKind } from "./protocol";
-import type { EmbeddingProvider } from "./provider";
 
 export interface SharedEmbeddingProviderOptions extends ConnectOptions {
 	paths?: DaemonPaths;
@@ -18,8 +18,7 @@ export interface SharedEmbeddingProviderOptions extends ConnectOptions {
 // Multiplexes embedding onto the user-wide daemon so N concurrent sessions
 // share one model load, degrading to the private worker whenever the daemon
 // cannot be reached — sharing is an optimization, never a dependency.
-export class SharedEmbeddingProvider implements EmbeddingProvider {
-	readonly modelId: string;
+export class SharedEmbeddingProvider extends KindEmbeddingProvider {
 	private connection: DaemonConnection | null = null;
 	private connecting: Promise<DaemonConnection | null> | null = null;
 	private daemonUnavailable = false;
@@ -28,17 +27,7 @@ export class SharedEmbeddingProvider implements EmbeddingProvider {
 		private readonly direct: GemmaProvider,
 		private readonly options: SharedEmbeddingProviderOptions = {},
 	) {
-		this.modelId = direct.modelId;
-	}
-
-	async embedQuery(text: string): Promise<Float32Array> {
-		const [vector] = await this.embed("query", [text]);
-		if (!vector) throw new Error("embedding worker returned no vector");
-		return vector;
-	}
-
-	async embedPassages(texts: string[]): Promise<Float32Array[]> {
-		return this.embed("passages", texts);
+		super(direct.modelId, (kind, texts) => this.sendToDaemon(kind, texts));
 	}
 
 	get daemonConnected(): boolean {
@@ -51,11 +40,10 @@ export class SharedEmbeddingProvider implements EmbeddingProvider {
 		this.direct.dispose();
 	}
 
-	private async embed(
+	private async sendToDaemon(
 		kind: EmbedKind,
 		texts: string[],
 	): Promise<Float32Array[]> {
-		if (texts.length === 0) return [];
 		const connection = await this.ensureConnection();
 		if (!connection) return this.direct.embed(kind, texts);
 		const vectors = await connection.embed(kind, texts);

@@ -1,3 +1,10 @@
+// One end of the NDJSON framing both peers speak: every message is a single
+// JSON line. LineBuffer is the other end, reassembling those lines from
+// whatever chunk sizes the socket or pipe happens to deliver.
+export function encodeNdjson(message: unknown): string {
+	return `${JSON.stringify(message)}\n`;
+}
+
 // A peer that never sends a newline would otherwise grow the buffer without
 // limit. The cap is far above any real request: the largest one is a batch of
 // decision passages, and a line beyond this is a stuck or hostile writer.

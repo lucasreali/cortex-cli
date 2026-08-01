@@ -3,7 +3,7 @@ import type { EmbeddingRepository } from "@/storage/embedding-repository";
 import type { NodeRepository } from "@/storage/node-repository";
 import { errorMessage } from "@/support/errors";
 import type { EmbeddingProvider } from "./provider";
-import { withTimeout } from "./with-timeout";
+import { disposingOnTimeout } from "./with-timeout";
 
 export interface EmbedQueueDependencies {
 	nodes: NodeRepository;
@@ -51,14 +51,13 @@ export class EmbedQueue {
 		this.dependencies.onEmbedded?.(nodeId);
 	}
 
-	// A hung worker must never wedge the queue: on timeout the provider is
-	// disposed (killing the subprocess) and the item stays pending for
-	// `cortex embed --missing`.
+	// A timed-out item stays pending for `cortex embed --missing`.
 	private embedWithTimeout(passage: string): Promise<Float32Array[]> {
 		const { provider } = this.dependencies;
-		const timeoutMs = this.options.timeoutMs ?? DEFAULT_EMBED_TIMEOUT_MS;
-		return withTimeout(provider.embedPassages([passage]), timeoutMs, () =>
-			provider.dispose?.(),
+		return disposingOnTimeout(
+			provider,
+			provider.embedPassages([passage]),
+			this.options.timeoutMs ?? DEFAULT_EMBED_TIMEOUT_MS,
 		);
 	}
 }

@@ -1,6 +1,6 @@
 import { closeSync, mkdirSync, openSync } from "node:fs";
 import type { Socket } from "bun";
-import { LineBuffer } from "@/embedding/line-buffer";
+import { encodeNdjson, LineBuffer } from "@/embedding/ndjson";
 import type { EmbedKind } from "@/embedding/protocol";
 import { VectorRequestLedger } from "@/embedding/request-ledger";
 import { embedDaemonCommand } from "@/embedding/subprocess-command";
@@ -56,7 +56,7 @@ export class DaemonConnection {
 
 	embed(kind: EmbedKind, texts: string[]): Promise<number[][]> {
 		const { request, vectors } = this.state.ledger.open(kind, texts);
-		this.socket.write(`${JSON.stringify(request)}\n`);
+		this.socket.write(encodeNdjson(request));
 		return vectors;
 	}
 

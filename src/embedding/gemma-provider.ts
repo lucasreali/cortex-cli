@@ -1,9 +1,10 @@
 import type { Subprocess } from "bun";
-import { LineBuffer } from "./line-buffer";
+import { IdleTimer } from "./idle-timer";
+import { KindEmbeddingProvider } from "./kind-provider";
 import { GEMMA_MODEL } from "./model";
 import { modelsDir } from "./models-dir";
+import { encodeNdjson, LineBuffer } from "./ndjson";
 import type { EmbedKind } from "./protocol";
-import type { EmbeddingProvider } from "./provider";
 import { VectorRequestLedger } from "./request-ledger";
 import { embedWorkerCommand } from "./subprocess-command";
 
@@ -12,8 +13,6 @@ export interface GemmaProviderOptions {
 	modelsDir?: string;
 	workerPath?: string;
 }
-
-const DEFAULT_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 
 type WorkerSubprocess = Subprocess<"pipe", "pipe", "inherit">;
 
@@ -37,7 +36,7 @@ class WorkerLink {
 
 	send(kind: EmbedKind, texts: string[]): Promise<number[][]> {
 		const { request, vectors } = this.ledger.open(kind, texts);
-		this.subprocess.stdin.write(`${JSON.stringify(request)}\n`);
+		this.subprocess.stdin.write(encodeNdjson(request));
 		this.subprocess.stdin.flush();
 		return vectors;
 	}
@@ -56,27 +55,14 @@ class WorkerLink {
 	}
 }
 
-export class GemmaProvider implements EmbeddingProvider {
-	readonly modelId: string = GEMMA_MODEL.modelId;
+export class GemmaProvider extends KindEmbeddingProvider {
+	private readonly idleTimer: IdleTimer;
 	private link: WorkerLink | null = null;
-	private idleTimer: ReturnType<typeof setTimeout> | null = null;
 	private inFlight = 0;
 
-	constructor(private readonly options: GemmaProviderOptions = {}) {}
-
-	async embedQuery(text: string): Promise<Float32Array> {
-		const [vector] = await this.embed("query", [text]);
-		if (!vector) throw new Error("embedding worker returned no vector");
-		return vector;
-	}
-
-	async embedPassages(texts: string[]): Promise<Float32Array[]> {
-		return this.embed("passages", texts);
-	}
-
-	embed(kind: EmbedKind, texts: string[]): Promise<Float32Array[]> {
-		if (texts.length === 0) return Promise.resolve([]);
-		return this.request(kind, texts);
+	constructor(private readonly options: GemmaProviderOptions = {}) {
+		super(GEMMA_MODEL.modelId, (kind, texts) => this.sendToWorker(kind, texts));
+		this.idleTimer = new IdleTimer(options.idleTimeoutMs);
 	}
 
 	get workerRunning(): boolean {
@@ -84,17 +70,17 @@ export class GemmaProvider implements EmbeddingProvider {
 	}
 
 	dispose(): void {
-		this.clearIdleTimer();
+		this.idleTimer.clear();
 		this.link?.kill();
 		this.link = null;
 	}
 
-	private async request(
+	private async sendToWorker(
 		kind: EmbedKind,
 		texts: string[],
 	): Promise<Float32Array[]> {
 		const link = this.ensureLink();
-		this.clearIdleTimer();
+		this.idleTimer.clear();
 		this.inFlight++;
 		try {
 			const vectors = await link.send(kind, texts);
@@ -126,16 +112,9 @@ export class GemmaProvider implements EmbeddingProvider {
 
 	private scheduleIdleKill(): void {
 		if (this.inFlight > 0) return;
-		this.clearIdleTimer();
-		this.idleTimer = setTimeout(() => {
+		this.idleTimer.arm(() => {
 			this.link?.kill();
 			this.link = null;
-		}, this.options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS);
-		this.idleTimer.unref?.();
-	}
-
-	private clearIdleTimer(): void {
-		if (this.idleTimer) clearTimeout(this.idleTimer);
-		this.idleTimer = null;
+		});
 	}
 }

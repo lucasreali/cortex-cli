@@ -1,3 +1,4 @@
+import { encodeNdjson } from "@/embedding/ndjson";
 import { parseJsonOrNull } from "@/support/json";
 
 export const DAEMON_PROTOCOL = 1;
@@ -10,7 +11,7 @@ export interface DaemonHello {
 }
 
 export function encodeDaemonHello(hello: DaemonHello): string {
-	return `${JSON.stringify(hello)}\n`;
+	return encodeNdjson(hello);
 }
 
 export function parseDaemonHello(line: string): DaemonHello | null {

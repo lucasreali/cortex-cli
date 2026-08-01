@@ -1,14 +1,15 @@
 import { chmodSync, unlinkSync } from "node:fs";
 import type { Socket } from "bun";
 import type { GemmaProvider } from "@/embedding/gemma-provider";
-import { LineBuffer } from "@/embedding/line-buffer";
+import { IdleTimer } from "@/embedding/idle-timer";
+import { encodeNdjson, LineBuffer } from "@/embedding/ndjson";
 import {
 	decodeRequest,
 	type WorkerRequest,
 	type WorkerResponse,
 } from "@/embedding/protocol";
 import { SerialLane } from "@/embedding/serial-lane";
-import { withTimeout } from "@/embedding/with-timeout";
+import { disposingOnTimeout } from "@/embedding/with-timeout";
 import { errorMessage } from "@/support/errors";
 import { DAEMON_PROTOCOL, encodeDaemonHello } from "./hello";
 
@@ -20,7 +21,6 @@ export interface EmbeddingDaemonOptions {
 	requestTimeoutMs?: number;
 }
 
-const DEFAULT_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 
 interface ClientState {
@@ -37,11 +37,13 @@ export class EmbeddingDaemon {
 	private readonly clients = new Set<ClientSocket>();
 	private readonly lane = new SerialLane();
 	private readonly closedState = Promise.withResolvers<string>();
+	private readonly idleTimer: IdleTimer;
 	private listener: SocketListener | null = null;
-	private idleTimer: ReturnType<typeof setTimeout> | null = null;
 	private stopping = false;
 
-	constructor(private readonly options: EmbeddingDaemonOptions) {}
+	constructor(private readonly options: EmbeddingDaemonOptions) {
+		this.idleTimer = new IdleTimer(options.idleTimeoutMs);
+	}
 
 	start(): void {
 		removeSocketFileIfPresent(this.options.socketPath);
@@ -70,7 +72,7 @@ export class EmbeddingDaemon {
 	stop(reason: string): void {
 		if (this.stopping) return;
 		this.stopping = true;
-		this.clearIdleTimer();
+		this.idleTimer.clear();
 		for (const client of this.clients) {
 			client.end();
 		}
@@ -84,7 +86,7 @@ export class EmbeddingDaemon {
 	private acceptClient(socket: ClientSocket): void {
 		socket.data = { lines: new LineBuffer() };
 		this.clients.add(socket);
-		this.clearIdleTimer();
+		this.idleTimer.clear();
 		socket.write(
 			encodeDaemonHello({
 				cortex: this.options.version,
@@ -133,41 +135,28 @@ export class EmbeddingDaemon {
 		}
 	}
 
-	// A wedged worker must not wedge the daemon for every session: on timeout
-	// the inner provider is disposed and respawns on the next request. The
-	// worker embeds one request at a time, so the daemon queues instead of
-	// pipelining: the deadline below starts when a request reaches the worker,
-	// never while it waits behind another session, and the dispose can only
-	// lose the single request the worker is holding.
+	// The worker embeds one request at a time, so the daemon queues instead of
+	// pipelining: the deadline starts when a request reaches the worker, never
+	// while it waits behind another session, and the dispose can only lose the
+	// single request the worker is holding.
 	private embedWithTimeout(request: WorkerRequest): Promise<Float32Array[]> {
-		const timeoutMs =
-			this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
-		return withTimeout(
+		return disposingOnTimeout(
+			this.options.provider,
 			this.options.provider.embed(request.kind, request.texts),
-			timeoutMs,
-			() => this.options.provider.dispose(),
+			this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
 		);
 	}
 
 	private deliver(socket: ClientSocket, response: WorkerResponse): void {
 		if (!this.clients.has(socket)) return;
-		socket.write(`${JSON.stringify(response)}\n`);
+		socket.write(encodeNdjson(response));
 	}
 
 	private armIdleTimer(): void {
 		if (this.stopping) return;
-		const timeoutMs = this.options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
-		if (timeoutMs <= 0) return;
-		this.clearIdleTimer();
-		this.idleTimer = setTimeout(() => {
+		this.idleTimer.arm(() => {
 			if (this.clients.size === 0) this.stop("idle timeout");
-		}, timeoutMs);
-		this.idleTimer.unref?.();
-	}
-
-	private clearIdleTimer(): void {
-		if (this.idleTimer) clearTimeout(this.idleTimer);
-		this.idleTimer = null;
+		});
 	}
 }
 

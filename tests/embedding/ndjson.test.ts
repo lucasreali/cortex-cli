@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { LineBuffer } from "@/embedding/line-buffer";
+import { encodeNdjson, LineBuffer } from "@/embedding/ndjson";
 
 describe("LineBuffer", () => {
 	test("splits complete lines and holds the partial tail", () => {
@@ -40,5 +40,20 @@ describe("LineBuffer", () => {
 		const lines = new LineBuffer();
 		expect(() => lines.push("x".repeat(8 * 1024 * 1024 + 1))).toThrow();
 		expect(lines.push("recovered\n")).toEqual(["recovered"]);
+	});
+});
+
+describe("encodeNdjson", () => {
+	test("frames a message as one newline-terminated JSON line", () => {
+		expect(encodeNdjson({ id: 1, kind: "query" })).toBe(
+			'{"id":1,"kind":"query"}\n',
+		);
+	});
+
+	test("what it writes is what LineBuffer reads back", () => {
+		const message = { id: 7, texts: ["a\nb", "café"] };
+		expect(new LineBuffer().push(encodeNdjson(message))).toEqual([
+			JSON.stringify(message),
+		]);
 	});
 });

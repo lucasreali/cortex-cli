@@ -1,7 +1,7 @@
 import type { pipeline as pipelineType } from "@huggingface/transformers";
-import { LineBuffer } from "./line-buffer";
 import { GEMMA_MODEL } from "./model";
 import { modelsDir } from "./models-dir";
+import { encodeNdjson, LineBuffer } from "./ndjson";
 import { ensureOnnxRuntimeAssets } from "./onnxruntime-assets";
 import {
 	decodeRequest,
@@ -81,7 +81,7 @@ function truncateAndNormalize(
 }
 
 function respond(response: WorkerResponse): void {
-	process.stdout.write(`${JSON.stringify(response)}\n`);
+	process.stdout.write(encodeNdjson(response));
 }
 
 async function handleLine(line: string): Promise<void> {
