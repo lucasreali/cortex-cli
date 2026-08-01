@@ -2,7 +2,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { CortexRuntime } from "@/app/runtime";
 import type { RuntimeRegistry } from "@/mcp/runtime-registry";
-import { guidanceResult } from "./results";
+import { errorResult, guidanceResult } from "./results";
 
 const RESOLUTION_HINT =
 	"Absolute path to the project to target — any directory inside it works; " +
@@ -23,15 +23,26 @@ export function projectPathField(registry: RuntimeRegistry) {
 	);
 }
 
-export function scopedToProject<Args extends Record<string, unknown>>(
+// Every tool goes through here, so this is where the two answer shapes are
+// decided: a recoverable state is guidance the agent can act on, and only a
+// genuine fault is an isError the SDK would otherwise shape differently per
+// tool depending on whether that tool happened to catch.
+export function scopedToProject<Args extends { projectPath?: string }>(
 	registry: RuntimeRegistry,
-	handler: (runtime: CortexRuntime, args: Args) => Promise<CallToolResult>,
-): (args: Args & { projectPath?: string }) => Promise<CallToolResult> {
+	handler: (
+		runtime: CortexRuntime,
+		args: Omit<Args, "projectPath">,
+	) => Promise<CallToolResult>,
+): (args: Args) => Promise<CallToolResult> {
 	return async ({ projectPath, ...args }) => {
 		const resolution = await registry.resolve(projectPath);
 		if (!resolution.ok) {
 			return guidanceResult("not_initialized", resolution.guidance);
 		}
-		return handler(resolution.runtime, args as unknown as Args);
+		try {
+			return await handler(resolution.runtime, args);
+		} catch (error) {
+			return errorResult(error);
+		}
 	};
 }

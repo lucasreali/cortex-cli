@@ -8,7 +8,7 @@ import { type CreateDecisionInput, createDecisionSchema } from "@/domain";
 import type { RuntimeRegistry } from "@/mcp/runtime-registry";
 import type { CodeRepository } from "@/storage/code-repository";
 import { projectPathField, scopedToProject } from "./project-scope";
-import { errorResult, guidanceResult, jsonResult } from "./results";
+import { guidanceResult, jsonResult } from "./results";
 
 const DESCRIPTION = `Record a technical decision in the project's persistent memory (Cortex).
 
@@ -52,17 +52,13 @@ async function saveDecision(
 		...anchorWarnings(runtime, input),
 		...(await symbolWarnings(runtime, input)),
 	];
-	try {
-		const context = runtime.saveContext();
-		const decision = input.replaces
-			? runtime.nodes.replaceDecision(input.replaces, input, context)
-			: runtime.nodes.createDecision(input, context);
-		runtime.queue?.enqueue(decision.id);
-		runtime.semanticSearch.invalidate();
-		return jsonResult({ id: decision.id, warnings });
-	} catch (error) {
-		return errorResult(error);
-	}
+	const context = runtime.saveContext();
+	const decision = input.replaces
+		? runtime.nodes.replaceDecision(input.replaces, input, context)
+		: runtime.nodes.createDecision(input, context);
+	runtime.queue?.enqueue(decision.id);
+	runtime.semanticSearch.invalidate();
+	return jsonResult({ id: decision.id, warnings });
 }
 
 function missingLinkedDecisions(

@@ -49,6 +49,7 @@ function reportedVersion(path: string): string {
 			stderr: "pipe",
 			timeout: PROBE_TIMEOUT_MS,
 		});
+		if (probe.exitCode !== 0) return "";
 		return probe.stdout.toString().trim();
 	} catch {
 		return "";

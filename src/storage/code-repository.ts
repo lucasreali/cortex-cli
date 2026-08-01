@@ -6,6 +6,7 @@ import type {
 	ImportProvenance,
 	IndexedFile,
 } from "@/domain";
+import matchSymbolsSql from "./queries/match-symbols.sql" with { type: "text" };
 import transitiveImportersSql from "./queries/transitive-importers.sql" with {
 	type: "text",
 };
@@ -182,14 +183,7 @@ export class CodeRepository {
 					$owner: string;
 					$limit: number;
 				}
-			>(
-				`SELECT DISTINCT name FROM symbols
-				 WHERE ($file IS NULL OR file_path = $file)
-				   AND (name LIKE '%' || $full || '%'
-				     OR name LIKE '%' || $last || '%'
-				     OR ($owner != '' AND name LIKE $owner || '.%'))
-				 ORDER BY name LIMIT $limit`,
-			)
+			>(matchSymbolsSql)
 			.all({
 				$file: filePath,
 				$full: name,

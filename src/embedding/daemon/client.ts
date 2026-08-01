@@ -115,7 +115,7 @@ export async function probeDaemon(
 	};
 }
 
-export function spawnDetachedDaemon(
+function spawnDetachedDaemon(
 	endpoint: DaemonEndpoint,
 	options: ConnectOptions = {},
 ): void {

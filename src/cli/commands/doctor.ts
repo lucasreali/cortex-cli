@@ -15,7 +15,7 @@ import { listSourceFiles } from "@/indexer/source-walker";
 import { TsconfigAliases } from "@/indexer/tsconfig-aliases";
 import { type OpenCodeRepository, openCodeRepository } from "@/storage/code-db";
 import type { CodeRepository } from "@/storage/code-repository";
-import { readConfig } from "@/storage/config";
+import { readConfigState } from "@/storage/config";
 import { CODE_SCHEMA_VERSION, SCHEMA_VERSION } from "@/storage/migrations";
 import { errorMessage } from "@/support/errors";
 
@@ -90,11 +90,18 @@ async function checkConfig(
 	runtime: CortexRuntime,
 	report: DoctorReport,
 ): Promise<void> {
-	const config = await readConfig(runtime.cortexDir);
-	if (!config) {
+	const read = await readConfigState(runtime.cortexDir);
+	if (read.state === "missing") {
 		report.warn("config missing — run: cortex init");
 		return;
 	}
+	if (read.state === "unreadable") {
+		report.warn(
+			`config at ${runtime.cortexDir}/config is not valid JSON — fix or delete it`,
+		);
+		return;
+	}
+	const { config } = read;
 	if (config.schema_version !== SCHEMA_VERSION) {
 		report.warn(
 			`schema version ${config.schema_version} != expected ${SCHEMA_VERSION}`,

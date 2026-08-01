@@ -40,8 +40,11 @@ export function computeDrift(
 	for (const source of sources) {
 		const previous = known.get(source.path);
 		known.delete(source.path);
-		if (!previous) drift.added++;
-		else if (!isUnchanged(previous, source)) drift.changed++;
+		if (!previous) {
+			drift.added++;
+			continue;
+		}
+		if (!isUnchanged(previous, source)) drift.changed++;
 	}
 	drift.removed = known.size;
 	return drift;
