@@ -1,7 +1,6 @@
-// Runs submitted work one unit at a time, in submission order. The tail the
-// next unit waits on resolves whether the current one succeeded or failed, so
-// a rejection neither breaks the chain nor surfaces as unhandled: the caller
-// owns the promise `run` hands back.
+// The tail the next unit waits on resolves whether the current one succeeded
+// or failed, so a rejection neither breaks the chain nor surfaces as
+// unhandled: the caller owns the promise `run` hands back.
 export class SerialLane {
 	private tail: Promise<unknown>;
 

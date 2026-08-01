@@ -1,7 +1,5 @@
 // End-to-end proof that the compiled binary works without the Bun runtime or
-// node_modules: version/help, init, code index (embedded tree-sitter WASM +
-// grammar download), MCP serve with save_decision, real embedding through the
-// self-spawned worker subcommand, semantic search and doctor.
+// node_modules.
 import {
 	mkdirSync,
 	mkdtempSync,

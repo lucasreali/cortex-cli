@@ -38,10 +38,9 @@ export class CodeImpactAnalysis {
 		return this.nodes
 			.listActiveAnchoredToFiles([...byPath.keys()])
 			.filter((entry) => entry.decision.id !== originId)
-			.map((entry) => {
-				// The anchor path came out of byPath's own keys, so the lookup
-				// always hits.
-				const importer = byPath.get(entry.filePath) as TransitiveImporter;
+			.flatMap((entry) => {
+				const importer = byPath.get(entry.filePath);
+				if (!importer) return [];
 				return {
 					decision: entry.decision,
 					filePath: entry.filePath,

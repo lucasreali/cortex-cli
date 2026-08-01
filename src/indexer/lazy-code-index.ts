@@ -8,8 +8,6 @@ export interface CodeIndex {
 	dispose(): void;
 }
 
-// MCP sessions reconcile the code index lazily: the first query that touches
-// code.db pays for the catch-up of edits made while the server was down.
 export class LazyCodeIndex implements CodeIndex {
 	private opening: Promise<OpenCodeRepository> | null = null;
 

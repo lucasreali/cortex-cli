@@ -43,7 +43,7 @@ export class EmbeddingDaemon {
 	constructor(private readonly options: EmbeddingDaemonOptions) {}
 
 	start(): void {
-		removeSocketFile(this.options.socketPath);
+		removeSocketFileIfPresent(this.options.socketPath);
 		const drop = (socket: ClientSocket) => this.dropClient(socket);
 		this.listener = Bun.listen<ClientState>({
 			unix: this.options.socketPath,
@@ -76,7 +76,7 @@ export class EmbeddingDaemon {
 		this.clients.clear();
 		this.listener?.stop(true);
 		this.options.provider.dispose();
-		removeSocketFile(this.options.socketPath);
+		removeSocketFileIfPresent(this.options.socketPath);
 		this.closedState.resolve(reason);
 	}
 
@@ -174,12 +174,10 @@ function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
-function removeSocketFile(socketPath: string): void {
+function removeSocketFileIfPresent(socketPath: string): void {
 	try {
 		unlinkSync(socketPath);
-	} catch {
-		// A missing socket file is the normal case.
-	}
+	} catch {}
 }
 
 function restrictToOwner(socketPath: string): void {

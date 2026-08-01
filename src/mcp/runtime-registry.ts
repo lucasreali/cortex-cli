@@ -47,8 +47,7 @@ export class RuntimeRegistry {
 		}
 	}
 
-	// Re-resolve the store root on every call and cache by RESOLVED root only:
-	// caching by input path would pin its first resolution for the server's
+	// Caching by input path would pin its first resolution for the server's
 	// whole lifetime, missing a project that gains its own .cortex/ later.
 	private async resolveExplicit(
 		projectPath: string,

@@ -22,11 +22,10 @@ const MEDIUM_NOTE =
 	"to this prompt. Call the get_context MCP tool with a short intent (or " +
 	"`cortex search`) to fetch them; ignore this if they are unrelated.";
 
-// Claude Code UserPromptSubmit hook: reads {prompt, cwd} JSON on stdin and
-// prints a <cortex_context> block only on a verified match (see gatePrompt).
-// LOAD-BEARING: it must never break the user's prompt. Every failure path —
-// kill-switch, bad payload, no store, query error — exits 0 with no output;
-// the store is opened read-only so the hook cannot create or migrate state.
+// Claude Code UserPromptSubmit hook. LOAD-BEARING: it must never break the
+// user's prompt. Every failure path — kill-switch, bad payload, no store,
+// query error — exits 0 with no output; the store is opened read-only so the
+// hook cannot create or migrate state.
 export async function runPromptHook(
 	_args: string[],
 	cwd: string,
@@ -37,9 +36,7 @@ export async function runPromptHook(
 		const payload = parsePayload(await Bun.stdin.text());
 		if (payload.prompt === "") return 0;
 		injectContext(payload.cwd ?? cwd, payload.prompt);
-	} catch {
-		// Degradable by contract: never surface an error to the prompt pipeline.
-	}
+	} catch {}
 	return 0;
 }
 

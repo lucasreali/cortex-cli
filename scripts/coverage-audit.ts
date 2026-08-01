@@ -6,8 +6,6 @@ import { relative } from "node:path";
 
 const LCOV_PATH = process.env.CORTEX_LCOV ?? "coverage/lcov.info";
 
-// Exercised end-to-end by spawning a real process (tests/cli, tests/mcp,
-// scripts/compiled-smoke.ts), which no in-process profiler can observe.
 const SUBPROCESS_COVERED = [
 	"src/cli/commands/code-index.ts",
 	"src/cli/commands/doctor.ts",

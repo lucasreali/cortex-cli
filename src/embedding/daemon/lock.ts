@@ -32,8 +32,7 @@ export function readDaemonLock(lockPath: string): DaemonLock | null {
 	}
 }
 
-// Compare-and-delete: re-reads the lock and only unlinks while it still names
-// the pid the caller saw dead, so a racing daemon's fresh lock survives.
+// A racing daemon's fresh lock has to survive this.
 export function clearDeadDaemonLock(
 	lockPath: string,
 	expectedDeadPid: number,
