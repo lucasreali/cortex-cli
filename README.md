@@ -11,17 +11,43 @@ Semantic search runs fully local: EmbeddingGemma-300m quantized, via WASM in
 a dedicated subprocess — no native dependencies, no runtime network calls
 beyond the one-time model download to `~/.cortex/models/`.
 
-## Requirements
+## Install
 
-- [Bun](https://bun.com) 1.3+
-- git (project identity and head tracking)
+```bash
+curl -fsSL https://raw.githubusercontent.com/lucasreali/cortex-cli/main/install.sh | sh
+```
+
+A self-contained binary lands in `~/.local/bin/cortex` — no Bun, no Node, no
+`node_modules`. The installer never uses `sudo`, and prints the line to add to
+your shell rc if the directory is not already on `PATH`.
+
+- macOS and Linux, x64 and arm64 (glibc and musl). Windows is not supported yet.
+- git is the only runtime dependency (project identity and head tracking).
+- `CORTEX_VERSION=v0.1.0` pins a release; `CORTEX_INSTALL_DIR=/somewhere/bin`
+  changes the destination.
+
+Prefer not to pipe a URL into a shell? Download the tarball for your platform
+from the [releases page](https://github.com/lucasreali/cortex-cli/releases),
+verify it, and move the binary yourself:
+
+`checksums.txt` covers every platform's asset, so verify the one line matching
+what you downloaded instead of the whole file:
+
+```bash
+asset=cortex-v0.1.0-darwin-arm64.tar.gz
+
+grep " $asset\$" checksums.txt | sha256sum -c -   # shasum -a 256 -c - on macOS
+tar -xzf "$asset"
+mv cortex ~/.local/bin/
+```
+
+Builds are unsigned. Fetching through the installer is unaffected, but a
+tarball downloaded in a browser is quarantined by Gatekeeper — clear it with
+`xattr -d com.apple.quarantine ~/.local/bin/cortex`.
 
 ## Setup
 
 ```bash
-bun install
-bun link        # exposes the `cortex` binary
-
 cd your-project
 cortex init     # creates .cortex/, runs migrations, writes config
 ```
@@ -30,8 +56,21 @@ Then register the MCP server with your agent — once, at user scope; a single
 server instance serves every initialized project:
 
 ```bash
-claude mcp add --scope user cortex -- cortex serve --mcp
+claude mcp add --scope user cortex -- "$HOME/.local/bin/cortex" serve --mcp
 ```
+
+The first embedding downloads EmbeddingGemma-300m (~hundreds of MB) to
+`~/.cortex/models/`. Run `cortex embed --missing` once after `init` to get it
+over with instead of paying for it mid-session.
+
+## Uninstall
+
+```bash
+rm ~/.local/bin/cortex
+rm -rf ~/.cortex        # model, grammar cache and daemon state
+```
+
+Per-project `.cortex/` directories hold your decisions and are left alone.
 
 ## How it works
 
@@ -115,7 +154,12 @@ everything else) and `cortex doctor` reports the measured resolution rate.
 
 ## Development
 
+Working on cortex itself needs [Bun](https://bun.com) 1.3+:
+
 ```bash
+bun install
+bun link                    # exposes `cortex` from source
+
 bun run test                # storage/search tests run against real SQLite
 bun run test:coverage       # coverage report, 100% threshold enforced
 RUN_MODEL_TESTS=1 bun test  # also load the real embedding model
@@ -125,3 +169,23 @@ bun run typecheck
 
 `CORTEX_DISABLE_EMBEDDINGS=1` runs any command or the server without the
 embedding subprocess (search degrades to FTS).
+
+### Releasing
+
+```bash
+bun run build               # single-file binary for this platform
+bun run smoke:compiled      # drives the binary end to end
+bun scripts/package-release.ts   # all 7 targets + checksums into dist/release
+```
+
+Pushing a `v*` tag runs `.github/workflows/release.yml`, which re-runs the gate
+above and publishes `dist/release/*` to GitHub Releases. The tag must match
+`package.json`'s version — the workflow fails loudly if it does not, since
+`CORTEX_VERSION` is read from `package.json` and travels in the daemon
+handshake.
+
+A newly installed binary can find a daemon from the previous version still
+listening — the socket is keyed by model, not by version. The handshake
+rejects the version mismatch and the session falls back to a private worker,
+so no upgrade step is required; an MCP server already running inside an editor
+keeps the old binary until the client restarts it.
