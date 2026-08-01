@@ -83,6 +83,7 @@ jobs:
       - name: Run the darwin binary
         run: |
           ./cortex --version
+          ./cortex upgrade --check --json
           repo=$(mktemp -d)
           cd "$repo"
           git init -b main

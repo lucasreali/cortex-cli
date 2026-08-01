@@ -40,6 +40,9 @@ has_avx2() {
 	grep -q avx2 /proc/cpuinfo 2>/dev/null
 }
 
+# src/release/target.ts resolves the same suffix for `cortex upgrade`, from a
+# value baked in at build time. Changing the rule here without changing it
+# there splits install from upgrade.
 detect_suffix() {
 	platform=$(detect_platform)
 	cpu=$(detect_cpu)
@@ -144,4 +147,5 @@ cat <<EOF
 
 Next: run \`cortex init\` in a repository.
 The first embedding downloads the model (~hundreds of MB) from HuggingFace.
+Later: \`cortex upgrade\` replaces this binary in place.
 EOF

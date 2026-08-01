@@ -29,17 +29,29 @@ const unavailableNativeModules: BunPlugin = {
 export interface CompileRequest {
 	outfile: string;
 	target?: Bun.Build.CompileTarget;
+	suffix?: string;
 }
 
+// The release asset suffix is baked in so `cortex upgrade` downloads the
+// variant this binary was built as: musl and baseline builds are
+// indistinguishable from the inside at runtime.
 export async function compile({
 	outfile,
 	target,
+	suffix,
 }: CompileRequest): Promise<void> {
 	const result = await Bun.build({
 		entrypoints: [join(ROOT, "src", "cli", "main.ts")],
 		compile: { outfile, ...(target ? { target } : {}) },
 		sourcemap: "linked",
 		plugins: [unavailableNativeModules],
+		...(suffix
+			? {
+					define: {
+						"process.env.CORTEX_BUILD_TARGET": JSON.stringify(suffix),
+					},
+				}
+			: {}),
 		throw: false,
 	});
 	for (const log of result.logs) {

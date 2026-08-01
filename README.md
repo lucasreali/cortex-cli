@@ -45,6 +45,29 @@ Builds are unsigned. Fetching through the installer is unaffected, but a
 tarball downloaded in a browser is quarantined by Gatekeeper — clear it with
 `xattr -d com.apple.quarantine ~/.local/bin/cortex`.
 
+## Upgrade
+
+```bash
+cortex upgrade           # replace this binary with the latest release
+cortex upgrade --check   # report only; --json for a machine-readable answer
+```
+
+The binary downloads its own replacement, verifies it against the release's
+`checksums.txt`, runs it once to confirm it works on this machine, and only
+then swaps it in — an interrupted or corrupt download leaves the binary you
+already have untouched.
+
+- `--version 0.1.0` installs a specific release, downgrade included.
+- `--force` reinstalls the version you are already on.
+- An installed binary upgrades to the same platform variant it was built as.
+  To move between variants (glibc to musl, baseline to plain), re-run
+  `install.sh`, which re-detects.
+- If cortex lives in a directory you do not own, the upgrade stops and says
+  so; re-run `install.sh` with `CORTEX_INSTALL_DIR` set to a directory you do.
+- Upgrading stops the shared embedding daemon so the next session starts one
+  on the new version. An MCP server already running in your editor keeps the
+  old binary until its client restarts it.
+
 ## Setup
 
 ```bash
@@ -105,6 +128,7 @@ cortex impact <id>                      # indented dependency tree
 cortex index [--force]                  # (re)build the code index incrementally
 cortex embed --missing | --rebuild      # fill or rebuild the vector index
 cortex doctor                           # config, anchors, embeddings, model, code index
+cortex upgrade [--check]                # replace this binary with the latest release
 ```
 
 ## Passive recall (Claude Code hook)
@@ -187,5 +211,7 @@ handshake.
 A newly installed binary can find a daemon from the previous version still
 listening — the socket is keyed by model, not by version. The handshake
 rejects the version mismatch and the session falls back to a private worker,
-so no upgrade step is required; an MCP server already running inside an editor
-keeps the old binary until the client restarts it.
+which is why `cortex upgrade` stops the old daemon once the new binary is in
+place. Installing over the old binary by hand leaves it running until its idle
+timeout; an MCP server already running inside an editor keeps the old binary
+until the client restarts it either way.

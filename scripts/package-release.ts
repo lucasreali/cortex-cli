@@ -74,7 +74,7 @@ async function packageTarget(
 ): Promise<{ asset: string; stageDir: string }> {
 	const stageDir = join(STAGE_DIR, suffix);
 	mkdirSync(stageDir, { recursive: true });
-	await compile({ outfile: join(stageDir, "cortex"), target });
+	await compile({ outfile: join(stageDir, "cortex"), target, suffix });
 	const asset = `cortex-${TAG}-${suffix}.tar.gz`;
 	await archive(stageDir, join(RELEASE_DIR, asset));
 	console.log(`${asset} (${sizeInMegabytes(join(RELEASE_DIR, asset))} MB)`);

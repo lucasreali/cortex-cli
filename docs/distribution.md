@@ -311,19 +311,56 @@ Replace whatever install instructions exist with the one-liner, plus:
 
 ---
 
+## Step 7 — `cortex upgrade`
+
+The command is `install.sh` re-expressed in TypeScript against the binary that
+is currently running, and it must never be weaker than the shell path: the
+sha256 line for the asset is verified before anything is unpacked.
+
+- `src/release/target.ts` — which asset this binary is. The suffix is baked at
+  compile time (`scripts/compile.ts` passes `define` to `Bun.build`,
+  `package-release.ts` knows the suffix per target) because a binary cannot
+  tell from the inside which libc it was linked against or whether it was
+  built for a baseline CPU. A locally built binary has nothing baked and falls
+  back to describing its host.
+- `src/release/catalog.ts` — resolves the tag by following the
+  `/releases/latest` redirect, exactly as `latest_version()` does, so the
+  upgrade path needs no token and never meets the GitHub API rate limit. Then
+  downloads the asset and `checksums.txt` and verifies the digest.
+- `src/release/archive.ts` — gunzip plus a ustar reader for the single member
+  named `cortex`. Reading it in-process rather than shelling out to `tar`
+  keeps the binary's "no runtime dependencies" promise, and it can only ever
+  extract that one member, so a hostile archive cannot write anywhere else.
+- `src/release/installer.ts` — the replacement. The running executable cannot
+  be written into (`ETXTBSY`), so the new binary is staged next to the target
+  (same filesystem, therefore an atomic rename), chmodded, and made to prove
+  it runs by answering `--version` *before* the old one is given up. A wrong
+  architecture surfaces here as a `posix_spawn` failure, with the working
+  binary still in place.
+
+`--version` accepts a downgrade; the explicit flag is the consent. `--check`
+never writes and works from a source checkout, which is what lets the CLI
+tests exercise version resolution without a compiled binary.
+
 ## Upgrades and the daemon
 
-Worth knowing before the first release, because it looks like a bug and is not:
-the daemon socket is keyed by model id, not by version
-(`daemon/paths.ts`), so a freshly installed binary can find a daemon from the
-previous version still listening. The handshake already handles it —
-`daemon/client.ts:108` rejects a hello whose version does not match and the
-session falls back to a private worker. The stale daemon lingers until its idle
-timeout.
+Worth knowing, because it looks like a bug and is not: the daemon socket is
+keyed by model id, not by version (`daemon/paths.ts`), so a freshly installed
+binary can find a daemon from the previous version still listening. The
+handshake handles it — `daemon/client.ts:108` rejects a hello whose version
+does not match — but a rejected probe deliberately does not spawn a
+replacement, so every session would degrade to a private worker until the old
+daemon's idle timeout expired.
 
-So `cortex upgrade` is not required for correctness. What users do need to know
-is that an MCP server already running inside their editor keeps the old binary
-in memory until the client restarts it.
+`cortex upgrade` therefore ends that state on purpose: after a successful
+replacement it reads the daemon lock and sends `SIGTERM`
+(`embedding/daemon/stop.ts`), and the next session spawns a daemon on the new
+version. Killing it is safe because of the ladder — an in-flight request
+falls back to a private worker, and the query path's timeouts guarantee FTS
+answers regardless.
+
+What users still need to know is that an MCP server already running inside
+their editor keeps the old binary in memory until the client restarts it.
 
 ---
 

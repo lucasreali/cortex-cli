@@ -30,6 +30,9 @@ Dependency direction, no cycles:
 - `indexer/` — tree-sitter code index (TS/JS only), reconciled lazily on
   first use; no file watcher (deliberate — see todo.md).
 - `embedding/` — the hard part; see topology below.
+- `release/` — self-update: resolve a GitHub release, verify its checksum,
+  unpack the ustar member, replace the running binary by atomic rename. It
+  imports nothing from the other `src/` directories, on purpose.
 - `app/` — use cases; `runtime.ts` is the composition root. Use cases narrow
   `CortexRuntime` with `Pick<>` instead of introducing interfaces.
 - `cli/` — hand-rolled dispatch table in `main.ts` (deliberate, no CLI
@@ -70,6 +73,10 @@ purpose: it runs on every prompt and must never fail or migrate state.
 - DDL, migrations and non-trivial queries (recursive CTEs) live in `.sql`
   files loaded with Bun text imports; small repository queries stay inline.
 - Cross-directory imports use the `@/` alias; same-directory stay relative.
+- The release asset suffix is baked into each cross-compiled binary through
+  `Bun.build`'s `define` (`scripts/compile.ts`), because musl and baseline
+  builds are indistinguishable from the inside at runtime. `install.sh`'s
+  `detect_suffix` and `release/target.ts` must keep agreeing.
 - Coverage counts only files imported in-process: `src/cli` is exercised by
   spawning the CLI from `tests/cli/`, keeping it out of the coverage report.
 

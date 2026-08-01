@@ -11,6 +11,7 @@ import { runLog } from "./commands/log";
 import { runPromptHook } from "./commands/prompt-hook";
 import { runSearch } from "./commands/search";
 import { runServe } from "./commands/serve";
+import { runUpgrade } from "./commands/upgrade";
 import { runWhy } from "./commands/why";
 import { failure, style } from "./style";
 
@@ -66,6 +67,11 @@ const COMMANDS: Record<string, Command> = {
 		run: runDoctor,
 		usage: "doctor [--json]",
 		description: "check store and index health",
+	},
+	upgrade: {
+		run: runUpgrade,
+		usage: "upgrade [--check] [--version V]",
+		description: "install the latest cortex release",
 	},
 	"prompt-hook": {
 		run: runPromptHook,
