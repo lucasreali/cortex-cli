@@ -71,3 +71,16 @@ jobs:
 
       - name: Compiled binary smoke test
         run: bun run smoke:compiled
+
+      # install.sh picks the asset to download and target.ts picks the one to
+      # upgrade to. They are separate implementations on purpose; this is what
+      # keeps them from disagreeing about the running host.
+      - name: install.sh and target.ts agree on this host
+        run: |
+          set -eu
+          from_shell=$(CORTEX_SOURCE_ONLY=1 sh -c '. ./install.sh; detect_suffix')
+          from_typescript=$(bun -e 'import { buildTarget } from "./src/release/target";
+            delete process.env.CORTEX_BUILD_TARGET;
+            console.log(buildTarget());')
+          echo "install.sh=$from_shell target.ts=$from_typescript"
+          test "$from_shell" = "$from_typescript"

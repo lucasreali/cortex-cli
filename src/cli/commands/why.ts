@@ -2,8 +2,9 @@ import { parseArgs } from "node:util";
 import { accessCodeIndex } from "@/app/code-index-access";
 import type { CortexRuntime } from "@/app/runtime";
 import { printJson } from "@/cli/json";
-import { openInitializedRuntime } from "@/cli/open-runtime";
+import { withRuntime } from "@/cli/open-runtime";
 import { style, warning } from "@/cli/style";
+import { usageError } from "@/cli/usage";
 import type { Decision } from "@/domain";
 
 interface SymbolMatch {
@@ -24,13 +25,8 @@ export async function runWhy(args: string[], cwd: string): Promise<number> {
 		allowPositionals: true,
 	});
 	const target = positionals[0];
-	if (!target) {
-		console.error("usage: cortex why <path|symbol> [--json]");
-		return 1;
-	}
-	const runtime = await openInitializedRuntime(cwd);
-	if (!runtime) return 1;
-	try {
+	if (!target) return usageError("why");
+	return withRuntime(cwd, async (runtime) => {
 		const report = await buildReport(runtime, target);
 		if (values.json) {
 			printJson(report);
@@ -38,9 +34,7 @@ export async function runWhy(args: string[], cwd: string): Promise<number> {
 		}
 		render(report);
 		return 0;
-	} finally {
-		runtime.dispose();
-	}
+	});
 }
 
 async function buildReport(

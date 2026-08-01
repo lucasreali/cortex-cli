@@ -1,5 +1,5 @@
 import { mkdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { createProvider } from "@/embedding/create-provider";
 import { GEMMA_MODEL } from "@/embedding/model";
 import type { EmbeddingProvider } from "@/embedding/provider";
@@ -13,6 +13,7 @@ import { EdgeRepository } from "@/storage/edge-repository";
 import { EmbeddingRepository } from "@/storage/embedding-repository";
 import { migrate } from "@/storage/migrations";
 import { NodeRepository, type SaveContext } from "@/storage/node-repository";
+import { ProjectRoot } from "@/storage/project-root";
 import { SearchRepository } from "@/storage/search-repository";
 
 export interface CortexRuntime {
@@ -46,7 +47,7 @@ export async function buildRuntimeAt(
 	repoRoot: string,
 	options: RuntimeOptions = {},
 ): Promise<CortexRuntime> {
-	const cortexDir = join(repoRoot, ".cortex");
+	const cortexDir = ProjectRoot.at(repoRoot).cortexDir;
 	mkdirSync(cortexDir, { recursive: true });
 	const db = openDecisionsDb(cortexDir);
 	migrate(db);

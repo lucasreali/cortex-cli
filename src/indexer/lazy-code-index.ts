@@ -1,6 +1,6 @@
-import { join } from "node:path";
 import { type OpenCodeRepository, openCodeRepository } from "@/storage/code-db";
 import type { CodeRepository } from "@/storage/code-repository";
+import { ProjectRoot } from "@/storage/project-root";
 import { CodeIndexer } from "./code-indexer";
 
 export interface CodeIndex {
@@ -36,7 +36,7 @@ export class LazyCodeIndex implements CodeIndex {
 	}
 
 	private async reconcile(): Promise<OpenCodeRepository> {
-		const open = openCodeRepository(join(this.repoRoot, ".cortex"));
+		const open = openCodeRepository(ProjectRoot.at(this.repoRoot).cortexDir);
 		const indexer = await CodeIndexer.create(this.repoRoot, open.repository);
 		await indexer.run();
 		return open;

@@ -1,7 +1,8 @@
 import { parseArgs } from "node:util";
 import type { CortexRuntime } from "@/app/runtime";
-import { openInitializedRuntime } from "@/cli/open-runtime";
+import { withRuntime } from "@/cli/open-runtime";
 import { failure, style, success } from "@/cli/style";
+import { usageError } from "@/cli/usage";
 import { readConfig, writeConfig } from "@/storage/config";
 import { SCHEMA_VERSION } from "@/storage/migrations";
 import { embedAll } from "./embed-all";
@@ -15,19 +16,10 @@ export async function runEmbed(args: string[], cwd: string): Promise<number> {
 			yes: { type: "boolean", default: false },
 		},
 	});
-	if (values.missing === values.rebuild) {
-		console.error("usage: cortex embed --missing | --rebuild [--yes]");
-		return 1;
-	}
-	const runtime = await openInitializedRuntime(cwd);
-	if (!runtime) return 1;
-	try {
-		return values.missing
-			? await embedMissing(runtime)
-			: await rebuild(runtime, values.yes);
-	} finally {
-		runtime.dispose();
-	}
+	if (values.missing === values.rebuild) return usageError("embed");
+	return withRuntime(cwd, (runtime) =>
+		values.missing ? embedMissing(runtime) : rebuild(runtime, values.yes),
+	);
 }
 
 async function embedMissing(runtime: CortexRuntime): Promise<number> {

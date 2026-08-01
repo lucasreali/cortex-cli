@@ -1,12 +1,13 @@
 import { type Dirent, readdirSync, statSync } from "node:fs";
 import { extname, join } from "node:path";
 import { listRepoFiles } from "@/git";
+import { CORTEX_DIRECTORY } from "@/storage/project-root";
 
 const EXCLUDED_DIRECTORIES = new Set([
 	"node_modules",
 	"dist",
 	"build",
-	".cortex",
+	CORTEX_DIRECTORY,
 	".git",
 ]);
 

@@ -1,6 +1,6 @@
 import { parseArgs } from "node:util";
 import { printJson } from "@/cli/json";
-import { openInitializedRuntime } from "@/cli/open-runtime";
+import { withRuntime } from "@/cli/open-runtime";
 import { style } from "@/cli/style";
 import type { Decision } from "@/domain";
 
@@ -13,9 +13,7 @@ export async function runLog(args: string[], cwd: string): Promise<number> {
 			json: { type: "boolean", default: false },
 		},
 	});
-	const runtime = await openInitializedRuntime(cwd);
-	if (!runtime) return 1;
-	try {
+	return withRuntime(cwd, async (runtime) => {
 		const decisions = runtime.nodes.listActive({
 			module: values.module,
 			sinceSha: values.since,
@@ -32,9 +30,7 @@ export async function runLog(args: string[], cwd: string): Promise<number> {
 			console.log(formatLine(decision));
 		}
 		return 0;
-	} finally {
-		runtime.dispose();
-	}
+	});
 }
 
 function formatLine(decision: Decision): string {

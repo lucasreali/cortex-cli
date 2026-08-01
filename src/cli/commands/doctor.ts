@@ -4,7 +4,7 @@ import { parseArgs } from "node:util";
 import type { CortexRuntime } from "@/app/runtime";
 import { symbolHint } from "@/app/symbol-hints";
 import { printJson } from "@/cli/json";
-import { openInitializedRuntime } from "@/cli/open-runtime";
+import { withRuntime } from "@/cli/open-runtime";
 import { success, warning } from "@/cli/style";
 import { MINIMUM_KEYWORDS } from "@/domain";
 import { GEMMA_MODEL } from "@/embedding/model";
@@ -26,9 +26,7 @@ export async function runDoctor(args: string[], cwd: string): Promise<number> {
 		args,
 		options: { json: { type: "boolean", default: false } },
 	});
-	const runtime = await openInitializedRuntime(cwd);
-	if (!runtime) return 1;
-	try {
+	return withRuntime(cwd, async (runtime) => {
 		const report = new DoctorReport();
 		await checkConfig(runtime, report);
 		checkAnchors(runtime, report);
@@ -37,9 +35,7 @@ export async function runDoctor(args: string[], cwd: string): Promise<number> {
 		checkModelDownloaded(report);
 		await checkCodeIndex(runtime, report);
 		return values.json ? report.finishJson() : report.finish();
-	} finally {
-		runtime.dispose();
-	}
+	});
 }
 
 interface DoctorCheck {

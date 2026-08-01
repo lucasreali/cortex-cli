@@ -1,8 +1,9 @@
 import { parseArgs } from "node:util";
 import { searchDecisions } from "@/app/search-decisions";
 import { printJson } from "@/cli/json";
-import { openInitializedRuntime } from "@/cli/open-runtime";
+import { withRuntime } from "@/cli/open-runtime";
 import { style } from "@/cli/style";
+import { usageError } from "@/cli/usage";
 import type { SemanticSearchResult } from "@/embedding/semantic-search";
 
 export async function runSearch(args: string[], cwd: string): Promise<number> {
@@ -14,13 +15,8 @@ export async function runSearch(args: string[], cwd: string): Promise<number> {
 		},
 		allowPositionals: true,
 	});
-	if (positionals.length === 0) {
-		console.error("usage: cortex search <terms...> [--exact] [--json]");
-		return 1;
-	}
-	const runtime = await openInitializedRuntime(cwd);
-	if (!runtime) return 1;
-	try {
+	if (positionals.length === 0) return usageError("search");
+	return withRuntime(cwd, async (runtime) => {
 		const results = await searchDecisions(runtime, positionals, values.exact);
 		if (values.json) {
 			printJson(results);
@@ -34,9 +30,7 @@ export async function runSearch(args: string[], cwd: string): Promise<number> {
 			console.log(formatLine(result));
 		}
 		return 0;
-	} finally {
-		runtime.dispose();
-	}
+	});
 }
 
 function formatLine(result: SemanticSearchResult): string {

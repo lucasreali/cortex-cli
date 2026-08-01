@@ -15,6 +15,7 @@ import { runServe } from "./commands/serve";
 import { runUpgrade } from "./commands/upgrade";
 import { runWhy } from "./commands/why";
 import { failure, style } from "./style";
+import { USAGE } from "./usage";
 
 interface Command {
 	run(args: string[], cwd: string): Promise<number | null>;
@@ -26,69 +27,69 @@ interface Command {
 const COMMANDS: Record<string, Command> = {
 	init: {
 		run: runInit,
-		usage: "init [--yes]",
+		usage: USAGE.init,
 		description: "create .cortex/ and register the project",
 	},
 	serve: {
 		run: runServe,
-		usage: "serve --mcp",
+		usage: USAGE.serve,
 		description: "start the MCP server (stdio)",
 	},
 	log: {
 		run: runLog,
-		usage: "log [--module M] [--since SHA] [--json]",
+		usage: USAGE.log,
 		description: "list active decisions",
 	},
 	why: {
 		run: runWhy,
-		usage: "why <path|symbol> [--json]",
+		usage: USAGE.why,
 		description: "show decisions anchored to a path or symbol",
 	},
 	search: {
 		run: runSearch,
-		usage: "search <terms...> [--exact] [--json]",
+		usage: USAGE.search,
 		description: "search decisions by meaning or keyword",
 	},
 	impact: {
 		run: runImpact,
-		usage: "impact <id> [--depth N] [--json]",
+		usage: USAGE.impact,
 		description: "trace decisions and code affected by a decision",
 	},
 	index: {
 		run: runIndex,
-		usage: "index [--force]",
+		usage: USAGE.index,
 		description: "build or refresh the code index",
 	},
 	embed: {
 		run: runEmbed,
-		usage: "embed --missing | --rebuild [--yes]",
+		usage: USAGE.embed,
 		description: "generate embeddings for semantic search",
 	},
 	doctor: {
 		run: runDoctor,
-		usage: "doctor [--json]",
+		usage: USAGE.doctor,
 		description: "check store and index health",
 	},
 	upgrade: {
 		run: runUpgrade,
-		usage: "upgrade [--check] [--version V]",
+		usage: USAGE.upgrade,
 		description: "install the latest cortex release",
 	},
 	"prompt-hook": {
 		run: runPromptHook,
-		usage: "prompt-hook",
+		usage: USAGE["prompt-hook"],
 		description: "Claude Code UserPromptSubmit hook (JSON on stdin)",
 		hidden: true,
 	},
 	"embed-worker": {
 		run: runEmbedWorkerCommand,
-		usage: "embed-worker",
+		usage: USAGE["embed-worker"],
 		description: "embedding worker subprocess (NDJSON on stdio)",
 		hidden: true,
 	},
 	"embed-daemon": {
 		run: runEmbedDaemonCommand,
-		usage: "embed-daemon [model]",
+		usage: USAGE["embed-daemon"],
 		description: "shared embedding daemon (Unix socket)",
 		hidden: true,
 	},

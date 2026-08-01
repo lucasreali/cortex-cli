@@ -1,13 +1,12 @@
 import { Database } from "bun:sqlite";
-import { join } from "node:path";
 import {
 	gatePrompt,
 	type PromptGate,
 	type PromptGateStore,
 } from "@/app/prompt-gate";
 import type { Decision } from "@/domain";
-import { findNearestCortexRoot } from "@/storage/locate-store";
 import { NodeRepository } from "@/storage/node-repository";
+import { ProjectRoot } from "@/storage/project-root";
 import { SearchRepository } from "@/storage/search-repository";
 import { parseJsonOrNull } from "@/support/json";
 import { truncate } from "@/support/text";
@@ -63,11 +62,9 @@ function parsePayload(raw: string): { prompt: string; cwd: string | null } {
 type HookStore = PromptGateStore & { close(): void };
 
 function openNearestStore(startDir: string): HookStore | null {
-	const root = findNearestCortexRoot(startDir);
-	if (!root) return null;
-	const db = new Database(join(root, ".cortex", "decisions.db"), {
-		readonly: true,
-	});
+	const project = ProjectRoot.nearest(startDir);
+	if (!project) return null;
+	const db = new Database(project.decisionsDbPath, { readonly: true });
 	db.run(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS};`);
 	return {
 		nodes: new NodeRepository(db),

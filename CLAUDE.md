@@ -95,8 +95,11 @@ purpose: it runs on every prompt and must never fail or migrate state.
 - Comments and markdown are written in English, `.sql` files included.
 - The release asset suffix is baked into each cross-compiled binary through
   `Bun.build`'s `define` (`scripts/compile.ts`), because musl and baseline
-  builds are indistinguishable from the inside at runtime. `install.sh`'s
-  `detect_suffix` and `release/target.ts` must keep agreeing.
+  builds are indistinguishable from the inside at runtime. `release/target.ts`
+  is only the fallback for a locally built binary. `RELEASE_SUFFIXES` there is
+  the one list — `scripts/package-release.ts` compiles from it and
+  `targetForHost` selects from it — and CI runs `install.sh`'s `detect_suffix`
+  against `targetForHost` on the runner, so the two cannot drift silently.
 - Coverage counts only files imported in-process: `src/cli` is exercised by
   spawning the CLI from `tests/cli/`, keeping it out of the coverage report.
   A file that never loads in-process is therefore invisible rather than 0%, so

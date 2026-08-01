@@ -7,19 +7,13 @@ import {
 	currentHost,
 	type Host,
 	normalizeTag,
+	RELEASE_SUFFIXES,
 	releaseOrigin,
 	targetForHost,
 	versionFromTag,
 } from "@/release/target";
 
-const KNOWN_TARGETS = [
-	"darwin-arm64",
-	"darwin-x64",
-	"linux-x64",
-	"linux-arm64",
-	"linux-x64-musl",
-	"linux-arm64-musl",
-];
+const KNOWN_TARGETS: readonly string[] = RELEASE_SUFFIXES;
 
 const originalOrigin = process.env.CORTEX_RELEASE_BASE_URL;
 const originalTarget = process.env.CORTEX_BUILD_TARGET;
@@ -35,7 +29,13 @@ afterEach(() => {
 });
 
 function host(overrides: Partial<Host> = {}): Host {
-	return { platform: "linux", cpu: "x64", musl: false, ...overrides };
+	return {
+		platform: "linux",
+		cpu: "x64",
+		musl: false,
+		baseline: false,
+		...overrides,
+	};
 }
 
 describe("targetForHost", () => {
@@ -64,6 +64,18 @@ describe("targetForHost", () => {
 		);
 	});
 
+	// install.sh's detect_suffix emits linux-x64-baseline; targetForHost has to
+	// be able to reach it or install and upgrade disagree on non-AVX2 hosts.
+	test("a linux x64 host without avx2 gets the baseline asset", () => {
+		expect(targetForHost(host({ baseline: true }))).toBe("linux-x64-baseline");
+		expect(targetForHost(host({ cpu: "arm64", baseline: true }))).toBe(
+			"linux-arm64",
+		);
+		expect(targetForHost(host({ baseline: true, musl: true }))).toBe(
+			"linux-x64-musl",
+		);
+	});
+
 	test("rejects platforms and architectures with no published asset", () => {
 		expect(() => targetForHost(host({ platform: "win32" }))).toThrow(
 			"unsupported platform: win32",
@@ -80,6 +92,13 @@ describe("currentHost", () => {
 		expect(probe.platform).toBe(process.platform);
 		expect(probe.cpu).toBe(process.arch);
 		expect(typeof probe.musl).toBe("boolean");
+		expect(typeof probe.baseline).toBe("boolean");
+	});
+
+	// install.sh treats a missing cpuinfo as "not baseline"; a host we cannot
+	// inspect must not be sent the baseline asset.
+	test("an unreadable cpuinfo is assumed to support avx2", () => {
+		expect(currentHost("/definitely/not/a/cpuinfo").baseline).toBe(false);
 	});
 });
 

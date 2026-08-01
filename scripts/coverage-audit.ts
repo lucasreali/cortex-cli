@@ -25,6 +25,7 @@ const SUBPROCESS_COVERED = [
 	"src/cli/main.ts",
 	"src/cli/open-runtime.ts",
 	"src/cli/style.ts",
+	"src/cli/usage.ts",
 	"src/embedding/daemon/main.ts",
 	"src/embedding/worker.ts",
 	"src/mcp/runtime-registry.ts",

@@ -1,21 +1,14 @@
 import { chmodSync, mkdirSync, rmSync, utimesSync } from "node:fs";
 import { join } from "node:path";
+import { assetName, RELEASE_SUFFIXES } from "@/release/target";
 import { sha256Hex } from "@/support/hash";
 import { CORTEX_VERSION } from "@/version";
 import { compile, ROOT, sizeInMegabytes } from "./compile";
 
-const TARGETS: ReadonlyArray<{
-	target: Bun.Build.CompileTarget;
-	suffix: string;
-}> = [
-	{ target: "bun-darwin-arm64", suffix: "darwin-arm64" },
-	{ target: "bun-darwin-x64", suffix: "darwin-x64" },
-	{ target: "bun-linux-x64", suffix: "linux-x64" },
-	{ target: "bun-linux-arm64", suffix: "linux-arm64" },
-	{ target: "bun-linux-x64-musl", suffix: "linux-x64-musl" },
-	{ target: "bun-linux-arm64-musl", suffix: "linux-arm64-musl" },
-	{ target: "bun-linux-x64-baseline", suffix: "linux-x64-baseline" },
-];
+const TARGETS = RELEASE_SUFFIXES.map((suffix) => ({
+	target: `bun-${suffix}` as Bun.Build.CompileTarget,
+	suffix,
+}));
 
 const TAG = `v${CORTEX_VERSION}`;
 const RELEASE_DIR = join(ROOT, "dist", "release");
@@ -74,7 +67,7 @@ async function packageTarget(
 	const stageDir = join(STAGE_DIR, suffix);
 	mkdirSync(stageDir, { recursive: true });
 	await compile({ outfile: join(stageDir, "cortex"), target, suffix });
-	const asset = `cortex-${TAG}-${suffix}.tar.gz`;
+	const asset = assetName(TAG, suffix);
 	await archive(stageDir, join(RELEASE_DIR, asset));
 	console.log(`${asset} (${sizeInMegabytes(join(RELEASE_DIR, asset))} MB)`);
 	return { asset, stageDir };

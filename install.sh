@@ -115,37 +115,43 @@ path_hint() {
 EOF
 }
 
-require curl
-require tar
+install() {
+	require curl
+	require tar
 
-suffix=$(detect_suffix)
-version=$(resolve_version)
-asset="cortex-$version-$suffix.tar.gz"
-base="https://github.com/$REPO/releases/download/$version"
+	suffix=$(detect_suffix)
+	version=$(resolve_version)
+	asset="cortex-$version-$suffix.tar.gz"
+	base="https://github.com/$REPO/releases/download/$version"
 
-tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT INT TERM
+	tmp=$(mktemp -d)
+	trap 'rm -rf "$tmp"' EXIT INT TERM
 
-echo "cortex: downloading $asset"
-curl -fsSL "$base/$asset" -o "$tmp/$asset" ||
-	die "failed to download $base/$asset"
-curl -fsSL "$base/checksums.txt" -o "$tmp/checksums.txt" ||
-	die "failed to download $base/checksums.txt"
+	echo "cortex: downloading $asset"
+	curl -fsSL "$base/$asset" -o "$tmp/$asset" ||
+		die "failed to download $base/$asset"
+	curl -fsSL "$base/checksums.txt" -o "$tmp/checksums.txt" ||
+		die "failed to download $base/checksums.txt"
 
-verify "$tmp/$asset" "$asset" "$tmp/checksums.txt"
+	verify "$tmp/$asset" "$asset" "$tmp/checksums.txt"
 
-tar -xzf "$tmp/$asset" -C "$tmp"
-[ -f "$tmp/cortex" ] || die "$asset did not contain a cortex executable"
+	tar -xzf "$tmp/$asset" -C "$tmp"
+	[ -f "$tmp/cortex" ] || die "$asset did not contain a cortex executable"
 
-mkdir -p "$INSTALL_DIR"
-mv -f "$tmp/cortex" "$INSTALL_DIR/cortex"
-chmod 755 "$INSTALL_DIR/cortex"
+	mkdir -p "$INSTALL_DIR"
+	mv -f "$tmp/cortex" "$INSTALL_DIR/cortex"
+	chmod 755 "$INSTALL_DIR/cortex"
 
-echo "cortex $version installed to $INSTALL_DIR/cortex"
-path_hint
-cat <<EOF
+	echo "cortex $version installed to $INSTALL_DIR/cortex"
+	path_hint
+	cat <<-EOF
 
-Next: run \`cortex init\` in a repository.
-The first embedding downloads the model (~hundreds of MB) from HuggingFace.
-Later: \`cortex upgrade\` replaces this binary in place.
-EOF
+		Next: run \`cortex init\` in a repository.
+		The first embedding downloads the model (~hundreds of MB) from HuggingFace.
+		Later: \`cortex upgrade\` replaces this binary in place.
+	EOF
+}
+
+# Sourcing with CORTEX_SOURCE_ONLY set exposes the functions without
+# installing, so CI can compare detect_suffix against src/release/target.ts.
+[ -n "${CORTEX_SOURCE_ONLY:-}" ] || install

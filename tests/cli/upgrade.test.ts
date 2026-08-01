@@ -119,7 +119,9 @@ describe("cortex upgrade", () => {
 	});
 
 	test("is listed in the help, and update is not a command", async () => {
-		expect((await cli("--help")).stdout).toContain("upgrade [--check]");
+		expect((await cli("--help")).stdout).toContain(
+			"upgrade [--check [--json]] [--version V] [--force]",
+		);
 		const unknown = await cli("update");
 		expect(unknown.code).toBe(1);
 		expect(unknown.stderr).toContain("unknown command: update");

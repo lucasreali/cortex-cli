@@ -8,6 +8,7 @@ import { readConfig, writeConfig } from "@/storage/config";
 import { openDecisionsDb } from "@/storage/connection";
 import { migrate, SCHEMA_VERSION } from "@/storage/migrations";
 import { NodeRepository } from "@/storage/node-repository";
+import { CORTEX_DIRECTORY, ProjectRoot } from "@/storage/project-root";
 
 export async function runInit(args: string[], cwd: string): Promise<number> {
 	const { values } = parseArgs({
@@ -15,7 +16,7 @@ export async function runInit(args: string[], cwd: string): Promise<number> {
 		options: { yes: { type: "boolean", default: false } },
 	});
 	const root = getRepoRoot(cwd) ?? resolve(cwd);
-	const cortexDir = join(root, ".cortex");
+	const cortexDir = ProjectRoot.at(root).cortexDir;
 	initializeStorage(root, cortexDir);
 	if (!(await readConfig(cortexDir))) {
 		await writeConfig(cortexDir, {
@@ -81,7 +82,10 @@ async function ensureGitignore(
 
 function ignoresCortexDir(gitignore: string): boolean {
 	const entries = gitignore.split("\n").map((line) => line.trim());
-	return entries.includes(".cortex/") || entries.includes(".cortex");
+	return (
+		entries.includes(`${CORTEX_DIRECTORY}/`) ||
+		entries.includes(CORTEX_DIRECTORY)
+	);
 }
 
 function confirmInteractive(question: string): boolean {

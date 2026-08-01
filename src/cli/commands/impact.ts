@@ -5,8 +5,9 @@ import {
 	decisionImpact,
 } from "@/app/decision-impact";
 import { printJson } from "@/cli/json";
-import { openInitializedRuntime } from "@/cli/open-runtime";
+import { withRuntime } from "@/cli/open-runtime";
 import { failure, style, warning } from "@/cli/style";
+import { usageError } from "@/cli/usage";
 
 export async function runImpact(args: string[], cwd: string): Promise<number> {
 	const { values, positionals } = parseArgs({
@@ -18,20 +19,13 @@ export async function runImpact(args: string[], cwd: string): Promise<number> {
 		allowPositionals: true,
 	});
 	const id = positionals[0];
-	if (!id) {
-		console.error("usage: cortex impact <id> [--depth N] [--json]");
-		return 1;
-	}
+	if (!id) return usageError("impact");
 	const depth = parseDepth(values.depth);
 	if (depth === null) {
-		console.error(
-			"usage: cortex impact <id> [--depth N] [--json] — N must be a non-negative integer",
-		);
-		return 1;
+		console.error(failure("--depth N must be a non-negative integer"));
+		return usageError("impact");
 	}
-	const runtime = await openInitializedRuntime(cwd);
-	if (!runtime) return 1;
-	try {
+	return withRuntime(cwd, async (runtime) => {
 		const impact = await decisionImpact(runtime, id, {
 			maxDepth: depth,
 			codeDepth: depth,
@@ -47,9 +41,7 @@ export async function runImpact(args: string[], cwd: string): Promise<number> {
 		printDependsOnTree(impact);
 		printCodeImpact(impact);
 		return 0;
-	} finally {
-		runtime.dispose();
-	}
+	});
 }
 
 function parseDepth(raw: string | undefined): number | null {
