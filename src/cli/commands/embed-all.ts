@@ -1,9 +1,9 @@
 import type { CortexRuntime } from "@/app/runtime";
+import { failure, style, success } from "@/cli/style";
 import type { Decision } from "@/domain";
 import type { EmbeddingProvider } from "@/embedding/provider";
 import { DEFAULT_EMBED_TIMEOUT_MS, decisionPassage } from "@/embedding/queue";
 import { withTimeout } from "@/embedding/with-timeout";
-import { failure, style, success } from "../style";
 
 export type EmbedDependencies = Pick<
 	CortexRuntime,

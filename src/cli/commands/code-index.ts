@@ -1,10 +1,10 @@
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { failure, success } from "@/cli/style";
 import { getRepoRoot } from "@/git";
 import { CodeIndexer } from "@/indexer/code-indexer";
 import { openCodeRepository } from "@/storage/code-db";
-import { failure, success } from "../style";
 
 export async function runIndex(args: string[], cwd: string): Promise<number> {
 	const { values } = parseArgs({

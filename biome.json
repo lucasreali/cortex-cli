@@ -16,9 +16,34 @@
 	"linter": {
 		"enabled": true,
 		"rules": {
-			"preset": "recommended"
+			"preset": "recommended",
+			"style": {
+				"noRestrictedImports": {
+					"level": "error",
+					"options": {
+						"patterns": [
+							{
+								"group": ["../**"],
+								"message": "Reach out of a directory with the @/ alias (@tests/ inside tests/); ./ stays relative."
+							}
+						]
+					}
+				}
+			}
 		}
 	},
+	"overrides": [
+		{
+			"includes": ["src/version.ts", "src/embedding/onnxruntime-assets.ts"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": "off"
+					}
+				}
+			}
+		}
+	],
 	"javascript": {
 		"formatter": {
 			"quoteStyle": "double"

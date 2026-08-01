@@ -1,9 +1,9 @@
 import { parseArgs } from "node:util";
 import type { CortexRuntime } from "@/app/runtime";
+import { openInitializedRuntime } from "@/cli/open-runtime";
+import { failure, style, success } from "@/cli/style";
 import { readConfig, writeConfig } from "@/storage/config";
 import { SCHEMA_VERSION } from "@/storage/migrations";
-import { openInitializedRuntime } from "../open-runtime";
-import { failure, style, success } from "../style";
 import { embedAll } from "./embed-all";
 
 export async function runEmbed(args: string[], cwd: string): Promise<number> {

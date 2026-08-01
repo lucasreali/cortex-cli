@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { DecisionImpact } from "@/app/decision-impact";
 import { decisionImpact } from "@/app/decision-impact";
 import type { CortexRuntime } from "@/app/runtime";
-import type { RuntimeRegistry } from "../runtime-registry";
+import type { RuntimeRegistry } from "@/mcp/runtime-registry";
 import { READ_ONLY_ANNOTATIONS } from "./annotations";
 import { projectPathField, scopedToProject } from "./project-scope";
 import { guidanceResult, jsonResult } from "./results";

@@ -1,8 +1,8 @@
 import { parseArgs } from "node:util";
+import { printJson } from "@/cli/json";
+import { openInitializedRuntime } from "@/cli/open-runtime";
+import { style } from "@/cli/style";
 import type { Decision } from "@/domain";
-import { printJson } from "../json";
-import { openInitializedRuntime } from "../open-runtime";
-import { style } from "../style";
 
 export async function runLog(args: string[], cwd: string): Promise<number> {
 	const { values } = parseArgs({

@@ -3,6 +3,9 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import type { CortexRuntime } from "@/app/runtime";
 import { symbolHint } from "@/app/symbol-hints";
+import { printJson } from "@/cli/json";
+import { openInitializedRuntime } from "@/cli/open-runtime";
+import { success, warning } from "@/cli/style";
 import { MINIMUM_KEYWORDS } from "@/domain";
 import { GEMMA_MODEL } from "@/embedding/model";
 import { modelsDir } from "@/embedding/models-dir";
@@ -14,9 +17,6 @@ import { type OpenCodeRepository, openCodeRepository } from "@/storage/code-db";
 import type { CodeRepository } from "@/storage/code-repository";
 import { readConfig } from "@/storage/config";
 import { CODE_SCHEMA_VERSION, SCHEMA_VERSION } from "@/storage/migrations";
-import { printJson } from "../json";
-import { openInitializedRuntime } from "../open-runtime";
-import { success, warning } from "../style";
 
 const MINIMUM_RESOLUTION_RATE = 0.85;
 

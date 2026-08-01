@@ -1,7 +1,7 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { CortexRuntime } from "@/app/runtime";
-import type { RuntimeRegistry } from "../runtime-registry";
+import type { RuntimeRegistry } from "@/mcp/runtime-registry";
 import { guidanceResult } from "./results";
 
 const RESOLUTION_HINT =

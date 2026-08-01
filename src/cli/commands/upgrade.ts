@@ -1,4 +1,6 @@
 import { parseArgs } from "node:util";
+import { printJson } from "@/cli/json";
+import { failure, style, success } from "@/cli/style";
 import { daemonPathsFor } from "@/embedding/daemon/paths";
 import { stopDaemon } from "@/embedding/daemon/stop";
 import { GEMMA_MODEL } from "@/embedding/model";
@@ -14,8 +16,6 @@ import {
 	versionFromTag,
 } from "@/release/target";
 import { CORTEX_VERSION } from "@/version";
-import { printJson } from "../json";
-import { failure, style, success } from "../style";
 
 export async function runUpgrade(args: string[]): Promise<number> {
 	const { values } = parseArgs({

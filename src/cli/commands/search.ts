@@ -1,9 +1,9 @@
 import { parseArgs } from "node:util";
 import { searchDecisions } from "@/app/search-decisions";
+import { printJson } from "@/cli/json";
+import { openInitializedRuntime } from "@/cli/open-runtime";
+import { style } from "@/cli/style";
 import type { SemanticSearchResult } from "@/embedding/semantic-search";
-import { printJson } from "../json";
-import { openInitializedRuntime } from "../open-runtime";
-import { style } from "../style";
 
 export async function runSearch(args: string[], cwd: string): Promise<number> {
 	const { values, positionals } = parseArgs({

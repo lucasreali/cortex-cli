@@ -1,13 +1,13 @@
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { style, success, warning } from "@/cli/style";
 import { GEMMA_MODEL } from "@/embedding/model";
 import { getCanonicalProjectId, getRepoRoot } from "@/git";
 import { readConfig, writeConfig } from "@/storage/config";
 import { openDecisionsDb } from "@/storage/connection";
 import { migrate, SCHEMA_VERSION } from "@/storage/migrations";
 import { NodeRepository } from "@/storage/node-repository";
-import { style, success, warning } from "../style";
 
 export async function runInit(args: string[], cwd: string): Promise<number> {
 	const { values } = parseArgs({

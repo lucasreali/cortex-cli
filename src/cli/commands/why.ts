@@ -1,10 +1,10 @@
 import { parseArgs } from "node:util";
 import { accessCodeIndex } from "@/app/code-index-access";
 import type { CortexRuntime } from "@/app/runtime";
+import { printJson } from "@/cli/json";
+import { openInitializedRuntime } from "@/cli/open-runtime";
+import { style, warning } from "@/cli/style";
 import type { Decision } from "@/domain";
-import { printJson } from "../json";
-import { openInitializedRuntime } from "../open-runtime";
-import { style, warning } from "../style";
 
 interface SymbolMatch {
 	filePath: string;

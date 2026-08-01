@@ -4,9 +4,9 @@ import {
 	type DecisionImpact,
 	decisionImpact,
 } from "@/app/decision-impact";
-import { printJson } from "../json";
-import { openInitializedRuntime } from "../open-runtime";
-import { failure, style, warning } from "../style";
+import { printJson } from "@/cli/json";
+import { openInitializedRuntime } from "@/cli/open-runtime";
+import { failure, style, warning } from "@/cli/style";
 
 export async function runImpact(args: string[], cwd: string): Promise<number> {
 	const { values, positionals } = parseArgs({

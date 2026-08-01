@@ -5,8 +5,8 @@ import { accessCodeIndex } from "@/app/code-index-access";
 import type { CortexRuntime } from "@/app/runtime";
 import { symbolHint } from "@/app/symbol-hints";
 import { type CreateDecisionInput, createDecisionSchema } from "@/domain";
+import type { RuntimeRegistry } from "@/mcp/runtime-registry";
 import type { CodeRepository } from "@/storage/code-repository";
-import type { RuntimeRegistry } from "../runtime-registry";
 import { projectPathField, scopedToProject } from "./project-scope";
 import { errorResult, guidanceResult, jsonResult } from "./results";
 

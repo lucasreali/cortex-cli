@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { CortexRuntime } from "@/app/runtime";
 import { searchDecisions } from "@/app/search-decisions";
 import type { SemanticSearchResult } from "@/embedding/semantic-search";
-import type { RuntimeRegistry } from "../runtime-registry";
+import type { RuntimeRegistry } from "@/mcp/runtime-registry";
 import { READ_ONLY_ANNOTATIONS } from "./annotations";
 import { projectPathField, scopedToProject } from "./project-scope";
 import { jsonResult } from "./results";
