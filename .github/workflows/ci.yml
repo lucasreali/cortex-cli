@@ -36,7 +36,7 @@ jobs:
       - run: bun run typecheck
 
       - name: Tests — 100% line and function coverage enforced
-        run: bun test --coverage --coverage-reporter=text --coverage-reporter=lcov
+        run: bun run test:coverage
 
       - name: Audit what the coverage report cannot see
         run: bun run coverage:audit

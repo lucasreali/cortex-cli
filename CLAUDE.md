@@ -10,7 +10,7 @@ on the code.
 - `bun test` — full suite (real SQLite, CLI covered end-to-end via subprocess)
 - `bun run test:coverage` — 100% line/function threshold enforced (`bunfig.toml`)
 - `bun run coverage:audit` — fails when a source file is missing from the
-  coverage report entirely; needs a preceding run with `--coverage-reporter=lcov`
+  coverage report entirely; reads the `lcov.info` the previous command writes
 - `RUN_MODEL_TESTS=1 bun test` — also loads the real embedding model
 - `bun run typecheck` / `bun run check` — strict tsc / Biome (writes fixes);
   `bun run lint:ci` is the read-only Biome used by CI
