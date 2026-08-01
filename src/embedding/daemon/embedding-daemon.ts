@@ -2,7 +2,11 @@ import { chmodSync, unlinkSync } from "node:fs";
 import type { Socket } from "bun";
 import type { GemmaProvider } from "@/embedding/gemma-provider";
 import { LineBuffer } from "@/embedding/line-buffer";
-import type { WorkerRequest, WorkerResponse } from "@/embedding/protocol";
+import {
+	decodeRequest,
+	type WorkerRequest,
+	type WorkerResponse,
+} from "@/embedding/protocol";
 import { SerialLane } from "@/embedding/serial-lane";
 import { withTimeout } from "@/embedding/with-timeout";
 import { DAEMON_PROTOCOL, encodeDaemonHello } from "./hello";
@@ -97,8 +101,19 @@ export class EmbeddingDaemon {
 	}
 
 	private receive(socket: ClientSocket, chunk: Uint8Array): void {
-		for (const line of socket.data.lines.push(chunk)) {
+		for (const line of this.buffer(socket, chunk)) {
 			void this.respond(socket, line);
+		}
+	}
+
+	// One session must never fault the daemon serving every other session, so a
+	// client that overruns the line buffer or dies mid-write is simply dropped.
+	private buffer(socket: ClientSocket, chunk: Uint8Array): string[] {
+		try {
+			return socket.data.lines.push(chunk);
+		} catch {
+			this.dropClient(socket);
+			return [];
 		}
 	}
 
@@ -152,18 +167,6 @@ export class EmbeddingDaemon {
 	private clearIdleTimer(): void {
 		if (this.idleTimer) clearTimeout(this.idleTimer);
 		this.idleTimer = null;
-	}
-}
-
-function decodeRequest(line: string): WorkerRequest | null {
-	try {
-		const parsed = JSON.parse(line) as Partial<WorkerRequest>;
-		if (typeof parsed?.id !== "number") return null;
-		if (parsed.kind !== "query" && parsed.kind !== "passages") return null;
-		if (!Array.isArray(parsed.texts)) return null;
-		return parsed as WorkerRequest;
-	} catch {
-		return null;
 	}
 }
 

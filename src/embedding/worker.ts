@@ -3,7 +3,11 @@ import { LineBuffer } from "./line-buffer";
 import { GEMMA_MODEL } from "./model";
 import { modelsDir } from "./models-dir";
 import { ensureOnnxRuntimeAssets } from "./onnxruntime-assets";
-import type { WorkerRequest, WorkerResponse } from "./protocol";
+import {
+	decodeRequest,
+	type WorkerRequest,
+	type WorkerResponse,
+} from "./protocol";
 
 type Extractor = Awaited<ReturnType<typeof pipelineType<"feature-extraction">>>;
 
@@ -81,7 +85,8 @@ function respond(response: WorkerResponse): void {
 }
 
 async function handleLine(line: string): Promise<void> {
-	const request = JSON.parse(line) as WorkerRequest;
+	const request = decodeRequest(line);
+	if (!request) return;
 	try {
 		respond({ id: request.id, vectors: await embed(request) });
 	} catch (error) {

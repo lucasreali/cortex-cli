@@ -2,7 +2,13 @@
 // node_modules: version/help, init, code index (embedded tree-sitter WASM +
 // grammar download), MCP serve with save_decision, real embedding through the
 // self-spawned worker subcommand, semantic search and doctor.
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	realpathSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -60,7 +66,7 @@ function makeProject(): void {
 	git("init", "-b", "main");
 	git("remote", "add", "origin", "git@github.com:acme/compiled-smoke.git");
 	mkdirSync(join(projectDir, "src"));
-	Bun.write(
+	writeFileSync(
 		join(projectDir, "src", "service.ts"),
 		"export class AuthService {\n\tvalidateToken(token: string): boolean {\n\t\treturn token.length > 0;\n\t}\n}\n",
 	);

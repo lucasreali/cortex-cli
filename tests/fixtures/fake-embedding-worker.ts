@@ -2,7 +2,8 @@
 // Magic first-texts drive failure modes: "!exit" kills the process before
 // answering, "!error" answers an error, "!empty" answers zero vectors,
 // "!noise" emits garbage lines before the real answer, "!hang" never answers
-// at all and "!slow:<ms>" answers normally after that delay.
+// at all, "!slow:<ms>" answers normally after that delay and "!flood" streams
+// an answer that never terminates its line.
 //
 // Requests are awaited one at a time, like the real worker, so a slow request
 // delays the ones queued behind it.
@@ -24,6 +25,13 @@ async function handle(line: string): Promise<void> {
 	if (first === "!hang") return;
 	if (first?.startsWith("!slow:")) {
 		await Bun.sleep(Number(first.slice("!slow:".length)));
+	}
+	if (first === "!flood") {
+		const chunk = "x".repeat(64 * 1024);
+		for (let sent = 0; sent < 9 * 1024 * 1024; sent += chunk.length) {
+			process.stdout.write(chunk);
+		}
+		return;
 	}
 	if (first === "!error") {
 		out({ id: request.id, error: "boom" });

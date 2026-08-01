@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { CreateDecisionInput } from "@/domain";
 import type { EmbeddingProvider } from "@/embedding/provider";
 import { EmbedQueue } from "@/embedding/queue";
-import { fuseRankings, SemanticSearch } from "@/embedding/semantic-search";
+import { dot, fuseRankings, SemanticSearch } from "@/embedding/semantic-search";
 import { openDecisionsDb } from "@/storage/connection";
 import { EmbeddingRepository } from "@/storage/embedding-repository";
 import { migrate } from "@/storage/migrations";
@@ -305,6 +305,20 @@ describe("fuseRankings", () => {
 	test("ties break lexicographically for determinism", () => {
 		const fused = fuseRankings([["b"], ["a"]]);
 		expect(fused.map((entry) => entry.nodeId)).toEqual(["a", "b"]);
+	});
+});
+
+describe("dot", () => {
+	test("multiplies matching dimensions pairwise", () => {
+		expect(dot(new Float32Array([1, 2, 3]), new Float32Array([4, 5, 6]))).toBe(
+			32,
+		);
+	});
+
+	test("vectors from different embedding spaces fail instead of scoring NaN", () => {
+		expect(() =>
+			dot(new Float32Array([1, 2, 3]), new Float32Array([1, 2])),
+		).toThrow("vector length mismatch: 3 vs 2");
 	});
 });
 

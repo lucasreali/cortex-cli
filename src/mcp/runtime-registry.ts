@@ -33,11 +33,17 @@ export class RuntimeRegistry {
 		return { ok: true, runtime: await this.open(this.defaultProject.root) };
 	}
 
+	// save_decision returns before its embedding finishes, so a runtime is only
+	// torn down once its queue drains — otherwise a shutdown right after a save
+	// silently drops the vector and leaves the decision FTS-only.
 	async dispose(): Promise<void> {
 		const pending = [...this.runtimes.values()];
 		this.runtimes.clear();
 		for (const opened of pending) {
-			(await opened.catch(() => null))?.dispose();
+			const runtime = await opened.catch(() => null);
+			if (!runtime) continue;
+			await runtime.queue?.onIdle();
+			runtime.dispose();
 		}
 	}
 

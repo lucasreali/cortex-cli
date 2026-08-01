@@ -21,7 +21,11 @@ class WorkerLink {
 	private readonly ledger = new VectorRequestLedger();
 
 	constructor(private readonly subprocess: WorkerSubprocess) {
-		void this.readResponses();
+		// A stdout that errors mid-read (a kill during a read, EPIPE) leaves
+		// every open request unanswerable, exactly like the worker exiting.
+		this.readResponses().catch(() =>
+			this.ledger.rejectAll(new Error("embedding worker stream failed")),
+		);
 		void this.subprocess.exited.then(() =>
 			this.ledger.rejectAll(new Error("embedding worker exited")),
 		);

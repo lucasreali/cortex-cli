@@ -90,19 +90,19 @@ rmSync(STAGE_DIR, { recursive: true, force: true });
 mkdirSync(RELEASE_DIR, { recursive: true });
 
 const assets: string[] = [];
-let sharedSourcemapDir = "";
+// Each target compiles with its own CORTEX_BUILD_TARGET define, so the bundles
+// are not byte-identical and one shared map would mislocate frames for six of
+// the seven.
 for (const { target, suffix } of TARGETS) {
 	const packaged = await packageTarget(target, suffix);
 	assets.push(packaged.asset);
-	sharedSourcemapDir ||= packaged.stageDir;
+	const sourcemap = `cortex-${TAG}-${suffix}.js.map`;
+	await Bun.write(
+		join(RELEASE_DIR, sourcemap),
+		Bun.file(join(packaged.stageDir, "main.js.map")),
+	);
+	assets.push(sourcemap);
 }
-
-const sourcemap = `cortex-${TAG}.js.map`;
-await Bun.write(
-	join(RELEASE_DIR, sourcemap),
-	Bun.file(join(sharedSourcemapDir, "main.js.map")),
-);
-assets.push(sourcemap);
 
 const lines = await Promise.all(
 	assets.map(

@@ -81,6 +81,13 @@ describe("GemmaProvider over the worker protocol (fake worker)", () => {
 		expect(gemma.workerRunning).toBe(true);
 	});
 
+	test("a worker that floods stdout without a newline rejects the request", async () => {
+		const gemma = makeProvider();
+		expect(gemma.embedQuery("!flood")).rejects.toThrow(
+			"embedding worker stream failed",
+		);
+	});
+
 	test("idle-kill stops the worker and the next call respawns it", async () => {
 		const gemma = makeProvider(150);
 		await gemma.embedQuery("first");

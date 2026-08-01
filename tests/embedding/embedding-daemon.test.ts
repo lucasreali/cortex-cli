@@ -66,6 +66,26 @@ afterEach(() => {
 	}
 });
 
+// Every byte is the same and none is a newline, so a short write only means
+// fewer bytes crossed this turn — the buffer still fills.
+async function flood(
+	socket: { write(data: string): number },
+	total: number,
+): Promise<void> {
+	const chunk = "x".repeat(64 * 1024);
+	for (let sent = 0; sent < total; ) {
+		const written = socket.write(chunk);
+		sent += written;
+		await Bun.sleep(written > 0 ? 0 : 5);
+	}
+}
+
+async function waitFor(condition: () => boolean): Promise<void> {
+	for (let attempt = 0; attempt < 200 && !condition(); attempt++) {
+		await Bun.sleep(10);
+	}
+}
+
 describe("EmbeddingDaemon", () => {
 	test("greets with a matching hello and serves worker vectors", async () => {
 		const { endpoint } = makeDaemon();
@@ -112,6 +132,22 @@ describe("EmbeddingDaemon", () => {
 		const connection = await connect(endpoint);
 		expect(await connection.embed("query", ["still up"])).toEqual([[8, 0, 1]]);
 		raw.end();
+		connection.close();
+	});
+
+	test("a client that never terminates its line is dropped, not served", async () => {
+		const { daemon, endpoint } = makeDaemon();
+		const connection = await connect(endpoint);
+		const flooder = await Bun.connect({
+			unix: endpoint.paths.socketPath,
+			socket: { data: () => {} },
+		});
+		await Bun.sleep(20);
+		expect(daemon.clientCount).toBe(2);
+		await flood(flooder, 8 * 1024 * 1024 + 1);
+		await waitFor(() => daemon.clientCount === 1);
+		expect(daemon.clientCount).toBe(1);
+		expect(await connection.embed("query", ["still up"])).toEqual([[8, 0, 1]]);
 		connection.close();
 	});
 

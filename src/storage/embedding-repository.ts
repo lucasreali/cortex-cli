@@ -79,10 +79,9 @@ export class EmbeddingRepository {
 	}
 }
 
+// A Float32Array view requires a 4-byte-aligned offset, which a blob handed
+// back as a view into a larger buffer does not guarantee; copying first costs
+// one allocation and removes the RangeError from the query path.
 function toFloat32Array(blob: Uint8Array): Float32Array {
-	return new Float32Array(
-		blob.buffer,
-		blob.byteOffset,
-		blob.byteLength / Float32Array.BYTES_PER_ELEMENT,
-	);
+	return new Float32Array(blob.slice().buffer);
 }

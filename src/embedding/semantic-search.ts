@@ -145,9 +145,14 @@ export function fuseRankings(rankings: string[][]): FusedRanking[] {
 }
 
 export function dot(a: Float32Array, b: Float32Array): number {
+	// Mismatched dimensions mean vectors from two embedding spaces reached the
+	// same store; scoring them would silently yield NaN instead of failing.
+	if (a.length !== b.length) {
+		throw new Error(`vector length mismatch: ${a.length} vs ${b.length}`);
+	}
 	let sum = 0;
-	for (let index = 0; index < a.length; index++) {
-		sum += (a[index] as number) * (b[index] as number);
+	for (const [index, value] of a.entries()) {
+		sum += value * (b[index] as number);
 	}
 	return sum;
 }

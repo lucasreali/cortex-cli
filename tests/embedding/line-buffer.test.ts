@@ -28,4 +28,17 @@ describe("LineBuffer", () => {
 		expect(lines.push("first\nsec")).toEqual(["first"]);
 		expect(lines.push(new TextEncoder().encode("ond\n"))).toEqual(["second"]);
 	});
+
+	test("rejects a peer that never terminates its line", () => {
+		const lines = new LineBuffer();
+		expect(() => lines.push("x".repeat(8 * 1024 * 1024 + 1))).toThrow(
+			"maximum length",
+		);
+	});
+
+	test("stays usable after rejecting an overlong line", () => {
+		const lines = new LineBuffer();
+		expect(() => lines.push("x".repeat(8 * 1024 * 1024 + 1))).toThrow();
+		expect(lines.push("recovered\n")).toEqual(["recovered"]);
+	});
 });

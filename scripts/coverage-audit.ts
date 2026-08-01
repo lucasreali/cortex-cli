@@ -41,8 +41,7 @@ const SUBPROCESS_COVERED = [
 	"src/storage/locate-store.ts",
 ];
 
-// Types and interfaces only: nothing survives type erasure to instrument.
-const TYPE_ONLY = ["src/embedding/protocol.ts", "src/embedding/provider.ts"];
+const ERASED_AT_COMPILE_TIME = ["src/embedding/provider.ts"];
 
 function toRepoPath(file: string): string {
 	if (!file.startsWith("/")) return file;
@@ -79,7 +78,7 @@ function report(title: string, files: string[], hint: string): boolean {
 
 const instrumented = await instrumentedSources();
 const declared = await declaredSources();
-const exempt = new Set([...SUBPROCESS_COVERED, ...TYPE_ONLY]);
+const exempt = new Set([...SUBPROCESS_COVERED, ...ERASED_AT_COMPILE_TIME]);
 
 const unmeasured = [...declared]
 	.filter((file) => !instrumented.has(file))

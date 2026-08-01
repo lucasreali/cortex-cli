@@ -36,8 +36,8 @@ export async function runEmbeddingDaemon(modelId: string): Promise<number> {
 	console.error(
 		`[cortex daemon] serving ${modelId} on ${paths.socketPath} (pid ${process.pid}, v${CORTEX_VERSION})`,
 	);
-	process.on("SIGINT", () => daemon.stop("SIGINT"));
-	process.on("SIGTERM", () => daemon.stop("SIGTERM"));
+	process.once("SIGINT", () => daemon.stop("SIGINT"));
+	process.once("SIGTERM", () => daemon.stop("SIGTERM"));
 	const reason = await daemon.closed;
 	console.error(`[cortex daemon] stopped: ${reason}`);
 	releaseDaemonLock(paths.lockPath, process.pid);

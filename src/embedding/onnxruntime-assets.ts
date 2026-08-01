@@ -1,6 +1,6 @@
-import { renameSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { writeAtomically } from "@/support/atomic-write";
 // onnxruntime-web does not export ./dist/* through its exports map, so the
 // two runtime files the WASM backend loads must be reached by relative path.
 import onnxModule from "../../node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.mjs" with {
@@ -57,9 +57,5 @@ function cacheKey(assets: OnnxRuntimeAssets): string {
 async function extract(sourcePath: string, targetPath: string): Promise<void> {
 	const source = Bun.file(sourcePath);
 	if (Bun.file(targetPath).size === source.size) return;
-	const staging = `${targetPath}.${process.pid}.partial`;
-	await Bun.write(staging, source);
-	// rename is atomic on the same filesystem, so concurrent workers cannot
-	// observe a half-written file.
-	renameSync(staging, targetPath);
+	await writeAtomically(targetPath, source);
 }
