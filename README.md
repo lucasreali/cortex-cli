@@ -5,8 +5,9 @@ decisions made while you and your agent work on a repository — what was
 chosen, why, and which files it governs — and makes them searchable by
 meaning, not just by keyword, from any later session.
 
-Decisions live in `.cortex/decisions.db` (SQLite, local to the machine —
-`cortex init` gitignores the whole `.cortex/` directory).
+Each decision is one markdown file under `.cortex/decisions/`, versioned with
+your code: it merges between branches, reviews as a diff, and arrives with the
+pull. SQLite is the search index built from those files, and stays local.
 Semantic search runs fully local: EmbeddingGemma-300m quantized, via WASM in
 a dedicated subprocess — no native dependencies, no runtime network calls
 beyond the one-time model download to `~/.cortex/models/`.
@@ -75,6 +76,17 @@ cd your-project
 cortex init     # creates .cortex/, runs migrations, writes config
 ```
 
+`init` writes a `.gitignore` rule that versions `.cortex/decisions/` and
+ignores everything else under `.cortex/`:
+
+```gitignore
+/.cortex/*
+!/.cortex/decisions/
+```
+
+Commit each decision file with the change it explains. To keep decisions
+private to your machine instead, drop the second line.
+
 Then register the MCP server with your agent — once, at user scope; a single
 server instance serves every initialized project:
 
@@ -114,9 +126,32 @@ server started in; if the server started outside any initialized project, the
 schema makes `projectPath` required. Paths without a store return guidance
 (`cortex init`) instead of an error.
 
-Saves are transactional (decision + anchors + links + full-text row);
-embeddings happen asynchronously off the save path and degrade to full-text
-search whenever the model is unavailable.
+Saving writes the markdown file first, then the row that mirrors it. Embeddings
+happen asynchronously off the save path and degrade to full-text search
+whenever the model is unavailable.
+
+### Decisions and branches
+
+A decision file is immutable: changing your mind writes a new file that
+`replaces` the old one, so two branches never edit the same lines and git
+merges them without a conflict.
+
+Every command reconciles the store against the files on the branch you have
+checked out. A decision whose file is not here is flagged, never deleted — it
+drops out of `log`, `why`, `search` and passive recall, and comes back
+untouched, embedding included, when you switch back. So a decision from a
+branch that never merged stops being a ghost: `cortex doctor` names it as
+living on another branch.
+
+Deleting `.cortex/decisions.db` costs nothing you cannot rebuild — the next
+command reconstructs every decision, anchor and link from the files. Session
+history is the exception: it is local and does not come back.
+
+`cortex sync` forces the full pass and reports what it found: files that will
+not parse, links whose target this store has never seen, and decisions
+superseded from two branches at once. A fresh clone has no vectors until
+`cortex embed --missing` runs; until then search answers on full text, which
+measures 0.978 recall@5 against 1.000 with vectors.
 
 ## CLI
 
@@ -126,6 +161,7 @@ cortex why <path>                       # decisions anchored to a file or direct
 cortex search <terms...> [--exact]      # search with score and origin
 cortex impact <id>                      # indented dependency tree
 cortex index [--force]                  # (re)build the code index incrementally
+cortex sync                             # reconcile the store with this branch's files
 cortex embed --missing | --rebuild      # fill or rebuild the vector index
 cortex doctor                           # config, anchors, embeddings, model, code index
 cortex upgrade [--check]                # replace this binary with the latest release

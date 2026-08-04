@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { style, success, warning } from "@/cli/style";
 import { exportDecisionsIfNeeded } from "@/decisions/bootstrap";
+import { DECISIONS_DIRECTORY } from "@/decisions/decision-store";
 import { GEMMA_MODEL } from "@/embedding/model";
 import { getCanonicalProjectId, getRepoRoot } from "@/git";
 import { readConfig, writeConfig } from "@/storage/config";
@@ -39,6 +40,9 @@ export async function runInit(args: string[], cwd: string): Promise<number> {
 		"cortex log",
 		"cortex why <path>",
 	]);
+	printStep(3, "Commit each decision file alongside the code it governs", [
+		"git add .cortex/decisions",
+	]);
 	return 0;
 }
 
@@ -60,6 +64,14 @@ function initializeStorage(root: string, cortexDir: string): void {
 	}
 }
 
+// Excluding the children rather than the directory itself is what lets the
+// negation work at all: git never descends into an excluded directory, so
+// `/.cortex/` would hide `decisions/` no matter what followed it.
+const IGNORE_RULES = [
+	`/${CORTEX_DIRECTORY}/*`,
+	`!/${CORTEX_DIRECTORY}/${DECISIONS_DIRECTORY}/`,
+];
+
 async function ensureGitignore(
 	root: string,
 	assumeYes: boolean,
@@ -67,26 +79,29 @@ async function ensureGitignore(
 	const path = join(root, ".gitignore");
 	const file = Bun.file(path);
 	const current = (await file.exists()) ? await file.text() : "";
-	if (ignoresCortexDir(current)) return;
-	if (!assumeYes && !confirmInteractive("Add .cortex/ to .gitignore?")) {
+	if (alreadyRuled(current)) return;
+	if (
+		!assumeYes &&
+		!confirmInteractive("Version .cortex/decisions/ and ignore the rest?")
+	) {
 		console.log(
 			warning(
-				"Skipped .gitignore change — add .cortex/ yourself or rerun with --yes.",
+				`Skipped .gitignore change — add ${IGNORE_RULES.join(" and ")} ` +
+					"yourself or rerun with --yes.",
 			),
 		);
 		return;
 	}
 	const separator = current === "" || current.endsWith("\n") ? "" : "\n";
-	await Bun.write(path, `${current}${separator}.cortex/\n`);
-	console.log(success("Added .cortex/ to .gitignore"));
+	await Bun.write(path, `${current}${separator}${IGNORE_RULES.join("\n")}\n`);
+	console.log(
+		success("Decisions will be versioned; the SQLite cache stays local"),
+	);
 }
 
-function ignoresCortexDir(gitignore: string): boolean {
+function alreadyRuled(gitignore: string): boolean {
 	const entries = gitignore.split("\n").map((line) => line.trim());
-	return (
-		entries.includes(`${CORTEX_DIRECTORY}/`) ||
-		entries.includes(CORTEX_DIRECTORY)
-	);
+	return IGNORE_RULES.every((rule) => entries.includes(rule));
 }
 
 function confirmInteractive(question: string): boolean {

@@ -46,7 +46,10 @@ async function main(): Promise<number> {
 	const root = findNearestCortexRoot(process.cwd());
 	if (!root) {
 		console.error(
-			failure("no .cortex store found above the current directory"),
+			failure(
+				"no .cortex store found above the current directory — on a fresh " +
+					"clone, run `cortex sync` to build it from the decision files",
+			),
 		);
 		return 1;
 	}

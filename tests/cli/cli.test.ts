@@ -234,13 +234,13 @@ describe("cortex CLI", () => {
 		expect(second.code).toBe(0);
 		expect(
 			Bun.spawnSync(["cat", join(dir, ".gitignore")], {}).stdout.toString(),
-		).toBe(".cortex/\n");
+		).toBe("/.cortex/*\n!/.cortex/decisions/\n");
 
 		const third = cli("init", "--yes");
 		expect(third.code).toBe(0);
 		expect(
 			Bun.spawnSync(["cat", join(dir, ".gitignore")], {}).stdout.toString(),
-		).toBe(".cortex/\n");
+		).toBe("/.cortex/*\n!/.cortex/decisions/\n");
 
 		seedDecisions();
 	});

@@ -29,10 +29,19 @@ Dependency direction, no cycles:
   `userCortexDir`). Anything may import it, including `release/`; it imports
   nothing. Put a helper here only once a third call site wants it.
 - `storage/` — thin repositories over `bun:sqlite`. Two databases per
-  project, on purpose: `decisions.db` (permanent, the product) and `code.db`
-  (disposable, wiped and rebuilt freely) — never merge them. `nodes_fts` is
-  insert-only; `SearchRepository` joins `nodes` on `status = 'active'`, so
-  replaced decisions never leave the index and consumers do not re-filter.
+  project, on purpose: `decisions.db` and `code.db` — never merge them. Both
+  are derived caches now; the product is `.cortex/decisions/`. `nodes_fts` is
+  insert-only; `SearchRepository` joins `nodes` on `status = 'active' AND
+  present = 1`, so neither a replaced decision nor one belonging to another
+  branch leaves the index, and consumers do not re-filter.
+  `DecisionSyncRepository` holds the decision write surface, apart from
+  `NodeRepository`, because only the reconciler may use it.
+- `decisions/` — the versioned product: one immutable markdown file per
+  decision under `.cortex/decisions/`, and the reconciler that derives SQLite
+  from them. Peer of `indexer/`, same shape: read the working tree, fill a
+  derived store, share types through `domain/`. Everything here is
+  synchronous — the reconcile runs in one `bun:sqlite` transaction, which
+  cannot survive an `await`.
 - `git/` — subprocess git: repo root, HEAD, canonical project identity.
 - `indexer/` — tree-sitter code index (TS/JS only), reconciled lazily on
   first use; no file watcher (deliberate — see todo.md).
@@ -48,6 +57,36 @@ Dependency direction, no cycles:
 - `mcp/` — server with 4 tools; `RuntimeRegistry` caches one runtime per
   resolved project root. Recoverable states return `guidanceResult`, never
   `isError`.
+
+## Decisions are files, the database is a cache
+
+**A decision file is immutable. Changing your mind writes a new file with
+`replaces`; nothing ever rewrites an existing one.** This is what lets drift
+detection be a plain set difference, lets `nodes_fts` stay insert-only, and
+lets a stored vector outlive a branch switch without a content hash. If an
+edit path is ever added, stored vectors and FTS rows go stale silently —
+revisit a `content_sha` column that day, and not before.
+
+- `nodes.present` is a working-tree fact (is the file on this branch?),
+  `status` a product fact (was it superseded?). Orthogonal, never folded.
+- Nothing is deleted, ever. Switching branches flips `present`; a decision
+  that comes back keeps its embedding and its row.
+- Versioned in the file: the decision, its anchors, `DEPENDS_ON`,
+  `REPLACED_BY`. Local to the machine: session and project nodes,
+  `BELONGS_TO`, `GENERATED_IN`, embeddings, `nodes_fts`. A decision imported
+  from someone else's branch has no `GENERATED_IN` — that session never
+  happened here, and that is correct.
+- Edge targets are validated against the store, not the branch. A dangling
+  target is skipped and reported; inserting it would fail every command,
+  because foreign keys are on.
+- `save_decision` writes the file, inserts the row, then reconciles. Status
+  and versioned edges are derived in exactly one place, so a decision saved
+  here goes through the same path as one that arrived from a pull.
+- The reconcile does not enqueue embeddings: a pull must not make `cortex log`
+  load the model, and a CLI process disposes before the embed would finish.
+  `cortex embed --missing` owns that, and doctor reports the pending count.
+- `prompt-hook` never reconciles — it is read-only and must never migrate. It
+  serves the previous view until the next command runs.
 
 ## Embedding process topology
 
@@ -110,7 +149,12 @@ purpose: it runs on every prompt and must never fail or migrate state.
 
 ## Dogfooding
 
-This repo records its own technical decisions in `.cortex/decisions.db`
-(committed; `code.db` is gitignored). After a decision is confirmed, save it
-through the real interface — `save_decision` against `cortex serve --mcp` —
-then run `cortex embed --missing` and `cortex doctor`.
+This repo records its own technical decisions in `.cortex/decisions/`
+(committed; the two `.db` files are gitignored and rebuilt on demand). After a
+decision is confirmed, save it through the real interface — `save_decision`
+against `cortex serve --mcp` — then run `cortex embed --missing` and
+`cortex doctor`, and commit the new markdown file with the change it explains.
+
+`tests/evaluation/ground-truth.test.ts` reads those files and asserts every
+id it cites is still an active decision here, so deleting or superseding one
+breaks the suite on purpose.

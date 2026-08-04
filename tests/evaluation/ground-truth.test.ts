@@ -1,14 +1,27 @@
-import { Database } from "bun:sqlite";
-import { afterAll, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
+import { DecisionStore } from "@/decisions/decision-store";
+import type { DecisionFile } from "@/domain";
 import { GROUND_TRUTH } from "./ground-truth";
 
-const storePath = new URL("../../.cortex/decisions.db", import.meta.url)
-	.pathname;
-const db = new Database(storePath, { readonly: true });
+// The versioned files, not the derived database: this is what a fresh clone
+// carries, and reading them keeps the suite honest about which artifact is
+// the product.
+const store = DecisionStore.at(
+	new URL("../../.cortex", import.meta.url).pathname,
+);
 
-afterAll(() => {
-	db.close();
-});
+function readAll(): DecisionFile[] {
+	return store.listIds().flatMap((id) => {
+		const parse = store.read(id);
+		if (!parse.ok) throw new Error(`${id}.md: ${parse.reason}`);
+		return [parse.file];
+	});
+}
+
+const decisions = readAll();
+const superseded = new Set(
+	decisions.flatMap((file) => (file.replaces ? [file.replaces] : [])),
+);
 
 describe("ground truth shape", () => {
 	test("case ids are unique", () => {
@@ -25,15 +38,20 @@ describe("ground truth shape", () => {
 	});
 });
 
-describe("ground truth against the dogfooded store", () => {
-	test("every expected id is an active decision", () => {
-		const query = db.query<{ status: string }, [string]>(
-			"SELECT status FROM nodes WHERE id = ? AND kind = 'decision'",
-		);
+describe("ground truth against the dogfooded decision files", () => {
+	test("every expected id has a file on this branch", () => {
+		const present = new Set(decisions.map((file) => file.id));
 		for (const evalCase of GROUND_TRUTH) {
 			for (const id of evalCase.expected) {
-				const row = query.get(id);
-				expect(row?.status, `${evalCase.id} expects ${id}`).toBe("active");
+				expect(present.has(id), `${evalCase.id} expects ${id}`).toBe(true);
+			}
+		}
+	});
+
+	test("no expected id has been superseded", () => {
+		for (const evalCase of GROUND_TRUTH) {
+			for (const id of evalCase.expected) {
+				expect(superseded.has(id), `${evalCase.id} expects ${id}`).toBe(false);
 			}
 		}
 	});
