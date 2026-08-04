@@ -7,6 +7,9 @@ import codeMeta from "./migrations/003-code-meta.sql" with { type: "text" };
 import decisionsPresent from "./migrations/004-decisions-present.sql" with {
 	type: "text",
 };
+import migrationsTable from "./migrations/migrations-table.sql" with {
+	type: "text",
+};
 
 interface Migration {
 	id: number;
@@ -69,11 +72,7 @@ function named(migration: Migration): string {
 }
 
 function ensureMigrationsTable(db: Database): void {
-	db.run(`CREATE TABLE IF NOT EXISTS _migrations (
-		id INTEGER PRIMARY KEY,
-		name TEXT NOT NULL,
-		applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-	)`);
+	db.run(migrationsTable);
 }
 
 function applyOnce(db: Database, migration: Migration): boolean {
