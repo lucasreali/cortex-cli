@@ -89,11 +89,36 @@ a different one — and ignore the derived caches:
 Commit each decision file with the change it explains. To keep decisions
 private to your machine instead, drop the two negations.
 
-Then register the MCP server with your agent — once, at user scope; a single
+Then register the MCP server with your agents — once, at user scope; a single
 server instance serves every initialized project:
 
 ```bash
-claude mcp add --scope user cortex -- "$HOME/.local/bin/cortex" serve --mcp
+cortex install          # detects your agents and asks per harness
+cortex install --yes    # non-interactive: configure everything detected
+```
+
+`install` detects Claude Code (`~/.claude.json`), Codex CLI
+(`~/.codex/config.toml`), Cursor (`~/.cursor/mcp.json`) and Gemini CLI
+(`~/.gemini/settings.json`), and writes only the `cortex` entry — sibling
+servers and the rest of each file are preserved, and a file it cannot parse is
+reported and left untouched. `--target claude,cursor` restricts the set
+(`auto` and `all` also work); re-runs are idempotent. `init` complements it in
+each project by maintaining a marker-fenced usage block in the instruction
+files of the harnesses you use — `CLAUDE.md`, `AGENTS.md` (Codex/Cursor) and
+`GEMINI.md` — so agents know to consult and record decisions.
+
+Manual registration remains possible; the equivalent entries are:
+
+```jsonc
+// ~/.claude.json, ~/.cursor/mcp.json (~/.gemini/settings.json omits "type")
+{ "mcpServers": { "cortex": { "type": "stdio", "command": "$HOME/.local/bin/cortex", "args": ["serve", "--mcp"] } } }
+```
+
+```toml
+# ~/.codex/config.toml
+[mcp_servers.cortex]
+command = "/home/you/.local/bin/cortex"
+args = ["serve", "--mcp"]
 ```
 
 The first embedding downloads EmbeddingGemma-300m (~hundreds of MB) to
@@ -158,6 +183,7 @@ measures 0.978 recall@5 against 1.000 with vectors.
 ## CLI
 
 ```bash
+cortex install [--yes] [--target T]     # register the MCP server with detected agents
 cortex log [--module M] [--since SHA]   # active decisions, newest first
 cortex why <path>                       # decisions anchored to a file or directory
 cortex search <terms...> [--exact]      # search with score and origin

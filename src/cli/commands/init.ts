@@ -1,10 +1,19 @@
 import { mkdirSync } from "node:fs";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { confirmInteractive } from "@/cli/confirm";
 import { style, success, warning } from "@/cli/style";
 import { exportDecisionsIfNeeded } from "@/decisions/bootstrap";
 import { GEMMA_MODEL } from "@/embedding/model";
 import { getCanonicalProjectId, getRepoRoot } from "@/git";
+import {
+	CORTEX_BLOCK_BEGIN,
+	CORTEX_BLOCK_END,
+	CORTEX_INSTRUCTIONS_BLOCK,
+	upsertMarkedBlock,
+} from "@/install/instructions";
+import { instructionFilesFor } from "@/install/targets";
 import { readConfig, writeConfig } from "@/storage/config";
 import { openDecisionsDb } from "@/storage/connection";
 import { migrate, SCHEMA_VERSION } from "@/storage/migrations";
@@ -14,6 +23,7 @@ import {
 	DECISIONS_DIRECTORY,
 	ProjectRoot,
 } from "@/storage/project-root";
+import { writeAtomically } from "@/support/atomic-write";
 
 export async function runInit(args: string[], cwd: string): Promise<number> {
 	const { values } = parseArgs({
@@ -30,14 +40,13 @@ export async function runInit(args: string[], cwd: string): Promise<number> {
 		});
 	}
 	await ensureGitignore(root, values.yes);
+	await ensureInstructionFiles(root, values.yes);
 
 	console.log(success(`Cortex initialized at ${style.cyan(cortexDir)}`));
 	console.log(`\n${style.bold("Next steps")}`);
-	printStep(
-		1,
-		"Register the MCP server once, user-wide (serves every project)",
-		["claude mcp add --scope user cortex -- cortex serve --mcp"],
-	);
+	printStep(1, "Register the MCP server with your agents once, user-wide", [
+		"cortex install",
+	]);
 	printStep(2, "Save decisions with save_decision, then explore them", [
 		"cortex search <terms>",
 		"cortex log",
@@ -111,7 +120,52 @@ function alreadyRuled(gitignore: string): boolean {
 	return IGNORE_RULES.every((rule) => entries.includes(rule));
 }
 
-function confirmInteractive(question: string): boolean {
-	if (!process.stdin.isTTY) return false;
-	return confirm(question);
+async function ensureInstructionFiles(
+	root: string,
+	assumeYes: boolean,
+): Promise<void> {
+	const files = instructionFilesFor(homedir(), root);
+	if (files.length === 0) {
+		console.log(
+			style.dim(
+				"No coding agents detected — `cortex install` registers the MCP server.",
+			),
+		);
+		return;
+	}
+	const question = `Add cortex usage instructions to ${files.join(", ")}?`;
+	if (!assumeYes && !confirmInteractive(question)) {
+		console.log(
+			warning("Skipped agent instructions — rerun with --yes to add them."),
+		);
+		return;
+	}
+	for (const name of files) {
+		await upsertInstructionFile(root, name);
+	}
+}
+
+async function upsertInstructionFile(
+	root: string,
+	name: string,
+): Promise<void> {
+	const path = join(root, name);
+	const file = Bun.file(path);
+	const existing = (await file.exists()) ? await file.text() : null;
+	const result = upsertMarkedBlock(existing, CORTEX_INSTRUCTIONS_BLOCK);
+	if (result.action === "skipped-malformed") {
+		console.log(
+			warning(
+				`${name}: found ${CORTEX_BLOCK_BEGIN} without ${CORTEX_BLOCK_END} — fix the markers and rerun`,
+			),
+		);
+		return;
+	}
+	if (result.action === "unchanged") {
+		console.log(success(`${name} — cortex instructions unchanged`));
+		return;
+	}
+	await writeAtomically(path, result.content);
+	const verb = result.action === "updated" ? "updated" : "added";
+	console.log(success(`${name} — cortex instructions ${verb}`));
 }

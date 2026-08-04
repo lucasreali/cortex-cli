@@ -146,7 +146,8 @@ install() {
 	path_hint
 	cat <<-EOF
 
-		Next: run \`cortex init\` in a repository.
+		Next: run \`cortex install\` to register with your coding agents,
+		then \`cortex init\` in a repository.
 		The first embedding downloads the model (~hundreds of MB) from HuggingFace.
 		Later: \`cortex upgrade\` replaces this binary in place.
 	EOF

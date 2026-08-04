@@ -32,8 +32,11 @@ const FAKE_WORKER_PATH = new URL(
 ).pathname;
 
 let dir: string;
+let fakeHome: string;
 let decisionA: string;
 
+// HOME points at an empty directory so the developer's real agent configs
+// (~/.claude, ~/.codex, ...) cannot leak into init's harness detection.
 function cli(...args: string[]): {
 	code: number;
 	stdout: string;
@@ -43,7 +46,7 @@ function cli(...args: string[]): {
 		cwd: dir,
 		stdout: "pipe",
 		stderr: "pipe",
-		env: { ...process.env, CORTEX_DISABLE_EMBEDDINGS: "1" },
+		env: { ...process.env, CORTEX_DISABLE_EMBEDDINGS: "1", HOME: fakeHome },
 	});
 	return {
 		code: result.exitCode ?? 1,
@@ -59,6 +62,7 @@ function git(...args: string[]): void {
 
 beforeAll(() => {
 	dir = realpathSync(mkdtempSync(join(tmpdir(), "cortex-cli-")));
+	fakeHome = realpathSync(mkdtempSync(join(tmpdir(), "cortex-home-")));
 	git("init", "-b", "main");
 	git("remote", "add", "origin", "git@github.com:acme/demo.git");
 	mkdirSync(join(dir, "src/auth"), { recursive: true });
@@ -78,6 +82,7 @@ beforeAll(() => {
 
 afterAll(() => {
 	rmSync(dir, { recursive: true, force: true });
+	rmSync(fakeHome, { recursive: true, force: true });
 });
 
 function seedDecisions(): void {
@@ -761,7 +766,7 @@ describe("cortex CLI in an empty project", () => {
 			cwd: emptyDir,
 			stdout: "pipe",
 			stderr: "pipe",
-			env: { ...process.env, CORTEX_DISABLE_EMBEDDINGS: "1" },
+			env: { ...process.env, CORTEX_DISABLE_EMBEDDINGS: "1", HOME: fakeHome },
 		});
 		return { code: result.exitCode ?? 1, stdout: result.stdout.toString() };
 	}
@@ -817,7 +822,10 @@ describe("cortex CLI with an unreadable code index", () => {
 			join(brokenDir, "src/service.ts"),
 			"export const answer = 42;\n",
 		);
-		Bun.spawnSync(["bun", MAIN_PATH, "init"], { cwd: brokenDir });
+		Bun.spawnSync(["bun", MAIN_PATH, "init"], {
+			cwd: brokenDir,
+			env: { ...process.env, HOME: fakeHome },
+		});
 		writeFileSync(join(brokenDir, ".cortex/code.db"), "not a sqlite database");
 	});
 
@@ -830,7 +838,7 @@ describe("cortex CLI with an unreadable code index", () => {
 			cwd: brokenDir,
 			stdout: "pipe",
 			stderr: "pipe",
-			env: { ...process.env, CORTEX_DISABLE_EMBEDDINGS: "1" },
+			env: { ...process.env, CORTEX_DISABLE_EMBEDDINGS: "1", HOME: fakeHome },
 		});
 		return { code: result.exitCode ?? 1, stdout: result.stdout.toString() };
 	}
@@ -857,6 +865,165 @@ describe("cortex CLI with an unreadable code index", () => {
 		expect(result.stdout).toContain("code index unreadable");
 		expect(result.stdout).toContain("run: cortex index");
 		expect(result.stdout).toContain("config: model");
+	});
+});
+
+describe("cortex install and agent instructions", () => {
+	let projectDir: string;
+	let agentHome: string;
+
+	beforeAll(() => {
+		projectDir = realpathSync(mkdtempSync(join(tmpdir(), "cortex-cli-inst-")));
+		agentHome = realpathSync(mkdtempSync(join(tmpdir(), "cortex-home-inst-")));
+		for (const marker of [".claude", ".codex", ".cursor", ".gemini"]) {
+			mkdirSync(join(agentHome, marker), { recursive: true });
+		}
+		writeFileSync(join(agentHome, ".codex/config.toml"), 'model = "gpt-5"\n');
+	});
+
+	afterAll(() => {
+		rmSync(projectDir, { recursive: true, force: true });
+		rmSync(agentHome, { recursive: true, force: true });
+	});
+
+	function cliAt(home: string, ...args: string[]) {
+		const result = Bun.spawnSync(["bun", MAIN_PATH, ...args], {
+			cwd: projectDir,
+			stdout: "pipe",
+			stderr: "pipe",
+			env: { ...process.env, CORTEX_DISABLE_EMBEDDINGS: "1", HOME: home },
+		});
+		return {
+			code: result.exitCode ?? 1,
+			stdout: result.stdout.toString(),
+			stderr: result.stderr.toString(),
+		};
+	}
+
+	test("install --yes registers every detected harness, then reports unchanged", () => {
+		const first = cliAt(agentHome, "install", "--yes");
+		expect(first.code).toBe(0);
+		for (const name of ["Claude Code", "Codex CLI", "Cursor", "Gemini CLI"]) {
+			expect(first.stdout).toContain(name);
+		}
+
+		for (const config of [
+			".claude.json",
+			".cursor/mcp.json",
+			".gemini/settings.json",
+		]) {
+			const parsed = JSON.parse(
+				Bun.spawnSync(["cat", join(agentHome, config)], {}).stdout.toString(),
+			);
+			expect(parsed.mcpServers.cortex.args).toEqual(["serve", "--mcp"]);
+		}
+		const toml = Bun.spawnSync(
+			["cat", join(agentHome, ".codex/config.toml")],
+			{},
+		).stdout.toString();
+		expect(toml).toContain('model = "gpt-5"');
+		expect(toml).toContain("[mcp_servers.cortex]");
+		expect(toml).toContain('args = ["serve", "--mcp"]');
+
+		const second = cliAt(agentHome, "install", "--yes");
+		expect(second.code).toBe(0);
+		expect(second.stdout).toContain("already registered");
+	});
+
+	test("non-interactive install without --yes writes nothing and fails", () => {
+		const home = realpathSync(mkdtempSync(join(tmpdir(), "cortex-home-tty-")));
+		try {
+			mkdirSync(join(home, ".claude"));
+			const result = cliAt(home, "install");
+			expect(result.code).toBe(1);
+			expect(result.stdout).toContain("nothing written");
+			expect(existsSync(join(home, ".claude.json"))).toBe(false);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	test("install with nothing detected explains itself and exits 0", () => {
+		const result = cliAt(fakeHome, "install", "--yes");
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain("no supported coding agents detected");
+	});
+
+	test("an explicit --target wins over detection; unknown ids fail", () => {
+		const home = realpathSync(mkdtempSync(join(tmpdir(), "cortex-home-tgt-")));
+		try {
+			const explicit = cliAt(home, "install", "--yes", "--target", "claude");
+			expect(explicit.code).toBe(0);
+			expect(existsSync(join(home, ".claude.json"))).toBe(true);
+
+			const unknown = cliAt(home, "install", "--yes", "--target", "copilot");
+			expect(unknown.code).toBe(1);
+			expect(unknown.stderr).toContain("unknown target: copilot");
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	test("install fails loudly on an unreadable harness config", () => {
+		const home = realpathSync(mkdtempSync(join(tmpdir(), "cortex-home-bad-")));
+		try {
+			writeFileSync(join(home, ".claude.json"), "{broken");
+			const result = cliAt(home, "install", "--yes", "--target", "claude");
+			expect(result.code).toBe(1);
+			expect(result.stderr).toContain("is not valid JSON");
+			expect(
+				Bun.spawnSync(
+					["cat", join(home, ".claude.json")],
+					{},
+				).stdout.toString(),
+			).toBe("{broken");
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	test("init --yes writes the instruction block into each harness file", () => {
+		writeFileSync(join(projectDir, "CLAUDE.md"), "# My rules\n");
+		const first = cliAt(agentHome, "init", "--yes");
+		expect(first.code).toBe(0);
+
+		const claudeMd = Bun.spawnSync(
+			["cat", join(projectDir, "CLAUDE.md")],
+			{},
+		).stdout.toString();
+		expect(claudeMd).toContain("# My rules");
+		expect(claudeMd).toContain("<!-- cortex:begin -->");
+		expect(claudeMd).toContain("save_decision");
+		for (const name of ["AGENTS.md", "GEMINI.md"]) {
+			expect(existsSync(join(projectDir, name))).toBe(true);
+		}
+
+		const second = cliAt(agentHome, "init", "--yes");
+		expect(second.code).toBe(0);
+		expect(second.stdout).toContain("cortex instructions unchanged");
+		expect(
+			Bun.spawnSync(
+				["cat", join(projectDir, "CLAUDE.md")],
+				{},
+			).stdout.toString(),
+		).toBe(claudeMd);
+	});
+
+	test("init without agents hints at cortex install instead of writing files", () => {
+		const bare = realpathSync(mkdtempSync(join(tmpdir(), "cortex-cli-bare-")));
+		try {
+			const result = Bun.spawnSync(["bun", MAIN_PATH, "init", "--yes"], {
+				cwd: bare,
+				stdout: "pipe",
+				stderr: "pipe",
+				env: { ...process.env, CORTEX_DISABLE_EMBEDDINGS: "1", HOME: fakeHome },
+			});
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout.toString()).toContain("No coding agents detected");
+			expect(existsSync(join(bare, "CLAUDE.md"))).toBe(false);
+		} finally {
+			rmSync(bare, { recursive: true, force: true });
+		}
 	});
 });
 

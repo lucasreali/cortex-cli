@@ -8,6 +8,7 @@ import { runEmbedDaemonCommand } from "./commands/embed-daemon";
 import { runEmbedWorkerCommand } from "./commands/embed-worker";
 import { runImpact } from "./commands/impact";
 import { runInit } from "./commands/init";
+import { runInstall } from "./commands/install";
 import { runLog } from "./commands/log";
 import { runPromptHook } from "./commands/prompt-hook";
 import { runSearch } from "./commands/search";
@@ -30,6 +31,11 @@ const COMMANDS: Record<string, Command> = {
 		run: runInit,
 		usage: USAGE.init,
 		description: "create .cortex/ and register the project",
+	},
+	install: {
+		run: runInstall,
+		usage: USAGE.install,
+		description: "register the MCP server with detected coding agents",
 	},
 	serve: {
 		run: runServe,

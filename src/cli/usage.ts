@@ -3,6 +3,7 @@
 // two copies — cortex --help documented neither --json nor --force on upgrade.
 export const USAGE = {
 	init: "init [--yes]",
+	install: "install [--yes] [--target auto|all|<ids>]",
 	serve: "serve --mcp",
 	log: "log [--module M] [--since SHA] [--json]",
 	why: "why <path|symbol> [--json]",

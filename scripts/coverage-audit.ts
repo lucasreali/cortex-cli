@@ -15,6 +15,8 @@ const SUBPROCESS_COVERED = [
 	"src/cli/commands/embed.ts",
 	"src/cli/commands/impact.ts",
 	"src/cli/commands/init.ts",
+	"src/cli/commands/install.ts",
+	"src/cli/confirm.ts",
 	"src/cli/commands/log.ts",
 	"src/cli/commands/prompt-hook.ts",
 	"src/cli/commands/search.ts",
