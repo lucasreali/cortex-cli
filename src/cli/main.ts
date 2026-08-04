@@ -12,6 +12,7 @@ import { runLog } from "./commands/log";
 import { runPromptHook } from "./commands/prompt-hook";
 import { runSearch } from "./commands/search";
 import { runServe } from "./commands/serve";
+import { runSync } from "./commands/sync";
 import { runUpgrade } from "./commands/upgrade";
 import { runWhy } from "./commands/why";
 import { failure, style } from "./style";
@@ -59,6 +60,11 @@ const COMMANDS: Record<string, Command> = {
 		run: runIndex,
 		usage: USAGE.index,
 		description: "build or refresh the code index",
+	},
+	sync: {
+		run: runSync,
+		usage: USAGE.sync,
+		description: "reconcile the store with this branch's decision files",
 	},
 	embed: {
 		run: runEmbed,

@@ -6,6 +6,7 @@ import {
 	mkdtempSync,
 	realpathSync,
 	rmSync,
+	unlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,6 +14,7 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { seedDecision } from "@tests/support/seed";
+import { DecisionStore } from "@/decisions/decision-store";
 import { probeDaemon } from "@/embedding/daemon/client";
 import { type DaemonPaths, daemonPathsFor } from "@/embedding/daemon/paths";
 import { GEMMA_MODEL } from "@/embedding/model";
@@ -311,6 +313,51 @@ describe("cortex CLI", () => {
 		expect(results[0]?.source).toBe("fts");
 		expect(typeof results[0]?.score).toBe("number");
 		expect(results[0]?.node.title).toBe("Adotar JWT para autenticação");
+	});
+
+	test("sync reports nothing to do, then follows a file leaving and returning", () => {
+		const store = DecisionStore.at(join(dir, ".cortex"));
+		expect(cli("sync").stdout).toContain("Already in sync");
+
+		const parsed = store.read(decisionA);
+		if (!parsed.ok) throw new Error(parsed.reason);
+		unlinkSync(store.pathFor(decisionA));
+		const gone = cli("sync", "--json");
+		expect(gone.code).toBe(0);
+		expect(JSON.parse(gone.stdout).absent).toEqual([decisionA]);
+		expect(cli("log").stdout).not.toContain("Adotar JWT para autenticação");
+
+		store.write(parsed.file);
+		const back = cli("sync");
+		expect(back.code).toBe(0);
+		expect(back.stdout).toContain("1 decision(s) back on this branch");
+		expect(cli("log").stdout).toContain("Adotar JWT para autenticação");
+	});
+
+	test("sync reports a link it had to drop without failing", () => {
+		const store = DecisionStore.at(join(dir, ".cortex"));
+		const orphanId = "019f0000-0000-7000-8000-0000000000ff";
+		store.write({
+			id: orphanId,
+			title: "Decisão que depende de outra branch",
+			body: "Depende de uma decisão que só existe em outro branch.",
+			keywords: ["dangling", "branch", "link", "orfão", "edge"],
+			module: null,
+			replaces: null,
+			dependsOn: ["019f0000-0000-7000-8000-0000000000aa"],
+			anchors: [],
+			commitSha: null,
+			commitDirty: false,
+			provenance: "agent",
+			createdAt: "2026-07-22T14:03:11.204Z",
+		});
+
+		const result = cli("sync");
+
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain("link dropped, target unknown: DEPENDS_ON");
+		unlinkSync(store.pathFor(orphanId));
+		cli("sync");
 	});
 
 	test("index builds code.db in full, then incrementally, then forced", () => {

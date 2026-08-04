@@ -9,6 +9,7 @@ export const USAGE = {
 	search: "search <terms...> [--exact] [--json]",
 	impact: "impact <id> [--depth N] [--json]",
 	index: "index [--force]",
+	sync: "sync [--json]",
 	embed: "embed --missing | --rebuild [--yes]",
 	doctor: "doctor [--json]",
 	upgrade: "upgrade [--check [--json]] [--version V] [--force]",

@@ -50,8 +50,13 @@ class ProjectDecisionSync implements DecisionSync {
 		return this.cached;
 	}
 
+	// The report accumulates across the process: the first ensure() may already
+	// have moved decisions, and `cortex sync` has to name those too — otherwise
+	// it reports "nothing to do" about work it just did on the way in.
 	resync(): ReconcileReport {
-		this.cached = this.reconcile({ full: true });
+		const earlier = this.cached;
+		const fresh = this.reconcile({ full: true });
+		this.cached = earlier ? merged(earlier, fresh) : fresh;
 		return this.cached;
 	}
 
@@ -69,4 +74,25 @@ class ProjectDecisionSync implements DecisionSync {
 		this.options.onReconciled?.(report);
 		return report;
 	}
+}
+
+// Movements union; findings do not — a full pass recomputes every dangling
+// link, superseded target and unreadable file from scratch, so the later
+// report is the whole truth about them.
+function merged(
+	earlier: ReconcileReport,
+	fresh: ReconcileReport,
+): ReconcileReport {
+	return {
+		imported: union(earlier.imported, fresh.imported),
+		absent: union(earlier.absent, fresh.absent),
+		restored: union(earlier.restored, fresh.restored),
+		dangling: fresh.dangling,
+		multiplyReplaced: fresh.multiplyReplaced,
+		malformed: fresh.malformed,
+	};
+}
+
+function union(earlier: string[], fresh: string[]): string[] {
+	return [...new Set([...earlier, ...fresh])].sort();
 }
