@@ -55,9 +55,11 @@ export class SharedEmbeddingProvider extends KindEmbeddingProvider {
 		if (this.connection) this.forgetDroppedConnection();
 		if (this.daemonUnavailable) return null;
 		this.connecting ??= this.connect();
-		const connection = await this.connecting;
-		this.connecting = null;
-		return connection;
+		try {
+			return await this.connecting;
+		} finally {
+			this.connecting = null;
+		}
 	}
 
 	// A drop invalidates the availability verdict: the daemon may have been

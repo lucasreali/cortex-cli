@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EmbeddingDaemon } from "@/embedding/daemon/embedding-daemon";
@@ -89,6 +89,20 @@ describe("SharedEmbeddingProvider", () => {
 		startDaemon(paths, "9.9.9-other");
 		const { shared, direct } = makeProvider(paths);
 		expect([...(await shared.embedQuery("hello"))]).toEqual([5, 0, 1]);
+		expect(shared.daemonConnected).toBe(false);
+		expect(direct.workerRunning).toBe(true);
+	});
+
+	test("a daemon spawn that cannot start degrades to the private worker", async () => {
+		const blocker = join(mkdtempSync(join(tmpdir(), "cortex-shared-")), "file");
+		writeFileSync(blocker, "");
+		const paths = daemonPathsFor(GEMMA_MODEL.modelId, join(blocker, "daemon"));
+		const direct = new GemmaProvider({ workerPath: FAKE_WORKER });
+		const shared = new SharedEmbeddingProvider(direct, { paths });
+		providers.push(shared);
+
+		expect([...(await shared.embedQuery("hello"))]).toEqual([5, 0, 1]);
+		expect([...(await shared.embedQuery("again"))]).toEqual([5, 0, 1]);
 		expect(shared.daemonConnected).toBe(false);
 		expect(direct.workerRunning).toBe(true);
 	});

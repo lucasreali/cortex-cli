@@ -77,7 +77,7 @@ export async function connectToDaemon(
 	if (first.status === "connected") return first.connection;
 	if (first.status === "rejected") return null;
 	if (options.spawnDaemon === false) return null;
-	spawnDetachedDaemon(endpoint, options);
+	if (!spawnDetachedDaemon(endpoint, options)) return null;
 	return pollForDaemon(endpoint, options);
 }
 
@@ -115,9 +115,24 @@ export async function probeDaemon(
 	};
 }
 
+// A spawn that cannot even start (read-only home, EMFILE, full disk) means
+// nothing will ever listen — report it as unreachable so callers degrade to
+// the private worker instead of surfacing an error they cannot recover from.
 function spawnDetachedDaemon(
 	endpoint: DaemonEndpoint,
 	options: ConnectOptions = {},
+): boolean {
+	try {
+		launchDaemonProcess(endpoint, options);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+function launchDaemonProcess(
+	endpoint: DaemonEndpoint,
+	options: ConnectOptions,
 ): void {
 	const command = embedDaemonCommand(endpoint.modelId);
 	mkdirSync(endpoint.paths.directory, { recursive: true, mode: 0o700 });
