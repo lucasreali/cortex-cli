@@ -84,7 +84,8 @@ export class RuntimeRegistry {
 function noDefaultGuidance(searchedFrom: string): string {
 	return (
 		"This Cortex server started outside any initialized project (no " +
-		`.cortex/decisions.db found walking up from ${searchedFrom}), so there ` +
+		".cortex/decisions.db or .cortex/decisions/ found walking up from " +
+		`${searchedFrom}), so there ` +
 		"is no default project to fall back to. Pass the target project's " +
 		"absolute path as projectPath — any directory inside it works. For a " +
 		"project without a store, the user can run `cortex init` there to " +
@@ -95,7 +96,8 @@ function noDefaultGuidance(searchedFrom: string): string {
 function notInitializedGuidance(projectPath: string): string {
 	return (
 		`The project at ${projectPath} has no Cortex store (no ` +
-		".cortex/decisions.db found walking up from it), so no decisions are " +
+		".cortex/decisions.db or .cortex/decisions/ found walking up from " +
+		"it), so no decisions are " +
 		"recorded there — a normal state, not a failure. Skip Cortex for that " +
 		"project unless the user runs `cortex init` there; other initialized " +
 		"projects can still be queried by passing their projectPath."
