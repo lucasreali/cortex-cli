@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 export const CORTEX_DIRECTORY = ".cortex";
+export const DECISIONS_DIRECTORY = "decisions";
 
 // The project a store belongs to, so a repo root and a .cortex directory stop
 // being two interchangeable strings: buildRuntime takes one and buildRuntimeAt
@@ -29,8 +30,15 @@ export class ProjectRoot {
 		return join(this.cortexDir, "code.db");
 	}
 
+	get decisionsPath(): string {
+		return join(this.cortexDir, DECISIONS_DIRECTORY);
+	}
+
+	// A fresh clone carries the decision files and none of the derived caches,
+	// and it is every bit as initialized as the machine it was cloned from —
+	// the first command rebuilds the database from what git brought.
 	isInitialized(): boolean {
-		return existsSync(this.decisionsDbPath);
+		return existsSync(this.decisionsDbPath) || existsSync(this.decisionsPath);
 	}
 }
 

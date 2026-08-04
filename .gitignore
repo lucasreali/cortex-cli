@@ -35,4 +35,5 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # cortex: decisions are the product and are versioned;
 # the SQLite caches are derived and are not
 /.cortex/*
+!/.cortex/config
 !/.cortex/decisions/

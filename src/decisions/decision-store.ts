@@ -1,6 +1,7 @@
 import { mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { DecisionFile } from "@/domain";
+import { DECISIONS_DIRECTORY } from "@/storage/project-root";
 import { writeAtomicallySync } from "@/support/atomic-write";
 import { errnoCode } from "@/support/errors";
 import {
@@ -8,8 +9,6 @@ import {
 	formatDecisionFile,
 	parseDecisionFile,
 } from "./decision-file";
-
-export const DECISIONS_DIRECTORY = "decisions";
 
 const EXTENSION = ".md";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

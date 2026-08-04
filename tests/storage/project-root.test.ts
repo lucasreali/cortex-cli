@@ -30,18 +30,26 @@ describe("ProjectRoot", () => {
 		expect(project.cortexDir).toBe("/repo/.cortex");
 		expect(project.decisionsDbPath).toBe("/repo/.cortex/decisions.db");
 		expect(project.codeDbPath).toBe("/repo/.cortex/code.db");
+		expect(project.decisionsPath).toBe("/repo/.cortex/decisions");
 	});
 
 	test("resolves a relative directory against the process cwd", () => {
 		expect(ProjectRoot.at(".").directory).toBe(process.cwd());
 	});
 
-	test("a store is initialized only once decisions.db exists", () => {
+	test("a bare .cortex directory is not yet a store", () => {
 		const directory = makeDir();
 		expect(ProjectRoot.at(directory).isInitialized()).toBe(false);
 		mkdirSync(join(directory, CORTEX_DIRECTORY));
 		expect(ProjectRoot.at(directory).isInitialized()).toBe(false);
 		writeFileSync(join(directory, CORTEX_DIRECTORY, "decisions.db"), "");
+		expect(ProjectRoot.at(directory).isInitialized()).toBe(true);
+	});
+
+	test("a fresh clone counts, carrying the files and none of the caches", () => {
+		const directory = makeDir();
+		mkdirSync(ProjectRoot.at(directory).decisionsPath, { recursive: true });
+
 		expect(ProjectRoot.at(directory).isInitialized()).toBe(true);
 	});
 

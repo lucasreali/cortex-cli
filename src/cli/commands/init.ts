@@ -3,14 +3,17 @@ import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { style, success, warning } from "@/cli/style";
 import { exportDecisionsIfNeeded } from "@/decisions/bootstrap";
-import { DECISIONS_DIRECTORY } from "@/decisions/decision-store";
 import { GEMMA_MODEL } from "@/embedding/model";
 import { getCanonicalProjectId, getRepoRoot } from "@/git";
 import { readConfig, writeConfig } from "@/storage/config";
 import { openDecisionsDb } from "@/storage/connection";
 import { migrate, SCHEMA_VERSION } from "@/storage/migrations";
 import { NodeRepository } from "@/storage/node-repository";
-import { CORTEX_DIRECTORY, ProjectRoot } from "@/storage/project-root";
+import {
+	CORTEX_DIRECTORY,
+	DECISIONS_DIRECTORY,
+	ProjectRoot,
+} from "@/storage/project-root";
 
 export async function runInit(args: string[], cwd: string): Promise<number> {
 	const { values } = parseArgs({
@@ -67,8 +70,12 @@ function initializeStorage(root: string, cortexDir: string): void {
 // Excluding the children rather than the directory itself is what lets the
 // negation work at all: git never descends into an excluded directory, so
 // `/.cortex/` would hide `decisions/` no matter what followed it.
+//
+// The config is versioned with them because it pins the embedding model: a
+// teammate must not silently fill the same store from a different model.
 const IGNORE_RULES = [
 	`/${CORTEX_DIRECTORY}/*`,
+	`!/${CORTEX_DIRECTORY}/config`,
 	`!/${CORTEX_DIRECTORY}/${DECISIONS_DIRECTORY}/`,
 ];
 

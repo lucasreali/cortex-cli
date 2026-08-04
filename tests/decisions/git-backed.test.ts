@@ -68,7 +68,10 @@ beforeEach(() => {
 	cortexDir = join(repo, ".cortex");
 	git("init", "-b", "main");
 	// Only the decision files are versioned; the derived cache stays local.
-	writeFileSync(join(repo, ".gitignore"), "/.cortex/*\n!/.cortex/decisions/\n");
+	writeFileSync(
+		join(repo, ".gitignore"),
+		"/.cortex/*\n!/.cortex/config\n!/.cortex/decisions/\n",
+	);
 	git("add", ".gitignore");
 	git("commit", "-m", "init", "--no-gpg-sign");
 	openStore();

@@ -76,16 +76,18 @@ cd your-project
 cortex init     # creates .cortex/, runs migrations, writes config
 ```
 
-`init` writes a `.gitignore` rule that versions `.cortex/decisions/` and
-ignores everything else under `.cortex/`:
+`init` writes `.gitignore` rules that version the decisions and the config —
+which pins the embedding model, so a teammate cannot fill the same store from
+a different one — and ignore the derived caches:
 
 ```gitignore
 /.cortex/*
+!/.cortex/config
 !/.cortex/decisions/
 ```
 
 Commit each decision file with the change it explains. To keep decisions
-private to your machine instead, drop the second line.
+private to your machine instead, drop the two negations.
 
 Then register the MCP server with your agent — once, at user scope; a single
 server instance serves every initialized project:
