@@ -40,6 +40,25 @@ export interface Decision {
 	anchors: Anchor[];
 }
 
+// The versioned form of a decision: what git carries, and the only thing that
+// survives a wiped database. The id is the filename, never a frontmatter key,
+// and `status` is absent because it is derived from every present file's
+// `replaces` rather than stored.
+export interface DecisionFile {
+	id: string;
+	title: string;
+	body: string;
+	keywords: string[];
+	module: string | null;
+	replaces: string | null;
+	dependsOn: string[];
+	anchors: Anchor[];
+	commitSha: string | null;
+	commitDirty: boolean;
+	provenance: NodeProvenance;
+	createdAt: string;
+}
+
 export interface Session {
 	id: string;
 	projectId: string;

@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
-	type DecisionFile,
 	formatDecisionFile,
 	parseDecisionFile,
 } from "@/decisions/decision-file";
+import type { DecisionFile } from "@/domain";
 
 const ID = "019f6dc3-e77a-7000-8000-000000000000";
 
