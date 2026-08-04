@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { seedDecision } from "@tests/support/seed";
 import { gatePrompt, promptTerms } from "@/app/prompt-gate";
 import { openDecisionsDb } from "@/storage/connection";
 import { migrate } from "@/storage/migrations";
@@ -45,7 +46,9 @@ function store() {
 }
 
 function saveDecision(title: string, keywords: string[], body?: string) {
-	return nodes.createDecision(
+	return seedDecision(
+		dir,
+		db,
 		{
 			title,
 			body: body ?? "Corpo suficientemente longo para o schema passar.",
@@ -129,12 +132,14 @@ describe("gatePrompt", () => {
 
 	test("replaced decisions never surface", () => {
 		const old = saveJwtDecision();
-		nodes.replaceDecision(
-			old.id,
+		seedDecision(
+			dir,
+			db,
 			{
 				title: "Sessões opacas no servidor",
 				body: "Corpo suficientemente longo para o schema passar.",
 				keywords: ["sessão", "opaque", "server", "auth", "redis"],
+				replaces: old.id,
 			},
 			context,
 		);

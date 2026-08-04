@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { seedDecision } from "@tests/support/seed";
 import type { CreateDecisionInput } from "@/domain";
 import type { EmbeddingProvider } from "@/embedding/provider";
 import { EmbedQueue } from "@/embedding/queue";
@@ -91,7 +92,7 @@ async function createEmbedded(
 	provider: EmbeddingProvider,
 ): Promise<string> {
 	const queue = new EmbedQueue({ nodes, embeddings, provider });
-	const decision = nodes.createDecision(input, context);
+	const decision = seedDecision(dir, db, input, context);
 	queue.enqueue(decision.id);
 	await queue.onIdle();
 	return decision.id;
@@ -133,7 +134,7 @@ describe("SemanticSearch — vector path", () => {
 	});
 
 	test("an absent decision is never queued for embedding", () => {
-		const decision = nodes.createDecision(postgresInput, context);
+		const decision = seedDecision(dir, db, postgresInput, context);
 		db.query("UPDATE nodes SET present = 0 WHERE id = ?").run(decision.id);
 
 		expect(embeddings.listMissingNodeIds(conceptProvider.modelId)).toEqual([]);
@@ -172,7 +173,9 @@ describe("SemanticSearch — vector path", () => {
 
 	test("merges FTS hits for nodes without vector", async () => {
 		const jwtId = await createEmbedded(jwtInput, conceptProvider);
-		const pending = nodes.createDecision(
+		const pending = seedDecision(
+			dir,
+			db,
 			{
 				title: "Dashboards no Grafana",
 				body: "Métricas de runtime expostas para painéis de observabilidade.",
@@ -307,7 +310,7 @@ describe("SemanticSearch — cache", () => {
 		});
 		await search.search("jwt");
 
-		const decision = nodes.createDecision(jwtInput, context);
+		const decision = seedDecision(dir, db, jwtInput, context);
 		queue.enqueue(decision.id);
 		await queue.onIdle();
 
@@ -353,9 +356,10 @@ describe("SemanticSearch — replaced decisions", () => {
 			embeddings,
 			provider: conceptProvider,
 		});
-		const replacement = nodes.replaceDecision(
-			oldId,
-			{ ...jwtInput, title: "JWT com rotação de refresh" },
+		const replacement = seedDecision(
+			dir,
+			db,
+			{ ...jwtInput, title: "JWT com rotação de refresh", replaces: oldId },
 			context,
 		);
 		queue.enqueue(replacement.id);
@@ -382,9 +386,10 @@ describe("SemanticSearch — replaced decisions", () => {
 		});
 		await search.search("jwt");
 
-		const replacement = nodes.replaceDecision(
-			oldId,
-			{ ...jwtInput, title: "JWT com rotação de refresh" },
+		const replacement = seedDecision(
+			dir,
+			db,
+			{ ...jwtInput, title: "JWT com rotação de refresh", replaces: oldId },
 			context,
 		);
 

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { seedDecision } from "@tests/support/seed";
 import { CodeImpactAnalysis } from "@/app/code-impact";
 import type { CreateDecisionInput, Decision } from "@/domain";
 import { CodeRepository } from "@/storage/code-repository";
@@ -81,7 +82,9 @@ function saveDecision(
 	title: string,
 	anchors: CreateDecisionInput["anchors"],
 ): Decision {
-	return nodes.createDecision(
+	return seedDecision(
+		dir,
+		decisionsDb,
 		{
 			title,
 			body: "Corpo suficientemente longo para o schema de decisão passar.",

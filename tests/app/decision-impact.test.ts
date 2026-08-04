@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { seedDecision } from "@tests/support/seed";
 import { decisionImpact } from "@/app/decision-impact";
 import type { CreateDecisionInput, Decision } from "@/domain";
 import type { CodeIndex } from "@/indexer/lazy-code-index";
@@ -99,7 +100,9 @@ function saveDecision(
 	title: string,
 	extra: Partial<CreateDecisionInput> = {},
 ): Decision {
-	return nodes.createDecision(
+	return seedDecision(
+		dir,
+		decisionsDb,
 		{
 			title,
 			body: "Corpo suficientemente longo para o schema de decisão passar.",

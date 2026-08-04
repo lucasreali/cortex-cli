@@ -1,5 +1,8 @@
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
+import { exportDecisionsIfNeeded } from "@/decisions/bootstrap";
+import { type DecisionSync, openDecisionSync } from "@/decisions/decision-sync";
+import type { ReconcileReport } from "@/decisions/reconcile";
 import { createProvider } from "@/embedding/create-provider";
 import { GEMMA_MODEL } from "@/embedding/model";
 import type { EmbeddingProvider } from "@/embedding/provider";
@@ -30,6 +33,7 @@ export interface CortexRuntime {
 	queue: EmbedQueue | null;
 	semanticSearch: SemanticSearch;
 	codeIndex: CodeIndex;
+	decisions: DecisionSync;
 	ensureSession(): string;
 	saveContext(): SaveContext;
 	dispose(): void;
@@ -50,7 +54,7 @@ export async function buildRuntimeAt(
 	const cortexDir = ProjectRoot.at(repoRoot).cortexDir;
 	mkdirSync(cortexDir, { recursive: true });
 	const db = openDecisionsDb(cortexDir);
-	migrate(db);
+	exportDecisionsIfNeeded(cortexDir, db, migrate(db));
 
 	const nodes = new NodeRepository(db);
 	const edges = new EdgeRepository(db);
@@ -90,6 +94,18 @@ export async function buildRuntimeAt(
 				onEmbedded: () => semanticSearch.invalidate(),
 			})
 		: null;
+	// Reconciling deliberately does not enqueue: pulling a branch must not make
+	// `cortex log` load the model, and a CLI process disposes the moment the
+	// command ends, which would drop the embedding anyway. Imported decisions
+	// answer through FTS until `cortex embed --missing` runs, which doctor
+	// reports and which costs about 0.02 recall@5 in the meantime.
+	const decisions = openDecisionSync({
+		cortexDir,
+		db,
+		onReconciled: (report) => {
+			if (touched(report)) semanticSearch.invalidate();
+		},
+	});
 	const codeIndex = new LazyCodeIndex(repoRoot);
 	const projectCanonicalId = getCanonicalProjectId(repoRoot) ?? repoRoot;
 	const projectNodeId = nodes.ensureProject(projectCanonicalId);
@@ -113,6 +129,7 @@ export async function buildRuntimeAt(
 		queue,
 		semanticSearch,
 		codeIndex,
+		decisions,
 		ensureSession,
 		saveContext() {
 			const head = getHead(repoRoot);
@@ -129,6 +146,15 @@ export async function buildRuntimeAt(
 			db.close();
 		},
 	};
+}
+
+// Only a change in what this branch carries can invalidate the vector cache:
+// a reconcile that found nothing leaves every cached vector answering for the
+// same decision it did before.
+function touched(report: ReconcileReport): boolean {
+	return (
+		report.imported.length + report.absent.length + report.restored.length > 0
+	);
 }
 
 function embeddingsDisabled(): boolean {

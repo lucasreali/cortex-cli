@@ -65,7 +65,16 @@ export class RuntimeRegistry {
 		// MCP sessions are long-lived and often concurrent, so they share the
 		// embedding worker through the user-wide daemon instead of each
 		// loading its own copy of the model.
-		const opening = buildRuntimeAt(root, { sharedEmbedding: true });
+		//
+		// The decision files are reconciled once, when the session first
+		// touches this project: a checkout later in the session is picked up by
+		// the next `cortex` command, not here.
+		const opening = buildRuntimeAt(root, { sharedEmbedding: true }).then(
+			(runtime) => {
+				runtime.decisions.ensure();
+				return runtime;
+			},
+		);
 		this.runtimes.set(root, opening);
 		opening.catch(() => this.runtimes.delete(root));
 		return opening;

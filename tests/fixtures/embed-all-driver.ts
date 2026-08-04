@@ -8,6 +8,7 @@ import { openDecisionsDb } from "@/storage/connection";
 import { EmbeddingRepository } from "@/storage/embedding-repository";
 import { migrate } from "@/storage/migrations";
 import { NodeRepository } from "@/storage/node-repository";
+import { seedDecision } from "@tests/support/seed";
 
 const dir = process.argv[2];
 if (!dir) throw new Error("usage: embed-all-driver.ts <store-dir>");
@@ -19,8 +20,7 @@ db.query("INSERT INTO nodes (id, kind) VALUES ('session-1', 'session')").run();
 const nodes = new NodeRepository(db);
 const embeddings = new EmbeddingRepository(db);
 
-const decision = nodes.createDecision(
-	{
+const decision = seedDecision(dir, db, {
 		title: "Adotar JWT para autenticação",
 		body: "Usamos JWTs de curta duração assinados com RS256 para a API.",
 		keywords: ["autenticação", "authentication", "jwt", "login", "token"],

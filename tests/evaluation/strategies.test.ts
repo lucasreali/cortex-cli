@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { seedDecision as seedStoredDecision } from "@tests/support/seed";
 import type { EmbeddingProvider } from "@/embedding/provider";
 import { SemanticSearch } from "@/embedding/semantic-search";
 import { openDecisionsDb } from "@/storage/connection";
@@ -94,7 +95,9 @@ function seedDecision(
 	keywords: string[],
 	vector: [number, number],
 ): string {
-	const decision = store.nodes.createDecision(
+	const decision = seedStoredDecision(
+		dir,
+		db,
 		{
 			title,
 			body: "Corpo suficientemente longo para o schema de decisão passar.",
@@ -133,12 +136,14 @@ describe("fts strategy", () => {
 	});
 
 	test("drops replaced decisions from the ranking", async () => {
-		store.nodes.replaceDecision(
-			redis,
+		seedStoredDecision(
+			dir,
+			db,
 			{
 				title: "Armazenamento em memória local",
 				body: "Corpo suficientemente longo para o schema de decisão passar.",
 				keywords: ["memoria", "local", "lru", "processo", "heap"],
+				replaces: redis,
 			},
 			context,
 		);

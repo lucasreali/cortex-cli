@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { seedDecision } from "@tests/support/seed";
 import { GemmaProvider } from "@/embedding/gemma-provider";
 import { EmbedQueue } from "@/embedding/queue";
 import { openDecisionsDb } from "@/storage/connection";
@@ -81,7 +82,9 @@ describe("GemmaProvider (RUN_MODEL_TESTS=1)", () => {
 					commitDirty: false,
 				};
 
-				const decision = nodes.createDecision(
+				const decision = seedDecision(
+					dir,
+					db,
 					{
 						title: "Adotar JWT para autenticação",
 						body: "Usamos JWTs de curta duração assinados com RS256 para a API.",

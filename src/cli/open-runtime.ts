@@ -20,6 +20,7 @@ export async function withRuntime(
 ): Promise<number> {
 	if (!requireInitialized(cwd)) return 1;
 	const runtime = await buildRuntime(cwd);
+	runtime.decisions.ensure();
 	try {
 		return await use(runtime);
 	} finally {

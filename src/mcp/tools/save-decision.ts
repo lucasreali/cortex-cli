@@ -52,13 +52,10 @@ async function saveDecision(
 		...anchorWarnings(runtime, input),
 		...(await symbolWarnings(runtime, input)),
 	];
-	const context = runtime.saveContext();
-	const decision = input.replaces
-		? runtime.nodes.replaceDecision(input.replaces, input, context)
-		: runtime.nodes.createDecision(input, context);
-	runtime.queue?.enqueue(decision.id);
+	const saved = runtime.decisions.save(input, runtime.saveContext());
+	runtime.queue?.enqueue(saved.id);
 	runtime.semanticSearch.invalidate();
-	return jsonResult({ id: decision.id, warnings });
+	return jsonResult({ id: saved.id, warnings });
 }
 
 function missingLinkedDecisions(

@@ -63,7 +63,7 @@ describe("runtime embedding provider selection", () => {
 			sharedEmbedding: true,
 		});
 		try {
-			const decision = runtime.nodes.createDecision(
+			const decision = runtime.decisions.save(
 				{
 					title: "Runtime embeds through the shared daemon",
 					body: "Queued embeddings on MCP runtimes go through the user-wide daemon.",

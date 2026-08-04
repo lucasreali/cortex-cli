@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { style, success, warning } from "@/cli/style";
+import { exportDecisionsIfNeeded } from "@/decisions/bootstrap";
 import { GEMMA_MODEL } from "@/embedding/model";
 import { getCanonicalProjectId, getRepoRoot } from "@/git";
 import { readConfig, writeConfig } from "@/storage/config";
@@ -52,7 +53,7 @@ function initializeStorage(root: string, cortexDir: string): void {
 	mkdirSync(cortexDir, { recursive: true });
 	const db = openDecisionsDb(cortexDir);
 	try {
-		migrate(db);
+		exportDecisionsIfNeeded(cortexDir, db, migrate(db));
 		new NodeRepository(db).ensureProject(getCanonicalProjectId(root) ?? root);
 	} finally {
 		db.close();

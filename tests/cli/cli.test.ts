@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { seedDecision } from "@tests/support/seed";
 import { probeDaemon } from "@/embedding/daemon/client";
 import { type DaemonPaths, daemonPathsFor } from "@/embedding/daemon/paths";
 import { GEMMA_MODEL } from "@/embedding/model";
@@ -88,7 +89,9 @@ function seedDecisions(): void {
 		commitSha: "sha-1",
 		commitDirty: false,
 	};
-	decisionA = nodes.createDecision(
+	decisionA = seedDecision(
+		join(dir, ".cortex"),
+		db,
 		{
 			title: "Adotar JWT para autenticação",
 			body: "Tokens de acesso de curta duração assinados com RS256 para a API.",
@@ -98,7 +101,9 @@ function seedDecisions(): void {
 		},
 		context,
 	).id;
-	nodes.createDecision(
+	seedDecision(
+		join(dir, ".cortex"),
+		db,
 		{
 			title: "Refresh tokens em cookie httpOnly",
 			body: "Refresh tokens rotacionados a cada uso ficam em cookie httpOnly.",
@@ -115,7 +120,9 @@ function seedLoginDecision(): void {
 	const db: Database = openDecisionsDb(join(dir, ".cortex"));
 	const nodes = new NodeRepository(db);
 	const projectId = nodes.ensureProject("github.com/acme/demo");
-	nodes.createDecision(
+	seedDecision(
+		join(dir, ".cortex"),
+		db,
 		{
 			title: "Decisão do endpoint de login",
 			body: "O endpoint de login consome o serviço de autenticação diretamente.",
@@ -136,7 +143,9 @@ function seedGhostSymbolDecision(): void {
 	const db: Database = openDecisionsDb(join(dir, ".cortex"));
 	const nodes = new NodeRepository(db);
 	const projectId = nodes.ensureProject("github.com/acme/demo");
-	nodes.createDecision(
+	seedDecision(
+		join(dir, ".cortex"),
+		db,
 		{
 			title: "Decisão ancorada num símbolo que não existe",
 			body: "Âncora aponta para Ghost.method, removido do código há tempos.",
@@ -594,7 +603,9 @@ describe("cortex prompt-hook", () => {
 		const db: Database = openDecisionsDb(join(dir, ".cortex"));
 		const nodes = new NodeRepository(db);
 		const projectId = nodes.ensureProject("github.com/acme/demo");
-		nodes.createDecision(
+		seedDecision(
+			join(dir, ".cortex"),
+			db,
 			{
 				title: "Decisão com corpo gigante",
 				body: "palavra ".repeat(700),

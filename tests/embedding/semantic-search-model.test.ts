@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { seedDecision } from "@tests/support/seed";
 import type { CreateDecisionInput } from "@/domain";
 import { GemmaProvider } from "@/embedding/gemma-provider";
 import { EmbedQueue } from "@/embedding/queue";
@@ -113,10 +114,10 @@ describe("SemanticSearch with Gemma (RUN_MODEL_TESTS=1)", () => {
 			const serialized = JSON.stringify(JWT_DECISION);
 			expect(serialized).not.toContain("autentica");
 
-			const jwtId = nodes.createDecision(JWT_DECISION, context).id;
+			const jwtId = seedDecision(dir, db, JWT_DECISION, context).id;
 			queue.enqueue(jwtId);
 			for (const input of OTHER_DECISIONS) {
-				queue.enqueue(nodes.createDecision(input, context).id);
+				queue.enqueue(seedDecision(dir, db, input, context).id);
 			}
 			await queue.onIdle();
 			expect(embeddings.listMissingNodeIds(provider.modelId)).toEqual([]);

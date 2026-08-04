@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildRuntime } from "@/app/runtime";
+import { DecisionStore } from "@/decisions/decision-store";
 import { readConfig, writeConfig } from "@/storage/config";
 import { SCHEMA_VERSION } from "@/storage/migrations";
 
@@ -62,6 +63,33 @@ describe("buildRuntime", () => {
 		expect(await buildOver(makeProjectDir(), SCHEMA_VERSION + 1)).toBe(
 			SCHEMA_VERSION + 1,
 		);
+	});
+
+	test("a decision file already on the branch is imported and queued", async () => {
+		const dir = makeProjectDir();
+		const id = "019f0000-0000-7000-8000-000000000001";
+		DecisionStore.at(join(dir, ".cortex")).write({
+			id,
+			title: "Adotar JWT para autenticação",
+			body: "Usamos JWTs de curta duração assinados com RS256 para a API.",
+			keywords: ["autenticação", "authentication", "jwt", "login", "token"],
+			module: null,
+			replaces: null,
+			dependsOn: [],
+			anchors: [],
+			commitSha: null,
+			commitDirty: false,
+			provenance: "agent",
+			createdAt: "2026-07-22T14:03:11.204Z",
+		});
+
+		const runtime = await buildRuntime(dir);
+		try {
+			expect(runtime.decisions.ensure().imported).toEqual([id]);
+			expect(runtime.nodes.listActive().map((one) => one.id)).toEqual([id]);
+		} finally {
+			runtime.dispose();
+		}
 	});
 
 	test("leaves a missing config alone, so doctor keeps reporting it", async () => {

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { seedDecision } from "@tests/support/seed";
 import { searchDecisions } from "@/app/search-decisions";
 import { SemanticSearch } from "@/embedding/semantic-search";
 import { openDecisionsDb } from "@/storage/connection";
@@ -54,7 +55,9 @@ function runtime() {
 }
 
 function saveDecision(title: string, keywords: string[]) {
-	return nodes.createDecision(
+	return seedDecision(
+		dir,
+		db,
 		{
 			title,
 			body: "Corpo suficientemente longo para o schema de decisão passar.",
@@ -90,12 +93,14 @@ describe("searchDecisions", () => {
 			"login",
 			"cache",
 		]);
-		nodes.replaceDecision(
-			old.id,
+		seedDecision(
+			dir,
+			db,
 			{
 				title: "Autenticação stateless com JWT",
 				body: "Corpo suficientemente longo para o schema de decisão passar.",
 				keywords: ["auth", "jwt", "token", "login", "sessão"],
+				replaces: old.id,
 			},
 			context,
 		);

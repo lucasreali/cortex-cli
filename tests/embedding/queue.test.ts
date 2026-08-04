@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { seedDecision } from "@tests/support/seed";
 import type { CreateDecisionInput } from "@/domain";
 import type { EmbeddingProvider } from "@/embedding/provider";
 import { EmbedQueue } from "@/embedding/queue";
@@ -68,7 +69,7 @@ describe("EmbedQueue", () => {
 			embeddings,
 			provider: workingProvider,
 		});
-		const decision = nodes.createDecision(input, context);
+		const decision = seedDecision(dir, db, input, context);
 
 		expect(embeddings.listMissingNodeIds("fake-model@4")).toEqual([
 			decision.id,
@@ -91,7 +92,7 @@ describe("EmbedQueue", () => {
 			embeddings,
 			provider: brokenProvider,
 		});
-		const decision = nodes.createDecision(input, context);
+		const decision = seedDecision(dir, db, input, context);
 
 		queue.enqueue(decision.id);
 		await queue.onIdle();
@@ -119,8 +120,8 @@ describe("EmbedQueue", () => {
 			embeddings,
 			provider: flakyProvider,
 		});
-		const first = nodes.createDecision(input, context);
-		const second = nodes.createDecision(input, context);
+		const first = seedDecision(dir, db, input, context);
+		const second = seedDecision(dir, db, input, context);
 
 		queue.enqueue(first.id);
 		queue.enqueue(second.id);
@@ -144,7 +145,7 @@ describe("EmbedQueue", () => {
 			{ nodes, embeddings, provider: hungProvider },
 			{ timeoutMs: 50 },
 		);
-		const decision = nodes.createDecision(input, context);
+		const decision = seedDecision(dir, db, input, context);
 
 		queue.enqueue(decision.id);
 		await queue.onIdle();
