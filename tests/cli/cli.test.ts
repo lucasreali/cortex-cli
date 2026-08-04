@@ -417,6 +417,62 @@ describe("cortex CLI", () => {
 		expect(result.stdout).toContain("anchors: all files exist");
 		expect(result.stdout).toContain("keywords: all decisions have >= 5");
 		expect(result.stdout).toContain("code index: in sync");
+		expect(result.stdout).toContain("decision files: all readable");
+	});
+
+	test("doctor names off-branch decisions, dropped links and unreadable files", () => {
+		const store = DecisionStore.at(join(dir, ".cortex"));
+		const parsed = store.read(decisionA);
+		if (!parsed.ok) throw new Error(parsed.reason);
+		const orphanId = "019f0000-0000-7000-8000-0000000000fe";
+		const twinId = "019f0000-0000-7000-8000-0000000000fd";
+		store.write({
+			...parsed.file,
+			id: orphanId,
+			title: "Decisão que aponta para outro branch",
+			dependsOn: ["019f0000-0000-7000-8000-0000000000aa"],
+		});
+		store.write({
+			...parsed.file,
+			id: twinId,
+			title: "Primeira substituta da decisão de JWT",
+			replaces: decisionA,
+		});
+		cli("sync");
+		unlinkSync(store.pathFor(twinId));
+		writeFileSync(join(store.directory, "rascunho.md"), "sem frontmatter\n");
+
+		const result = cli("doctor");
+
+		expect(result.code).toBe(1);
+		expect(result.stdout).toContain("decision(s) live on another branch");
+		expect(result.stdout).toContain("Primeira substituta da decisão de JWT");
+		expect(result.stdout).toContain("DEPENDS_ON link dropped");
+		expect(result.stdout).toContain("decision file unreadable: rascunho.md");
+
+		unlinkSync(join(store.directory, "rascunho.md"));
+		unlinkSync(store.pathFor(orphanId));
+		store.write(parsed.file);
+		cli("sync");
+	});
+
+	test("doctor reports a decision superseded from two branches at once", () => {
+		const store = DecisionStore.at(join(dir, ".cortex"));
+		const parsed = store.read(decisionA);
+		if (!parsed.ok) throw new Error(parsed.reason);
+		const ids = [
+			"019f0000-0000-7000-8000-0000000000f1",
+			"019f0000-0000-7000-8000-0000000000f2",
+		];
+		for (const id of ids) {
+			store.write({ ...parsed.file, id, replaces: decisionA });
+		}
+
+		const result = cli("doctor");
+
+		expect(result.stdout).toContain(`superseded 2 times: ${decisionA}`);
+		for (const id of ids) unlinkSync(store.pathFor(id));
+		cli("sync");
 	});
 
 	test("doctor --json reports structured checks and keeps the exit code", () => {

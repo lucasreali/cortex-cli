@@ -15,6 +15,8 @@ export interface DecisionSync {
 	ensure(): ReconcileReport;
 	// Re-read every present file and recompute, whatever the cache says.
 	resync(): ReconcileReport;
+	// Decisions this store holds whose file is on no branch checked out here.
+	absent(): Array<{ id: string; title: string }>;
 	save(input: CreateDecisionInput, context: SaveContext): SavedDecision;
 }
 
@@ -58,6 +60,10 @@ class ProjectDecisionSync implements DecisionSync {
 		const fresh = this.reconcile({ full: true });
 		this.cached = earlier ? merged(earlier, fresh) : fresh;
 		return this.cached;
+	}
+
+	absent(): Array<{ id: string; title: string }> {
+		return this.dependencies.repository.listAbsent();
 	}
 
 	// Saving reconciles as its last step, so the cache stays the truth about

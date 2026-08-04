@@ -29,6 +29,7 @@ export async function runDoctor(args: string[], cwd: string): Promise<number> {
 	return withRuntime(cwd, async (runtime) => {
 		const report = new DoctorReport();
 		await checkConfig(runtime, report);
+		checkDecisionFiles(runtime, report);
 		checkAnchors(runtime, report);
 		checkEmbeddings(runtime, report);
 		checkKeywords(runtime, report);
@@ -110,6 +111,46 @@ async function checkConfig(
 	}
 	report.ok(
 		`config: model ${config.model_id}, schema v${config.schema_version}`,
+	);
+}
+
+// Diagnosing is what doctor is for, so it pays for the full reconcile the
+// other commands skip: dangling links and unreadable files are only visible to
+// a pass that re-reads every present file.
+function checkDecisionFiles(
+	runtime: CortexRuntime,
+	report: DoctorReport,
+): void {
+	const reconciled = runtime.decisions.resync();
+	reportAbsent(runtime, report);
+	for (const entry of reconciled.malformed) {
+		report.warn(`decision file unreadable: ${entry.name} — ${entry.reason}`);
+	}
+	for (const edge of reconciled.dangling) {
+		report.warn(
+			`${edge.kind} link dropped: ${edge.from} → ${edge.to} is in no branch ` +
+				"this store has seen",
+		);
+	}
+	for (const entry of reconciled.multiplyReplaced) {
+		report.warn(
+			`superseded ${entry.by.length} times: ${entry.target} — by ${entry.by.join(", ")}`,
+		);
+	}
+	if (reconciled.malformed.length + reconciled.dangling.length === 0) {
+		report.ok("decision files: all readable, every link resolved");
+	}
+}
+
+// Not a defect: a decision saved on a branch that is not checked out is
+// exactly what `present` exists to record. It is worth naming so a decision
+// that never merged stops being invisible.
+function reportAbsent(runtime: CortexRuntime, report: DoctorReport): void {
+	const absent = runtime.decisions.absent();
+	if (absent.length === 0) return;
+	report.ok(
+		`${absent.length} decision(s) live on another branch: ` +
+			absent.map((entry) => entry.title).join("; "),
 	);
 }
 

@@ -159,6 +159,20 @@ describe("DecisionSync caching", () => {
 		expect(sync.ensure().absent).toEqual([]);
 		expect(sync.resync().absent).toEqual([saved.id]);
 	});
+
+	test("resync still names what the reconcile on the way in already moved", () => {
+		const saved = sync.save(decisionInput(), context);
+		unlinkSync(store.pathFor(saved.id));
+		// A CLI process reconciles when it opens the store, then runs the
+		// command — `cortex sync` must not report "nothing to do" about that.
+		const nextProcess = openDecisionSync({ cortexDir: dir, db });
+
+		expect(nextProcess.ensure().absent).toEqual([saved.id]);
+		expect(nextProcess.resync().absent).toEqual([saved.id]);
+		expect(nextProcess.absent()).toEqual([
+			{ id: saved.id, title: "Adotar JWT para autenticação" },
+		]);
+	});
 });
 
 describe("switching branches costs nothing", () => {
