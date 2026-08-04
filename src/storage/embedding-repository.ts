@@ -57,7 +57,8 @@ export class EmbeddingRepository {
 			.query<{ node_id: string; vector: Uint8Array }, [string]>(
 				`SELECT e.node_id, e.vector FROM embeddings e
 				 JOIN nodes n ON n.id = e.node_id
-				 WHERE e.model_id = ? AND n.kind = 'decision' AND n.status = 'active'`,
+				 WHERE e.model_id = ? AND n.kind = 'decision'
+				   AND n.status = 'active' AND n.present = 1`,
 			)
 			.all(modelId)
 			.map((row) => ({
@@ -71,7 +72,8 @@ export class EmbeddingRepository {
 			.query<{ id: string }, [string]>(
 				`SELECT n.id FROM nodes n
 				 LEFT JOIN embeddings e ON e.node_id = n.id AND e.model_id = ?
-				 WHERE n.kind = 'decision' AND n.status = 'active' AND e.node_id IS NULL
+				 WHERE n.kind = 'decision' AND n.status = 'active' AND n.present = 1
+				   AND e.node_id IS NULL
 				 ORDER BY n.id`,
 			)
 			.all(modelId)

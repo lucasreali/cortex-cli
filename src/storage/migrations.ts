@@ -4,6 +4,9 @@ import decisionsSchema from "./migrations/001-decisions-schema.sql" with {
 };
 import codeSchema from "./migrations/002-code-schema.sql" with { type: "text" };
 import codeMeta from "./migrations/003-code-meta.sql" with { type: "text" };
+import decisionsPresent from "./migrations/004-decisions-present.sql" with {
+	type: "text",
+};
 
 interface Migration {
 	id: number;
@@ -11,11 +14,18 @@ interface Migration {
 	up(db: Database): void;
 }
 
+// Ids are per-list, filenames are numbered across both lists: each database
+// file owns its own _migrations table, so decisions and code both start at 1.
 const decisionsMigrations: Migration[] = [
 	{
 		id: 1,
 		name: "decisions-schema",
 		up: (db) => db.run(decisionsSchema),
+	},
+	{
+		id: 2,
+		name: "decisions-present",
+		up: (db) => db.run(decisionsPresent),
 	},
 ];
 
@@ -38,19 +48,24 @@ export const SCHEMA_VERSION =
 export const CODE_SCHEMA_VERSION =
 	codeMigrations[codeMigrations.length - 1]?.id ?? 0;
 
-export function migrate(db: Database): void {
-	applyAll(db, decisionsMigrations);
+// Returns the names applied by this call, so a caller can react to a store
+// crossing a version boundary — the decision export needs to run exactly once,
+// on the store that predates `.cortex/decisions/`.
+export function migrate(db: Database): string[] {
+	return applyAll(db, decisionsMigrations);
 }
 
-export function migrateCode(db: Database): void {
-	applyAll(db, codeMigrations);
+export function migrateCode(db: Database): string[] {
+	return applyAll(db, codeMigrations);
 }
 
-function applyAll(db: Database, migrations: Migration[]): void {
+function applyAll(db: Database, migrations: Migration[]): string[] {
 	ensureMigrationsTable(db);
-	for (const migration of migrations) {
-		applyOnce(db, migration);
-	}
+	return migrations.filter((migration) => applyOnce(db, migration)).map(named);
+}
+
+function named(migration: Migration): string {
+	return migration.name;
 }
 
 function ensureMigrationsTable(db: Database): void {
@@ -61,11 +76,11 @@ function ensureMigrationsTable(db: Database): void {
 	)`);
 }
 
-function applyOnce(db: Database, migration: Migration): void {
+function applyOnce(db: Database, migration: Migration): boolean {
 	const applied = db
 		.query("SELECT 1 FROM _migrations WHERE id = ?")
 		.get(migration.id);
-	if (applied) return;
+	if (applied) return false;
 	db.transaction(() => {
 		migration.up(db);
 		db.query("INSERT INTO _migrations (id, name) VALUES (?, ?)").run(
@@ -73,4 +88,5 @@ function applyOnce(db: Database, migration: Migration): void {
 			migration.name,
 		);
 	})();
+	return true;
 }

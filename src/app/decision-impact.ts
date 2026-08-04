@@ -29,12 +29,12 @@ export async function decisionImpact(
 	decisionId: string,
 	depths: ImpactDepths = {},
 ): Promise<DecisionImpact | null> {
-	const root = runtime.nodes.getById(decisionId);
+	const root = presentDecision(runtime, decisionId);
 	if (!root) return null;
 	const impacted = runtime.edges
 		.getImpact(decisionId, depths.maxDepth ?? DEFAULT_IMPACT_DEPTH)
 		.flatMap(({ nodeId, depth }) => {
-			const node = runtime.nodes.getById(nodeId);
+			const node = presentDecision(runtime, nodeId);
 			return node ? [{ node, depth }] : [];
 		});
 	const code = await codeImpact(
@@ -43,6 +43,18 @@ export async function decisionImpact(
 		depths.codeDepth ?? DEFAULT_IMPACT_DEPTH,
 	);
 	return { root, impacted, ...code };
+}
+
+// get-impact.sql walks edges without consulting the working tree, so an
+// off-branch decision can be reached from a present one and must be dropped
+// here rather than in the recursive query.
+function presentDecision(
+	runtime: ImpactDependencies,
+	decisionId: string,
+): Decision | null {
+	const decision = runtime.nodes.getById(decisionId);
+	if (!decision?.present) return null;
+	return decision;
 }
 
 async function codeImpact(

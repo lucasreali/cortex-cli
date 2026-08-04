@@ -134,6 +134,26 @@ describe("decisionImpact", () => {
 		expect(impact?.codeWarning).toBeNull();
 	});
 
+	test("skips decisions absent from this branch, root and impacted alike", async () => {
+		const base = saveDecision("Decisão base do esquema de autenticação");
+		const middle = saveDecision("Decisão intermediária de tokens", {
+			depends_on: [base.id],
+		});
+		const leaf = saveDecision("Decisão folha do endpoint de login", {
+			depends_on: [middle.id],
+		});
+		decisionsDb
+			.query("UPDATE nodes SET present = 0 WHERE id = ?")
+			.run(middle.id);
+
+		const impact = await decisionImpact(runtime(), base.id);
+
+		expect(impact?.impacted).toEqual([
+			{ node: expect.objectContaining({ id: leaf.id }), depth: 2 },
+		]);
+		expect(await decisionImpact(runtime(), middle.id)).toBeNull();
+	});
+
 	test("a decision without anchors never touches the code index", async () => {
 		const decision = saveDecision("Decisão sem âncora nenhuma");
 

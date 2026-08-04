@@ -89,6 +89,7 @@ describe("NodeRepository.createDecision", () => {
 			keywords: ["autenticação", "authentication", "jwt", "login", "token"],
 			module: "auth",
 			status: "active",
+			present: true,
 			commitSha: "sha-1",
 			commitDirty: false,
 			provenance: "agent",
@@ -428,5 +429,52 @@ describe("NodeRepository.listByFileAnchorOrSymbol", () => {
 			fileLevel.id,
 			exactSymbol.id,
 		]);
+	});
+});
+
+describe("a decision absent from this branch", () => {
+	function absentDecision(): string {
+		const decision = nodes.createDecision(
+			decisionInput({
+				module: "auth",
+				keywords: ["autenticação", "jwt"],
+				anchors: [
+					{ file_path: "src/auth/service.ts", symbol: "AuthService.login" },
+				],
+			}),
+			context,
+		);
+		db.query("UPDATE nodes SET present = 0 WHERE id = ?").run(decision.id);
+		return decision.id;
+	}
+
+	test("disappears from every query that answers 'what governs this code'", () => {
+		const id = absentDecision();
+
+		expect(nodes.getById(id)?.present).toBe(false);
+		expect(nodes.listActive()).toEqual([]);
+		expect(nodes.listModules()).toEqual([]);
+		expect(nodes.listByAnchorPath("src/auth/service.ts")).toEqual([]);
+		expect(nodes.listActiveAnchoredToFiles(["src/auth/service.ts"])).toEqual(
+			[],
+		);
+		expect(
+			nodes.listByFileAnchorOrSymbol(
+				"src/auth/service.ts",
+				"AuthService.login",
+			),
+		).toEqual([]);
+		expect(nodes.listActiveWithFewKeywords(5)).toEqual([]);
+		expect(search.searchExact(["autenticação"])).toEqual([]);
+	});
+
+	test("comes back untouched once the file returns", () => {
+		const id = absentDecision();
+		db.query("UPDATE nodes SET present = 1 WHERE id = ?").run(id);
+
+		expect(nodes.listActive().map((decision) => decision.id)).toEqual([id]);
+		expect(
+			search.searchExact(["autenticação"]).map((hit) => hit.nodeId),
+		).toEqual([id]);
 	});
 });

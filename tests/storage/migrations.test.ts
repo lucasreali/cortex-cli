@@ -41,18 +41,45 @@ describe("connection", () => {
 
 describe("migrations", () => {
 	test("running twice on the same connection is a no-op", () => {
-		migrate(db);
+		expect(migrate(db)).toEqual([]);
 		const rows = db.query("SELECT id, name FROM _migrations").all();
-		expect(rows).toEqual([{ id: 1, name: "decisions-schema" }]);
+		expect(rows).toEqual([
+			{ id: 1, name: "decisions-schema" },
+			{ id: 2, name: "decisions-present" },
+		]);
 	});
 
 	test("running again after reopening the database is a no-op", () => {
 		db.close();
 		db = openDecisionsDb(dir);
-		migrate(db);
+		expect(migrate(db)).toEqual([]);
 		expect(db.query("SELECT count(*) AS n FROM _migrations").get()).toEqual({
-			n: 1,
+			n: 2,
 		});
+	});
+
+	test("reports the migrations it applied to a fresh database", () => {
+		const fresh = openDecisionsDb(mkdtempSync(join(tmpdir(), "cortex-fresh-")));
+		try {
+			expect(migrate(fresh)).toEqual(["decisions-schema", "decisions-present"]);
+		} finally {
+			fresh.close();
+		}
+	});
+
+	test("nodes.present defaults to 1 and is covered by the kind index", () => {
+		db.query(
+			"INSERT INTO nodes (id, kind, title) VALUES ('n1', 'decision', 'Some decision')",
+		).run();
+		expect(db.query("SELECT present FROM nodes WHERE id = 'n1'").get()).toEqual(
+			{ present: 1 },
+		);
+		const index = db
+			.query<{ sql: string }, []>(
+				"SELECT sql FROM sqlite_master WHERE name = 'idx_nodes_kind_status'",
+			)
+			.get();
+		expect(index?.sql).toContain("present");
 	});
 
 	test("creates the decisions.db tables", () => {

@@ -18,7 +18,7 @@ import { GEMMA_MODEL } from "@/embedding/model";
 import { EXTRACTION_VERSION } from "@/indexer/extraction-version";
 import { openCodeRepository } from "@/storage/code-db";
 import { openDecisionsDb } from "@/storage/connection";
-import { CODE_SCHEMA_VERSION } from "@/storage/migrations";
+import { CODE_SCHEMA_VERSION, SCHEMA_VERSION } from "@/storage/migrations";
 import { NodeRepository, type SaveContext } from "@/storage/node-repository";
 import { CORTEX_VERSION } from "@/version";
 
@@ -215,7 +215,7 @@ describe("cortex CLI", () => {
 			),
 		).toEqual({
 			model_id: "embeddinggemma-300m-q8@256",
-			schema_version: 1,
+			schema_version: SCHEMA_VERSION,
 		});
 		expect(first.stdout).toContain("Skipped .gitignore change");
 

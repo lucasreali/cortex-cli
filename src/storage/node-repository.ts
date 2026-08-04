@@ -27,6 +27,7 @@ interface NodeRow {
 	keywords: string;
 	module: string | null;
 	status: DecisionStatus;
+	present: number;
 	commit_sha: string | null;
 	commit_dirty: number;
 	provenance: NodeProvenance;
@@ -65,7 +66,11 @@ export class NodeRepository {
 	}
 
 	listActive(filters: ListActiveFilters = {}): Decision[] {
-		const conditions = ["kind = 'decision'", "status = 'active'"];
+		const conditions = [
+			"kind = 'decision'",
+			"status = 'active'",
+			"present = 1",
+		];
 		const params: string[] = [];
 		if (filters.module) {
 			conditions.push("module = ?");
@@ -131,7 +136,7 @@ export class NodeRepository {
 			.query<NodeRow, [string, string]>(
 				`SELECT DISTINCT n.* FROM nodes n
 				 JOIN anchors a ON a.node_id = n.id
-				 WHERE n.kind = 'decision'
+				 WHERE n.kind = 'decision' AND n.present = 1
 				   AND (a.file_path = ? OR a.file_path LIKE ? || '/%')
 				 ORDER BY n.id ASC`,
 			)
@@ -147,7 +152,7 @@ export class NodeRepository {
 				`SELECT DISTINCT n.*, a.file_path AS anchor_path
 				 FROM nodes n
 				 JOIN anchors a ON a.node_id = n.id
-				 WHERE n.kind = 'decision' AND n.status = 'active'
+				 WHERE n.kind = 'decision' AND n.status = 'active' AND n.present = 1
 				   AND a.file_path IN (SELECT value FROM json_each(?))
 				 ORDER BY n.id, a.file_path`,
 			)
@@ -163,7 +168,7 @@ export class NodeRepository {
 			.query<NodeRow, [string, string]>(
 				`SELECT DISTINCT n.* FROM nodes n
 				 JOIN anchors a ON a.node_id = n.id
-				 WHERE n.kind = 'decision'
+				 WHERE n.kind = 'decision' AND n.present = 1
 				   AND a.file_path = ?
 				   AND (a.symbol = '' OR a.symbol = ?)
 				 ORDER BY n.id ASC`,
@@ -179,7 +184,7 @@ export class NodeRepository {
 		return this.db
 			.query<{ id: string; title: string }, [number]>(
 				`SELECT id, title FROM nodes
-				 WHERE kind = 'decision' AND status = 'active'
+				 WHERE kind = 'decision' AND status = 'active' AND present = 1
 				   AND json_array_length(keywords) < ?
 				 ORDER BY id`,
 			)
@@ -190,7 +195,7 @@ export class NodeRepository {
 		return this.db
 			.query<{ module: string }, []>(
 				`SELECT DISTINCT module FROM nodes
-				 WHERE kind = 'decision' AND module IS NOT NULL
+				 WHERE kind = 'decision' AND present = 1 AND module IS NOT NULL
 				 ORDER BY module`,
 			)
 			.all()
@@ -280,7 +285,8 @@ export class NodeRepository {
 	private anchorsOf(nodeId: string): Anchor[] {
 		return this.db
 			.query<{ file_path: string; symbol: string }, [string]>(
-				"SELECT file_path, symbol FROM anchors WHERE node_id = ?",
+				`SELECT file_path, symbol FROM anchors WHERE node_id = ?
+				 ORDER BY file_path, symbol`,
 			)
 			.all(nodeId)
 			.map((row) => ({ filePath: row.file_path, symbol: row.symbol }));
@@ -294,6 +300,7 @@ export class NodeRepository {
 			keywords: JSON.parse(row.keywords),
 			module: row.module,
 			status: row.status,
+			present: row.present === 1,
 			commitSha: row.commit_sha,
 			commitDirty: row.commit_dirty === 1,
 			provenance: row.provenance,

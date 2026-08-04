@@ -30,6 +30,8 @@ export interface Decision {
 	keywords: string[];
 	module: string | null;
 	status: DecisionStatus;
+	// Whether this decision's file exists on the branch checked out right now.
+	present: boolean;
 	commitSha: string | null;
 	commitDirty: boolean;
 	provenance: NodeProvenance;

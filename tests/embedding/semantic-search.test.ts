@@ -116,6 +116,29 @@ describe("SemanticSearch — vector path", () => {
 		expect(results[0]?.score).toBeCloseTo(1 / 61, 5);
 	});
 
+	test("a cached vector never resurfaces a decision absent from this branch", async () => {
+		const jwtId = await createEmbedded(jwtInput, conceptProvider);
+		const search = new SemanticSearch({
+			nodes,
+			embeddings,
+			fts,
+			provider: conceptProvider,
+		});
+		await search.search("autenticação de usuários");
+		db.query("UPDATE nodes SET present = 0 WHERE id = ?").run(jwtId);
+
+		expect(await search.search("autenticação de usuários")).toEqual([]);
+		expect(embeddings.getByNodeId(jwtId)).not.toBeNull();
+		expect(embeddings.listActiveVectors(conceptProvider.modelId)).toEqual([]);
+	});
+
+	test("an absent decision is never queued for embedding", () => {
+		const decision = nodes.createDecision(postgresInput, context);
+		db.query("UPDATE nodes SET present = 0 WHERE id = ?").run(decision.id);
+
+		expect(embeddings.listMissingNodeIds(conceptProvider.modelId)).toEqual([]);
+	});
+
 	test("a keyword hit below the vector threshold still surfaces via bm25", async () => {
 		const postgresId = await createEmbedded(postgresInput, conceptProvider);
 		const search = new SemanticSearch({

@@ -7,11 +7,11 @@ import { EmbedQueue } from "@/embedding/queue";
 import { SemanticSearch } from "@/embedding/semantic-search";
 import { getCanonicalProjectId, getHead, getRepoRoot } from "@/git";
 import { type CodeIndex, LazyCodeIndex } from "@/indexer/lazy-code-index";
-import { readConfig } from "@/storage/config";
+import { readConfig, writeConfig } from "@/storage/config";
 import { openDecisionsDb } from "@/storage/connection";
 import { EdgeRepository } from "@/storage/edge-repository";
 import { EmbeddingRepository } from "@/storage/embedding-repository";
-import { migrate } from "@/storage/migrations";
+import { migrate, SCHEMA_VERSION } from "@/storage/migrations";
 import { NodeRepository, type SaveContext } from "@/storage/node-repository";
 import { ProjectRoot } from "@/storage/project-root";
 import { SearchRepository } from "@/storage/search-repository";
@@ -61,6 +61,15 @@ export async function buildRuntimeAt(
 	// startup loudly instead of drifting silently. Mixing vectors from
 	// different models in one store would corrupt every similarity score.
 	const config = await readConfig(cortexDir);
+	// migrate() just brought the store to SCHEMA_VERSION, so a lower number in
+	// the config is a stale label, not a finding. Only ever raised: an older
+	// binary opening a newer store must leave doctor's warning standing.
+	if (config && config.schema_version < SCHEMA_VERSION) {
+		await writeConfig(cortexDir, {
+			...config,
+			schema_version: SCHEMA_VERSION,
+		});
+	}
 	const pinnedModelId = config?.model_id ?? GEMMA_MODEL.modelId;
 	const provider = embeddingsDisabled()
 		? null

@@ -83,16 +83,17 @@ export class SemanticSearch {
 			.map((hit) => hit.nodeId);
 	}
 
-	// The status check guards the vector leg only: the vector cache can serve
-	// a decision replaced after it was loaded (invalidation happens when the
-	// replacement finishes embedding). FTS hits are already active-only.
+	// This check guards the vector leg only: the cache can serve a decision
+	// replaced or checked out from under it after it was loaded (invalidation
+	// happens when the replacement finishes embedding). FTS hits are already
+	// filtered by the join.
 	private toResult(
 		nodeId: string,
 		score: number,
 		source: SemanticSearchResult["source"],
 	): SemanticSearchResult[] {
 		const node = this.dependencies.nodes.getById(nodeId);
-		if (node?.status !== "active") return [];
+		if (node?.status !== "active" || !node.present) return [];
 		return [{ node, score, source }];
 	}
 

@@ -1,11 +1,28 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, realpathSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildRuntime } from "@/app/runtime";
+import { readConfig, writeConfig } from "@/storage/config";
+import { SCHEMA_VERSION } from "@/storage/migrations";
 
 function makeProjectDir(): string {
 	return realpathSync(mkdtempSync(join(tmpdir(), "cortex-runtime-")));
+}
+
+async function buildOver(
+	dir: string,
+	schemaVersion: number,
+): Promise<number | undefined> {
+	const cortexDir = join(dir, ".cortex");
+	mkdirSync(cortexDir, { recursive: true });
+	await writeConfig(cortexDir, {
+		model_id: "embeddinggemma-300m-q8@256",
+		schema_version: schemaVersion,
+	});
+	const runtime = await buildRuntime(dir);
+	runtime.dispose();
+	return (await readConfig(cortexDir))?.schema_version;
 }
 
 describe("buildRuntime", () => {
@@ -36,5 +53,22 @@ describe("buildRuntime", () => {
 		} finally {
 			runtime.dispose();
 		}
+	});
+
+	test("raises a stale schema_version in the config, never lowers it", async () => {
+		expect(await buildOver(makeProjectDir(), SCHEMA_VERSION - 1)).toBe(
+			SCHEMA_VERSION,
+		);
+		expect(await buildOver(makeProjectDir(), SCHEMA_VERSION + 1)).toBe(
+			SCHEMA_VERSION + 1,
+		);
+	});
+
+	test("leaves a missing config alone, so doctor keeps reporting it", async () => {
+		const dir = makeProjectDir();
+		const runtime = await buildRuntime(dir);
+		runtime.dispose();
+
+		expect(await readConfig(join(dir, ".cortex"))).toBeNull();
 	});
 });
