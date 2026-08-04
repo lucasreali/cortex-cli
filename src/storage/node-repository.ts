@@ -70,6 +70,21 @@ export class NodeRepository {
 		return rows.map((row) => this.toDecision(row));
 	}
 
+	// listActive's `sinceSha` filter compares against the id of the first
+	// decision recorded at that sha, and an unknown sha makes that subquery
+	// NULL — which silently matches nothing. Callers ask first so they can say
+	// so, which happens naturally whenever a branch is squash-merged and the
+	// recorded sha stops existing.
+	hasCommitSha(sha: string): boolean {
+		return (
+			this.db
+				.query<{ one: number }, [string]>(
+					"SELECT 1 AS one FROM nodes WHERE commit_sha = ? LIMIT 1",
+				)
+				.get(sha) !== null
+		);
+	}
+
 	ensureProject(canonicalId: string): string {
 		const existing = this.db
 			.query<{ id: string }, [string]>(

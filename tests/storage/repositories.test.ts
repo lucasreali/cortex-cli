@@ -140,7 +140,8 @@ describe("NodeRepository.listActive filters", () => {
 
 		const since = nodes.listActive({ sinceSha: "sha-2" });
 		expect(since.map((decision) => decision.id)).toEqual([third.id, second.id]);
-		expect(nodes.listActive({ sinceSha: "unknown-sha" })).toEqual([]);
+		expect(nodes.hasCommitSha("sha-2")).toBe(true);
+		expect(nodes.hasCommitSha("unknown-sha")).toBe(false);
 	});
 });
 

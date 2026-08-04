@@ -1,7 +1,7 @@
 import { parseArgs } from "node:util";
 import { printJson } from "@/cli/json";
 import { withRuntime } from "@/cli/open-runtime";
-import { style } from "@/cli/style";
+import { failure, style } from "@/cli/style";
 import type { Decision } from "@/domain";
 
 export async function runLog(args: string[], cwd: string): Promise<number> {
@@ -14,6 +14,12 @@ export async function runLog(args: string[], cwd: string): Promise<number> {
 		},
 	});
 	return withRuntime(cwd, async (runtime) => {
+		if (values.since && !runtime.nodes.hasCommitSha(values.since)) {
+			console.error(
+				failure(`No decision was recorded at commit ${values.since}.`),
+			);
+			return 1;
+		}
 		const decisions = runtime.nodes.listActive({
 			module: values.module,
 			sinceSha: values.since,

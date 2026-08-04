@@ -255,6 +255,20 @@ describe("cortex CLI", () => {
 		expect(filtered.code).toBe(0);
 		expect(filtered.stdout).toContain("Adotar JWT");
 		expect(filtered.stdout).not.toContain("Refresh tokens");
+
+		const since = cli("log", "--since", "sha-1");
+		expect(since.code).toBe(0);
+		expect(since.stdout).toContain("Adotar JWT");
+	});
+
+	test("log --since says so when no decision was recorded at that commit", () => {
+		const result = cli("log", "--since", "deadbeef");
+
+		expect(result.code).toBe(1);
+		expect(result.stderr).toContain(
+			"No decision was recorded at commit deadbeef",
+		);
+		expect(result.stdout).toBe("");
 	});
 
 	test("log --json prints decisions as JSON and composes with filters", () => {
