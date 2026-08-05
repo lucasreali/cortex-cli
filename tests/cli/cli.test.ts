@@ -363,6 +363,7 @@ describe("cortex CLI", () => {
 			keywords: ["dangling", "branch", "link", "orfão", "edge"],
 			module: null,
 			replaces: null,
+			archives: null,
 			dependsOn: ["019f0000-0000-7000-8000-0000000000aa"],
 			conflictsWith: [],
 			anchors: [],

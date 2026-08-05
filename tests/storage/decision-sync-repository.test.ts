@@ -46,6 +46,7 @@ function decisionFile(overrides: Partial<DecisionFile> = {}): DecisionFile {
 		keywords: ["autenticação", "authentication", "jwt", "login", "token"],
 		module: null,
 		replaces: null,
+		archives: null,
 		dependsOn: [],
 		conflictsWith: [],
 		anchors: [],
@@ -150,11 +151,20 @@ describe("DecisionSyncRepository presence and status", () => {
 	});
 
 	test("applyStatuses is absolute — it revives what it no longer names", () => {
-		sync.applyStatuses([FIRST]);
+		sync.applyStatuses([FIRST], []);
 		expect(nodes.getById(FIRST)?.status).toBe("replaced");
 
-		sync.applyStatuses([]);
+		sync.applyStatuses([], [FIRST]);
+		expect(nodes.getById(FIRST)?.status).toBe("archived");
+
+		sync.applyStatuses([], []);
 		expect(nodes.getById(FIRST)?.status).toBe("active");
+	});
+
+	test("a decision both superseded and archived comes out replaced", () => {
+		sync.applyStatuses([FIRST], [FIRST]);
+
+		expect(nodes.getById(FIRST)?.status).toBe("replaced");
 	});
 });
 

@@ -15,6 +15,7 @@ interface Frontmatter {
 	keywords: string[];
 	module?: string;
 	replaces?: string;
+	archives?: string;
 	depends_on?: string[];
 	conflicts_with?: string[];
 	anchors?: string[];
@@ -52,6 +53,7 @@ function frontmatterOf(file: DecisionFile): string[] {
 		`keywords: ${flowSequence(file.keywords)}`,
 		...omittable("module", file.module),
 		...omittable("replaces", file.replaces),
+		...omittable("archives", file.archives),
 		...omittableSequence("depends_on", file.dependsOn),
 		...omittableSequence("conflicts_with", file.conflictsWith),
 		...anchorLines(file.anchors),
@@ -152,6 +154,7 @@ function frontmatterProblem(
 	if (!isTextList(data.keywords)) return "keywords must be a list of strings";
 	if (!isOptionalText(data.module)) return "module must be a string";
 	if (!isOptionalText(data.replaces)) return "replaces must be a string";
+	if (!isOptionalText(data.archives)) return "archives must be a string";
 	if (!isOptionalTextList(data.depends_on)) {
 		return "depends_on must be a list of strings";
 	}
@@ -184,6 +187,7 @@ function toDecisionFile(
 		keywords: data.keywords,
 		module: data.module ?? null,
 		replaces: data.replaces ?? null,
+		archives: data.archives ?? null,
 		dependsOn: data.depends_on ?? [],
 		conflictsWith: data.conflicts_with ?? [],
 		anchors: (data.anchors ?? []).map(toAnchor),

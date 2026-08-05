@@ -7,7 +7,11 @@ import exportDecisions from "./queries/export-decisions.sql" with {
 // The edges a decision file carries. BELONGS_TO and GENERATED_IN point at
 // project and session nodes, which are per-machine, so they are never derived
 // from a file.
-export type VersionedEdgeKind = "DEPENDS_ON" | "REPLACED_BY" | "CONFLICTS_WITH";
+export type VersionedEdgeKind =
+	| "DEPENDS_ON"
+	| "REPLACED_BY"
+	| "CONFLICTS_WITH"
+	| "ARCHIVED_BY";
 
 // Where the decision was authored. A decision imported from someone else's
 // branch has none: that session never happened on this machine.
@@ -28,6 +32,7 @@ interface ExportRow {
 	keywords: string;
 	module: string | null;
 	replaces: string | null;
+	archives: string | null;
 	depends_on: string;
 	conflicts_with: string;
 	anchors: string;
@@ -79,7 +84,8 @@ export class DecisionSyncRepository {
 		this.db
 			.query(
 				`DELETE FROM edges
-				 WHERE kind IN ('DEPENDS_ON', 'REPLACED_BY', 'CONFLICTS_WITH')`,
+				 WHERE kind IN
+					('DEPENDS_ON', 'REPLACED_BY', 'CONFLICTS_WITH', 'ARCHIVED_BY')`,
 			)
 			.run();
 	}
@@ -98,17 +104,20 @@ export class DecisionSyncRepository {
 			.run(fromId, toId, kind);
 	}
 
-	applyStatuses(replacedIds: string[]): void {
+	// A decision both superseded and archived (two files, merged branches) comes
+	// out 'replaced': a successor exists, which is strictly more information.
+	applyStatuses(replacedIds: string[], archivedIds: string[]): void {
 		this.db
 			.query(
 				`UPDATE nodes
 				 SET status = CASE
 					WHEN id IN (SELECT value FROM json_each(?)) THEN 'replaced'
+					WHEN id IN (SELECT value FROM json_each(?)) THEN 'archived'
 					ELSE 'active'
 				 END
 				 WHERE kind = 'decision'`,
 			)
-			.run(JSON.stringify(replacedIds));
+			.run(JSON.stringify(replacedIds), JSON.stringify(archivedIds));
 	}
 
 	listExportRows(): DecisionFile[] {
@@ -180,6 +189,7 @@ function toRecord(row: ExportRow): DecisionFile {
 		keywords: JSON.parse(row.keywords),
 		module: row.module,
 		replaces: row.replaces,
+		archives: row.archives,
 		dependsOn: JSON.parse(row.depends_on),
 		conflictsWith: JSON.parse(row.conflicts_with),
 		anchors: JSON.parse(row.anchors).map(toAnchor),

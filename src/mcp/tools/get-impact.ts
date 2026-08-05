@@ -70,7 +70,12 @@ async function getImpact(
 function toPayload(impact: DecisionImpact) {
 	const { root } = impact;
 	return {
-		decision: { id: root.id, title: root.title, anchors: root.anchors },
+		decision: {
+			id: root.id,
+			title: root.title,
+			status: root.status,
+			anchors: root.anchors,
+		},
 		impacted: impact.impacted.map(({ node, depth }) => ({
 			id: node.id,
 			depth,

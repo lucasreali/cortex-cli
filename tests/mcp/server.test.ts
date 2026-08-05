@@ -373,6 +373,56 @@ describe("cortex MCP server e2e", () => {
 		});
 	});
 
+	test("archiving retires a decision without a successor", async () => {
+		const doomed = await callTool("save_decision", {
+			title: "Cache de sessões no módulo removido",
+			body: "O módulo legacy-cache guardava sessões em memória local do processo.",
+			keywords: ["cache", "sessão", "legacy", "memória", "memory"],
+			module: "legacy",
+		});
+		const archive = await callTool("save_decision", {
+			title: "Módulo legacy-cache removido do produto",
+			body: "O módulo foi excluído; a decisão sobre seu cache não se aplica mais.",
+			keywords: ["legacy", "removido", "removed", "cache", "cleanup"],
+			module: "legacy",
+			archives: doomed.payload.id,
+		});
+		expect(archive.isError).toBe(false);
+
+		const context = await callTool("get_context", {});
+		const ids = context.payload.decisions.map(
+			(decision: { id: string }) => decision.id,
+		);
+		expect(ids).not.toContain(doomed.payload.id);
+		expect(ids).toContain(archive.payload.id);
+
+		const lookup = await callTool("search", {
+			terms: ["memória"],
+			exact: true,
+		});
+		expect(
+			lookup.payload.results.map((result: { id: string }) => result.id),
+		).not.toContain(doomed.payload.id);
+
+		const impact = await callTool("get_impact", {
+			decision_id: doomed.payload.id,
+		});
+		expect(impact.payload.decision.status).toBe("archived");
+	});
+
+	test("save_decision with an unknown archives id returns guidance", async () => {
+		const ghost = "01890000-0000-7000-8000-00000000cafe";
+		const { isError, payload } = await callTool("save_decision", {
+			title: "Arquivamento de decisão fantasma",
+			body: "Corpo suficiente para o schema de decisão aceitar este registro.",
+			keywords: ["arquivo", "archive", "ghost", "teste", "guidance"],
+			archives: ghost,
+		});
+		expect(isError).toBe(false);
+		expect(payload.status).toBe("not_found");
+		expect(payload.guidance).toContain(ghost);
+	});
+
 	test("save_decision with an unknown conflicts_with id returns guidance", async () => {
 		const ghost = "01890000-0000-7000-8000-00000000beef";
 		const { isError, payload } = await callTool("save_decision", {

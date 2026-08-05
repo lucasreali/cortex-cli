@@ -126,7 +126,7 @@ function apply(
 				edge.to,
 			);
 		}
-		dependencies.repository.applyStatuses(links.replaced);
+		dependencies.repository.applyStatuses(links.replaced, links.archived);
 	});
 
 	return {
@@ -166,6 +166,7 @@ interface DerivedLinks {
 	edges: VersionedEdge[];
 	dangling: VersionedEdge[];
 	replaced: string[];
+	archived: string[];
 }
 
 // Targets are checked against the store, not the branch: nothing is ever
@@ -176,6 +177,7 @@ function deriveLinks(files: DecisionFile[], known: Set<string>): DerivedLinks {
 	const edges: VersionedEdge[] = [];
 	const dangling: VersionedEdge[] = [];
 	const replaced = new Set<string>();
+	const archived = new Set<string>();
 	for (const edge of files.flatMap(edgesOf)) {
 		if (!known.has(edge.from) || !known.has(edge.to)) {
 			dangling.push(edge);
@@ -183,16 +185,21 @@ function deriveLinks(files: DecisionFile[], known: Set<string>): DerivedLinks {
 		}
 		edges.push(edge);
 		if (edge.kind === "REPLACED_BY") replaced.add(edge.from);
+		if (edge.kind === "ARCHIVED_BY") archived.add(edge.from);
 	}
-	return { edges, dangling, replaced: [...replaced] };
+	return { edges, dangling, replaced: [...replaced], archived: [...archived] };
 }
 
-// `replaces` lives on the new decision's file — that is what keeps files
-// write-once — but the edge points the other way, from the superseded decision
-// to its replacement, so either endpoint may be the one that is missing.
+// `replaces` and `archives` live on the new decision's file — that is what
+// keeps files write-once — but their edges point the other way, from the
+// retired decision to the one retiring it, so either endpoint may be the one
+// that is missing.
 function edgesOf(file: DecisionFile): VersionedEdge[] {
 	const supersedes: VersionedEdge[] = file.replaces
 		? [{ from: file.replaces, kind: "REPLACED_BY", to: file.id }]
+		: [];
+	const retires: VersionedEdge[] = file.archives
+		? [{ from: file.archives, kind: "ARCHIVED_BY", to: file.id }]
 		: [];
 	return [
 		...file.dependsOn.map(
@@ -210,18 +217,22 @@ function edgesOf(file: DecisionFile): VersionedEdge[] {
 			}),
 		),
 		...supersedes,
+		...retires,
 	];
 }
 
-// Two branches superseding the same decision both merge cleanly and both facts
-// are true, so this is reported rather than resolved.
+// Two branches retiring the same decision — by superseding it, archiving it,
+// or one of each — both merge cleanly and both facts are true, so this is
+// reported rather than resolved.
 function supersededTwice(files: DecisionFile[]): SupersededTwice[] {
 	const by = new Map<string, string[]>();
-	for (const file of files.filter((entry) => entry.replaces !== null)) {
-		const target = file.replaces as string;
-		by.set(target, [...(by.get(target) ?? []), file.id]);
+	for (const file of files) {
+		for (const target of [file.replaces, file.archives]) {
+			if (target === null) continue;
+			by.set(target, [...(by.get(target) ?? []), file.id]);
+		}
 	}
 	return [...by]
-		.filter(([, replacements]) => replacements.length > 1)
-		.map(([target, replacements]) => ({ target, by: replacements }));
+		.filter(([, retirements]) => retirements.length > 1)
+		.map(([target, retirements]) => ({ target, by: retirements }));
 }

@@ -17,7 +17,7 @@ export type NodeProvenance = (typeof NODE_PROVENANCES)[number];
 export const IMPORT_PROVENANCES = ["exact", "heuristic"] as const;
 export type ImportProvenance = (typeof IMPORT_PROVENANCES)[number];
 
-export const DECISION_STATUSES = ["active", "replaced"] as const;
+export const DECISION_STATUSES = ["active", "replaced", "archived"] as const;
 export type DecisionStatus = (typeof DECISION_STATUSES)[number];
 
 export interface Anchor {
@@ -53,6 +53,7 @@ export interface DecisionFile {
 	keywords: string[];
 	module: string | null;
 	replaces: string | null;
+	archives: string | null;
 	dependsOn: string[];
 	conflictsWith: string[];
 	anchors: Anchor[];

@@ -27,6 +27,7 @@ import { SearchRepository } from "@/storage/search-repository";
 const FIRST = "019f0000-0000-7000-8000-000000000001";
 const SECOND = "019f0000-0000-7000-8000-000000000002";
 const THIRD = "019f0000-0000-7000-8000-000000000003";
+const FOURTH = "019f0000-0000-7000-8000-000000000004";
 const ELSEWHERE = "019f0000-0000-7000-8000-00000000000e";
 
 let dir: string;
@@ -60,6 +61,7 @@ function decisionFile(overrides: Partial<DecisionFile> = {}): DecisionFile {
 		keywords: ["autenticação", "authentication", "jwt", "login", "token"],
 		module: null,
 		replaces: null,
+		archives: null,
 		dependsOn: [],
 		conflictsWith: [],
 		anchors: [],
@@ -288,6 +290,55 @@ describe("reconcileDecisions derives status from the present files", () => {
 		]);
 		expect(nodes.getById(FIRST)?.status).toBe("replaced");
 	});
+
+	test("an archived decision leaves search and recall without a successor", () => {
+		write();
+		write({ id: SECOND, archives: FIRST });
+
+		reconcile();
+
+		expect(nodes.getById(FIRST)?.status).toBe("archived");
+		expect(edgeRows("ARCHIVED_BY")).toEqual([
+			{ from_id: FIRST, to_id: SECOND },
+		]);
+		expect(nodes.listActive().map((decision) => decision.id)).toEqual([SECOND]);
+		expect(
+			search.searchExact(["autenticação"]).map((hit) => hit.nodeId),
+		).toEqual([SECOND]);
+	});
+
+	test("removing the archiving file revives the decision it retired", () => {
+		write();
+		write({ id: SECOND, archives: FIRST });
+		reconcile();
+
+		remove(SECOND);
+		reconcile();
+
+		expect(nodes.getById(FIRST)?.status).toBe("active");
+	});
+
+	test("an archives nobody knows is skipped and reported", () => {
+		write({ archives: ELSEWHERE });
+
+		expect(reconcile().dangling).toEqual([
+			{ from: ELSEWHERE, kind: "ARCHIVED_BY", to: FIRST },
+		]);
+		expect(nodes.getById(FIRST)?.status).toBe("active");
+	});
+
+	test("a decision both superseded and archived comes out replaced", () => {
+		write();
+		write({ id: SECOND, replaces: FIRST });
+		write({ id: THIRD, archives: FIRST });
+
+		const report = reconcile();
+
+		expect(nodes.getById(FIRST)?.status).toBe("replaced");
+		expect(report.multiplyReplaced).toEqual([
+			{ target: FIRST, by: [SECOND, THIRD] },
+		]);
+	});
 });
 
 describe("reconcileDecisions and files it cannot read", () => {
@@ -352,7 +403,7 @@ describe("exportExistingDecisions", () => {
 				null,
 			);
 			dependencies.repository.insertVersionedEdge(FIRST, "REPLACED_BY", SECOND);
-			dependencies.repository.applyStatuses([FIRST]);
+			dependencies.repository.applyStatuses([FIRST], []);
 		});
 	}
 
@@ -412,8 +463,10 @@ describe("decision files round-trip through the reconciler unchanged", () => {
 	test("what the store exports is what the writer would have written", () => {
 		write({ id: SECOND });
 		write({ id: THIRD });
+		write({ id: FOURTH });
 		const file = write({
 			module: "auth",
+			archives: FOURTH,
 			dependsOn: [SECOND],
 			conflictsWith: [THIRD],
 			anchors: [{ filePath: "src/auth/service.ts", symbol: "Auth.login" }],

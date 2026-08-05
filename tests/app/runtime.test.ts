@@ -75,6 +75,7 @@ describe("buildRuntime", () => {
 			keywords: ["autenticação", "authentication", "jwt", "login", "token"],
 			module: null,
 			replaces: null,
+			archives: null,
 			dependsOn: [],
 			conflictsWith: [],
 			anchors: [],

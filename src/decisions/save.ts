@@ -51,6 +51,7 @@ function toDecisionFile(
 		keywords: input.keywords,
 		module: input.module ?? null,
 		replaces: input.replaces ?? null,
+		archives: input.archives ?? null,
 		dependsOn: input.depends_on ?? [],
 		conflictsWith: input.conflicts_with ?? [],
 		anchors: (input.anchors ?? []).map(toAnchor),

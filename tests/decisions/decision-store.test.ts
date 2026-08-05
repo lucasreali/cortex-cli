@@ -33,6 +33,7 @@ function decisionFile(id = ID): DecisionFile {
 		keywords: ["busca", "search", "rrf", "bm25", "embeddings"],
 		module: null,
 		replaces: null,
+		archives: null,
 		dependsOn: [],
 		conflictsWith: [],
 		anchors: [],

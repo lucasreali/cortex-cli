@@ -22,6 +22,12 @@ SELECT
 		LIMIT 1
 	) AS replaces,
 	(
+		SELECT e.from_id FROM edges e
+		WHERE e.to_id = n.id AND e.kind = 'ARCHIVED_BY'
+		ORDER BY e.from_id
+		LIMIT 1
+	) AS archives,
+	(
 		SELECT json_group_array(target) FROM (
 			SELECT e.to_id AS target FROM edges e
 			WHERE e.from_id = n.id AND e.kind = 'DEPENDS_ON'

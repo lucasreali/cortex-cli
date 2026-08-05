@@ -59,6 +59,14 @@ export const createDecisionSchema = z.strictObject({
 		.describe(
 			"Id of the decision this one supersedes (archived, not deleted).",
 		),
+	archives: z
+		.uuid()
+		.optional()
+		.describe(
+			"Id of a decision that no longer applies and has no successor — " +
+				"retired, never deleted. Use replaces when this decision supersedes " +
+				"it instead.",
+		),
 	conflicts_with: z
 		.array(z.uuid())
 		.optional()

@@ -15,6 +15,7 @@ function decisionFile(overrides: Partial<DecisionFile> = {}): DecisionFile {
 		keywords: ["busca", "search", "rrf", "bm25", "embeddings"],
 		module: null,
 		replaces: null,
+		archives: null,
 		dependsOn: [],
 		conflictsWith: [],
 		anchors: [],
@@ -41,6 +42,7 @@ describe("formatDecisionFile", () => {
 		const file = decisionFile({
 			module: "embedding",
 			replaces: "019f0000-0000-7000-8000-000000000001",
+			archives: "019f0000-0000-7000-8000-000000000004",
 			dependsOn: ["019f0000-0000-7000-8000-000000000002"],
 			conflictsWith: ["019f0000-0000-7000-8000-000000000003"],
 			anchors: [
@@ -57,6 +59,7 @@ title: "Adotar RRF entre BM25 e cosseno"
 keywords: ["busca", "search", "rrf", "bm25", "embeddings"]
 module: "embedding"
 replaces: "019f0000-0000-7000-8000-000000000001"
+archives: "019f0000-0000-7000-8000-000000000004"
 depends_on: ["019f0000-0000-7000-8000-000000000002"]
 conflicts_with: ["019f0000-0000-7000-8000-000000000003"]
 anchors:
@@ -192,6 +195,9 @@ created_at: "2026-07-22T14:03:11.204Z"`;
 		);
 		expect(reasonFor(withFrontmatter(`${valid}\nreplaces: 7`))).toBe(
 			"replaces must be a string",
+		);
+		expect(reasonFor(withFrontmatter(`${valid}\narchives: 7`))).toBe(
+			"archives must be a string",
 		);
 		expect(reasonFor(withFrontmatter(`${valid}\ndepends_on: "x"`))).toBe(
 			"depends_on must be a list of strings",

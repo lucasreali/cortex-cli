@@ -45,6 +45,7 @@ function linkedIds(input: CreateDecisionInput): Set<string> {
 		...(input.depends_on ?? []),
 		...(input.conflicts_with ?? []),
 		...(input.replaces ? [input.replaces] : []),
+		...(input.archives ? [input.archives] : []),
 	]);
 }
 
