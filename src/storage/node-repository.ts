@@ -110,6 +110,12 @@ export class NodeRepository {
 		})();
 	}
 
+	updateSessionSummary(sessionId: string, summary: string): void {
+		this.db
+			.query("UPDATE nodes SET body = ? WHERE id = ? AND kind = 'session'")
+			.run(summary, sessionId);
+	}
+
 	listSessionSummaries(
 		limit: number,
 	): Array<{ id: string; summary: string; createdAt: string }> {

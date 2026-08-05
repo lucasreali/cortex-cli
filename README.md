@@ -136,11 +136,12 @@ Per-project `.cortex/` directories hold your decisions and are left alone.
 
 ## How it works
 
-The agent gets four tools:
+The agent gets five tools:
 
 | Tool | Purpose |
 |---|---|
 | `save_decision` | Record a decision: title, rationale, keywords (PT/EN), optional module, file/symbol anchors, `depends_on` links and `replaces` |
+| `save_session_summary` | Persist the session's "Implemented / Decisions / Open" narrative — local to the machine, surfaced by `get_context`'s overview |
 | `get_context` | Semantic search by intent ("como autenticamos usuários?") or recent active decisions |
 | `get_impact` | Everything affected by changing a decision — dependency links walked both ways |
 | `search` | Keyword search (accent-insensitive FTS) with optional semantic ranking |

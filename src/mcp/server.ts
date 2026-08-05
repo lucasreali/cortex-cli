@@ -5,11 +5,13 @@ import { RuntimeRegistry } from "./runtime-registry";
 import { registerGetContext } from "./tools/get-context";
 import { registerGetImpact } from "./tools/get-impact";
 import { registerSaveDecision } from "./tools/save-decision";
+import { registerSaveSessionSummary } from "./tools/save-session-summary";
 import { registerSearch } from "./tools/search";
 
 export function createServer(registry: RuntimeRegistry): McpServer {
 	const server = new McpServer({ name: "cortex", version: CORTEX_VERSION });
 	registerSaveDecision(server, registry);
+	registerSaveSessionSummary(server, registry);
 	registerGetContext(server, registry);
 	registerGetImpact(server, registry);
 	registerSearch(server, registry);

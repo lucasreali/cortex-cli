@@ -9,11 +9,12 @@ import {
 const BLOCK = CORTEX_INSTRUCTIONS_BLOCK;
 
 describe("the instructions template", () => {
-	test("is fenced by the markers and names the four tools", () => {
+	test("is fenced by the markers and names the five tools", () => {
 		expect(BLOCK.startsWith(CORTEX_BLOCK_BEGIN)).toBe(true);
 		expect(BLOCK.endsWith(CORTEX_BLOCK_END)).toBe(true);
 		for (const tool of [
 			"save_decision",
+			"save_session_summary",
 			"get_context",
 			"get_impact",
 			"search",

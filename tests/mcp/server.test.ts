@@ -61,12 +61,13 @@ describe("cortex MCP server e2e", () => {
 	let decisionA: string;
 	let decisionB: string;
 
-	test("exposes the four tools", async () => {
+	test("exposes the five tools", async () => {
 		const tools = await client.listTools();
 		expect(tools.tools.map((tool) => tool.name).sort()).toEqual([
 			"get_context",
 			"get_impact",
 			"save_decision",
+			"save_session_summary",
 			"search",
 		]);
 	});
@@ -81,6 +82,9 @@ describe("cortex MCP server e2e", () => {
 			expect(annotations.get(name)?.destructiveHint).toBe(false);
 		}
 		expect(annotations.get("save_decision")?.readOnlyHint).toBeUndefined();
+		expect(
+			annotations.get("save_session_summary")?.readOnlyHint,
+		).toBeUndefined();
 	});
 
 	test("save_decision returns id, records head and warns on missing anchors", async () => {
@@ -238,6 +242,56 @@ describe("cortex MCP server e2e", () => {
 		const { payload } = await callTool("get_context", {});
 		expect(payload.project).toBe("github.com/acme/demo");
 		expect(payload.modules).toEqual(["api", "auth"]);
+	});
+
+	test("save_session_summary surfaces the narrative in the overview", async () => {
+		const summary =
+			"Implemented: fluxo de autenticação JWT.\n" +
+			"Decisions: tokens RS256 de curta duração.\n" +
+			"Open: rotação de refresh tokens pendente.";
+		const { isError, payload } = await callTool("save_session_summary", {
+			summary,
+		});
+		expect(isError).toBe(false);
+		expect(payload.session_id).toMatch(/^[0-9a-f-]{36}$/);
+
+		const context = await callTool("get_context", {});
+		expect(context.payload.sessions).toContainEqual({
+			id: payload.session_id,
+			summary,
+			createdAt: expect.any(String),
+		});
+	});
+
+	test("save_session_summary replaces the previous narrative", async () => {
+		const first = await callTool("save_session_summary", {
+			summary: "Implemented: nada ainda. Decisions: nenhuma. Open: tudo.",
+		});
+		const rewritten =
+			"Implemented: sessão concluída. Decisions: registradas. Open: nada.";
+		const second = await callTool("save_session_summary", {
+			summary: rewritten,
+		});
+		expect(second.payload.session_id).toBe(first.payload.session_id);
+
+		const context = await callTool("get_context", {});
+		const entries = context.payload.sessions.filter(
+			(session: { id: string }) => session.id === first.payload.session_id,
+		);
+		expect(entries).toEqual([
+			{
+				id: first.payload.session_id,
+				summary: rewritten,
+				createdAt: expect.any(String),
+			},
+		]);
+	});
+
+	test("save_session_summary rejects a summary below the minimum length", async () => {
+		const { isError } = await callTool("save_session_summary", {
+			summary: "curto demais",
+		});
+		expect(isError).toBe(true);
 	});
 
 	test("search exact matches accent-insensitively and only active decisions", async () => {

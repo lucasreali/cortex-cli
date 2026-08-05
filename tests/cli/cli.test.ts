@@ -634,7 +634,7 @@ describe("cortex CLI", () => {
 		);
 		try {
 			const tools = await client.listTools();
-			expect(tools.tools).toHaveLength(4);
+			expect(tools.tools).toHaveLength(5);
 			expect(client.getServerVersion()?.version).toBe(CORTEX_VERSION);
 		} finally {
 			await client.close();

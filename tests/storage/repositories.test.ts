@@ -176,9 +176,7 @@ describe("NodeRepository project and session nodes", () => {
 	test("listSessionSummaries returns only sessions with a summary", () => {
 		const summarized = nodes.createSession(PROJECT_ID);
 		nodes.createSession(PROJECT_ID);
-		db.query(
-			"UPDATE nodes SET body = 'Refatorada a autenticação.' WHERE id = ?",
-		).run(summarized);
+		nodes.updateSessionSummary(summarized, "Refatorada a autenticação.");
 
 		const summaries = nodes.listSessionSummaries(10);
 		expect(summaries).toEqual([
@@ -188,6 +186,27 @@ describe("NodeRepository project and session nodes", () => {
 				createdAt: expect.any(String),
 			},
 		]);
+	});
+
+	test("updateSessionSummary replaces the previous narrative", () => {
+		const session = nodes.createSession(PROJECT_ID);
+		nodes.updateSessionSummary(session, "Primeira versão do resumo.");
+		nodes.updateSessionSummary(session, "Resumo final da sessão.");
+
+		expect(nodes.listSessionSummaries(10)).toEqual([
+			{
+				id: session,
+				summary: "Resumo final da sessão.",
+				createdAt: expect.any(String),
+			},
+		]);
+	});
+
+	test("updateSessionSummary never touches decision nodes", () => {
+		const decision = create(decisionInput(), context);
+		nodes.updateSessionSummary(decision.id, "não deveria sobrescrever");
+
+		expect(nodes.getById(decision.id)?.body).toBe(decision.body);
 	});
 });
 
