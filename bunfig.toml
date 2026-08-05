@@ -1,4 +1,5 @@
 [test]
+preload = ["./tests/preload.ts"]
 coverageThreshold = 1.0
 coverageSkipTestFiles = true
 coverageReporter = ["text", "lcov"]

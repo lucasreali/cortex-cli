@@ -18,6 +18,7 @@ import { readConfig, writeConfig } from "@/storage/config";
 import { openDecisionsDb } from "@/storage/connection";
 import { migrate, SCHEMA_VERSION } from "@/storage/migrations";
 import { NodeRepository } from "@/storage/node-repository";
+import { registerProject } from "@/storage/project-registry";
 import {
 	CORTEX_DIRECTORY,
 	DECISIONS_DIRECTORY,
@@ -70,7 +71,9 @@ function initializeStorage(root: string, cortexDir: string): void {
 	const db = openDecisionsDb(cortexDir);
 	try {
 		exportDecisionsIfNeeded(cortexDir, db, migrate(db));
-		new NodeRepository(db).ensureProject(getCanonicalProjectId(root) ?? root);
+		const canonicalId = getCanonicalProjectId(root) ?? root;
+		new NodeRepository(db).ensureProject(canonicalId);
+		registerProject(root, canonicalId);
 	} finally {
 		db.close();
 	}

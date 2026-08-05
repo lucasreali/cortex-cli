@@ -54,9 +54,13 @@ Dependency direction, no cycles:
   `CortexRuntime` with `Pick<>` instead of introducing interfaces.
 - `cli/` — hand-rolled dispatch table in `main.ts` (deliberate, no CLI
   framework); one file per command in `cli/commands/`.
-- `mcp/` — server with 5 tools; `RuntimeRegistry` caches one runtime per
+- `mcp/` — server with 6 tools; `RuntimeRegistry` caches one runtime per
   resolved project root. Recoverable states return `guidanceResult`, never
-  `isError`.
+  `isError`. `search_all_projects` is deliberately unscoped (no
+  `projectPath`): it fans out over `~/.cortex/projects.json` — a rebuildable
+  per-user registry filled by `cortex init` and first use, pruned on read —
+  and returns results grouped per project, never merged into one ranking.
+  Scoped reads stay scoped; never fold cross-project search into them.
 
 ## Decisions are files, the database is a cache
 

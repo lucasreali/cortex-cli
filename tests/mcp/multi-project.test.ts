@@ -37,13 +37,17 @@ describe("multi-project MCP server with a default project", () => {
 	let alphaDecision: string;
 	let betaDecision: string;
 
-	test("projectPath is exposed but optional on every tool", async () => {
+	test("projectPath is exposed but optional on every scoped tool", async () => {
 		const tools = await alphaClient.listTools();
 		for (const tool of tools.tools) {
 			const schema = tool.inputSchema as {
 				properties?: Record<string, unknown>;
 				required?: string[];
 			};
+			if (tool.name === "search_all_projects") {
+				expect(schema.properties?.projectPath).toBeUndefined();
+				continue;
+			}
 			expect(schema.properties?.projectPath).toBeDefined();
 			expect(schema.required ?? []).not.toContain("projectPath");
 		}

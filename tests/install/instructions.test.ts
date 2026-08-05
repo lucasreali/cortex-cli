@@ -9,7 +9,7 @@ import {
 const BLOCK = CORTEX_INSTRUCTIONS_BLOCK;
 
 describe("the instructions template", () => {
-	test("is fenced by the markers and names the five tools", () => {
+	test("is fenced by the markers and names the six tools", () => {
 		expect(BLOCK.startsWith(CORTEX_BLOCK_BEGIN)).toBe(true);
 		expect(BLOCK.endsWith(CORTEX_BLOCK_END)).toBe(true);
 		for (const tool of [
@@ -18,6 +18,7 @@ describe("the instructions template", () => {
 			"get_context",
 			"get_impact",
 			"search",
+			"search_all_projects",
 		]) {
 			expect(BLOCK).toContain(tool);
 		}

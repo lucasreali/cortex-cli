@@ -1,5 +1,6 @@
 import { buildRuntime, type CortexRuntime } from "@/app/runtime";
 import { getRepoRoot } from "@/git";
+import { registerProject } from "@/storage/project-registry";
 import { ProjectRoot } from "@/storage/project-root";
 import { failure } from "./style";
 
@@ -21,6 +22,7 @@ export async function withRuntime(
 	if (!requireInitialized(cwd)) return 1;
 	const runtime = await buildRuntime(cwd);
 	runtime.decisions.ensure();
+	registerProject(runtime.repoRoot, runtime.projectCanonicalId);
 	try {
 		return await use(runtime);
 	} finally {

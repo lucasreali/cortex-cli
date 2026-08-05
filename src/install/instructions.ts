@@ -6,7 +6,7 @@ export const CORTEX_INSTRUCTIONS_BLOCK = `${CORTEX_BLOCK_BEGIN}
 
 This project records its technical decisions with cortex (MCP server
 \`cortex\`, tools: \`save_decision\`, \`save_session_summary\`,
-\`get_context\`, \`get_impact\`, \`search\`).
+\`get_context\`, \`get_impact\`, \`search\`, \`search_all_projects\`).
 
 - Before proposing an approach or changing existing behavior, call
   \`get_context\` with your intent (or \`search\` with keywords) — a past

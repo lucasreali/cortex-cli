@@ -7,7 +7,7 @@ export const USAGE = {
 	serve: "serve --mcp",
 	log: "log [--module M] [--since SHA] [--json]",
 	why: "why <path|symbol> [--json]",
-	search: "search <terms...> [--exact] [--json]",
+	search: "search <terms...> [--exact] [--all-projects] [--json]",
 	impact: "impact <id> [--depth N] [--json]",
 	index: "index [--force]",
 	sync: "sync [--json]",

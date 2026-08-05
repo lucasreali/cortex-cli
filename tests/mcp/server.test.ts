@@ -61,7 +61,7 @@ describe("cortex MCP server e2e", () => {
 	let decisionA: string;
 	let decisionB: string;
 
-	test("exposes the five tools", async () => {
+	test("exposes the six tools", async () => {
 		const tools = await client.listTools();
 		expect(tools.tools.map((tool) => tool.name).sort()).toEqual([
 			"get_context",
@@ -69,6 +69,7 @@ describe("cortex MCP server e2e", () => {
 			"save_decision",
 			"save_session_summary",
 			"search",
+			"search_all_projects",
 		]);
 	});
 
@@ -77,7 +78,12 @@ describe("cortex MCP server e2e", () => {
 		const annotations = new Map(
 			tools.tools.map((tool) => [tool.name, tool.annotations]),
 		);
-		for (const name of ["get_context", "get_impact", "search"]) {
+		for (const name of [
+			"get_context",
+			"get_impact",
+			"search",
+			"search_all_projects",
+		]) {
 			expect(annotations.get(name)?.readOnlyHint).toBe(true);
 			expect(annotations.get(name)?.destructiveHint).toBe(false);
 		}

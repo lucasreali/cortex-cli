@@ -28,14 +28,17 @@ export function makeProject(prefix: string, remote: string): string {
 	return dir;
 }
 
-export async function connect(cwd: string): Promise<Client> {
+export async function connect(
+	cwd: string,
+	env: Record<string, string> = {},
+): Promise<Client> {
 	const client = new Client({ name: "cortex-e2e", version: "0.0.0" });
 	await client.connect(
 		new StdioClientTransport({
 			command: "bun",
 			args: [SERVER_PATH],
 			cwd,
-			env: { ...process.env, CORTEX_DISABLE_EMBEDDINGS: "1" },
+			env: { ...process.env, CORTEX_DISABLE_EMBEDDINGS: "1", ...env },
 		}),
 	);
 	return client;

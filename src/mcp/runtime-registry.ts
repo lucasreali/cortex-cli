@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { buildRuntimeAt, type CortexRuntime } from "@/app/runtime";
 import { findNearestCortexRoot } from "@/storage/locate-store";
+import { registerProject } from "@/storage/project-registry";
 
 export type RuntimeResolution =
 	| { ok: true; runtime: CortexRuntime }
@@ -23,6 +24,14 @@ export class RuntimeRegistry {
 
 	get hasDefaultProject(): boolean {
 		return "root" in this.defaultProject;
+	}
+
+	get defaultRoot(): string | null {
+		return "root" in this.defaultProject ? this.defaultProject.root : null;
+	}
+
+	openRoot(root: string): Promise<CortexRuntime> {
+		return this.open(root);
 	}
 
 	async resolve(projectPath?: string): Promise<RuntimeResolution> {
@@ -72,6 +81,7 @@ export class RuntimeRegistry {
 		const opening = buildRuntimeAt(root, { sharedEmbedding: true }).then(
 			(runtime) => {
 				runtime.decisions.ensure();
+				registerProject(root, runtime.projectCanonicalId);
 				return runtime;
 			},
 		);

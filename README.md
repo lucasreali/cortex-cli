@@ -136,7 +136,7 @@ Per-project `.cortex/` directories hold your decisions and are left alone.
 
 ## How it works
 
-The agent gets five tools:
+The agent gets six tools:
 
 | Tool | Purpose |
 |---|---|
@@ -145,6 +145,7 @@ The agent gets five tools:
 | `get_context` | Semantic search by intent ("como autenticamos usuários?") or recent active decisions |
 | `get_impact` | Everything affected by changing a decision — dependency links walked both ways |
 | `search` | Keyword search (accent-insensitive FTS) with optional semantic ranking |
+| `search_all_projects` | Search every Cortex project registered on this machine (`~/.cortex/projects.json`, filled by `cortex init` and first use); results grouped per project, never merged — also available as `cortex search --all-projects` |
 
 Every tool accepts an optional `projectPath` (any directory inside the target
 project): the nearest `.cortex/` store is resolved walking up on each call and

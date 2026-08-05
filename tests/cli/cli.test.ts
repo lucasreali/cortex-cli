@@ -10,7 +10,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { seedDecision } from "@tests/support/seed";
@@ -334,6 +334,64 @@ describe("cortex CLI", () => {
 		expect(results[0]?.node.title).toBe("Adotar JWT para autenticação");
 	});
 
+	test("search --all-projects groups labeled results from every registered store", () => {
+		const registry = join(
+			realpathSync(mkdtempSync(join(tmpdir(), "cortex-xp-cli-"))),
+			"projects.json",
+		);
+		const env = { CORTEX_PROJECTS_FILE: registry };
+		const other = realpathSync(
+			mkdtempSync(join(tmpdir(), "cortex-cli-other-")),
+		);
+		const spawnIn = (cwd: string, ...args: string[]) =>
+			Bun.spawnSync(["bun", MAIN_PATH, ...args], {
+				cwd,
+				stdout: "pipe",
+				stderr: "pipe",
+				env: {
+					...process.env,
+					CORTEX_DISABLE_EMBEDDINGS: "1",
+					HOME: fakeHome,
+					...env,
+				},
+			});
+		try {
+			Bun.spawnSync(["git", "init", "-b", "main"], { cwd: other });
+			Bun.spawnSync(
+				["git", "remote", "add", "origin", "git@github.com:acme/other.git"],
+				{ cwd: other },
+			);
+			expect(spawnIn(other, "init", "--yes").exitCode).toBe(0);
+			expect(spawnIn(dir, "sync").exitCode).toBe(0);
+
+			const grouped = spawnIn(dir, "search", "jwt", "--all-projects");
+			expect(grouped.exitCode).toBe(0);
+			const output = grouped.stdout.toString();
+			expect(output).toContain("github.com/acme/demo");
+			expect(output).toContain("Adotar JWT para autenticação");
+
+			const asJson = spawnIn(
+				other,
+				"search",
+				"jwt",
+				"--all-projects",
+				"--json",
+			);
+			expect(asJson.exitCode).toBe(0);
+			const parsed: {
+				projects: Array<{ project: string; results: unknown[] }>;
+				skipped: unknown[];
+			} = JSON.parse(asJson.stdout.toString());
+			const labels = parsed.projects.map((entry) => entry.project);
+			expect(labels).toContain("github.com/acme/demo");
+			expect(labels).toContain("github.com/acme/other");
+			expect(parsed.skipped).toEqual([]);
+		} finally {
+			rmSync(other, { recursive: true, force: true });
+			rmSync(dirname(registry), { recursive: true, force: true });
+		}
+	});
+
 	test("sync reports nothing to do, then follows a file leaving and returning", () => {
 		const store = DecisionStore.at(join(dir, ".cortex"));
 		expect(cli("sync").stdout).toContain("Already in sync");
@@ -636,7 +694,7 @@ describe("cortex CLI", () => {
 		);
 		try {
 			const tools = await client.listTools();
-			expect(tools.tools).toHaveLength(5);
+			expect(tools.tools).toHaveLength(6);
 			expect(client.getServerVersion()?.version).toBe(CORTEX_VERSION);
 		} finally {
 			await client.close();

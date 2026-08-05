@@ -41,6 +41,7 @@ const SUBPROCESS_COVERED = [
 	"src/mcp/tools/save-decision.ts",
 	"src/mcp/tools/save-session-summary.ts",
 	"src/mcp/tools/search.ts",
+	"src/mcp/tools/search-all-projects.ts",
 	"src/storage/locate-store.ts",
 ];
 

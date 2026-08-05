@@ -7,6 +7,7 @@ import { registerGetImpact } from "./tools/get-impact";
 import { registerSaveDecision } from "./tools/save-decision";
 import { registerSaveSessionSummary } from "./tools/save-session-summary";
 import { registerSearch } from "./tools/search";
+import { registerSearchAllProjects } from "./tools/search-all-projects";
 
 export function createServer(registry: RuntimeRegistry): McpServer {
 	const server = new McpServer({ name: "cortex", version: CORTEX_VERSION });
@@ -15,6 +16,7 @@ export function createServer(registry: RuntimeRegistry): McpServer {
 	registerGetContext(server, registry);
 	registerGetImpact(server, registry);
 	registerSearch(server, registry);
+	registerSearchAllProjects(server, registry);
 	return server;
 }
 
