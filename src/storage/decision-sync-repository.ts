@@ -4,9 +4,10 @@ import exportDecisions from "./queries/export-decisions.sql" with {
 	type: "text",
 };
 
-// The edges a decision file carries. The other two kinds point at project and
-// session nodes, which are per-machine, so they are never derived from a file.
-export type VersionedEdgeKind = "DEPENDS_ON" | "REPLACED_BY";
+// The edges a decision file carries. BELONGS_TO and GENERATED_IN point at
+// project and session nodes, which are per-machine, so they are never derived
+// from a file.
+export type VersionedEdgeKind = "DEPENDS_ON" | "REPLACED_BY" | "CONFLICTS_WITH";
 
 // Where the decision was authored. A decision imported from someone else's
 // branch has none: that session never happened on this machine.
@@ -28,6 +29,7 @@ interface ExportRow {
 	module: string | null;
 	replaces: string | null;
 	depends_on: string;
+	conflicts_with: string;
 	anchors: string;
 	commit_sha: string | null;
 	commit_dirty: number;
@@ -75,7 +77,10 @@ export class DecisionSyncRepository {
 
 	clearVersionedEdges(): void {
 		this.db
-			.query("DELETE FROM edges WHERE kind IN ('DEPENDS_ON', 'REPLACED_BY')")
+			.query(
+				`DELETE FROM edges
+				 WHERE kind IN ('DEPENDS_ON', 'REPLACED_BY', 'CONFLICTS_WITH')`,
+			)
 			.run();
 	}
 
@@ -176,6 +181,7 @@ function toRecord(row: ExportRow): DecisionFile {
 		module: row.module,
 		replaces: row.replaces,
 		dependsOn: JSON.parse(row.depends_on),
+		conflictsWith: JSON.parse(row.conflicts_with),
 		anchors: JSON.parse(row.anchors).map(toAnchor),
 		commitSha: row.commit_sha,
 		commitDirty: row.commit_dirty === 1,

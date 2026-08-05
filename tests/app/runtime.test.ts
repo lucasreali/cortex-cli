@@ -76,6 +76,7 @@ describe("buildRuntime", () => {
 			module: null,
 			replaces: null,
 			dependsOn: [],
+			conflictsWith: [],
 			anchors: [],
 			commitSha: null,
 			commitDirty: false,

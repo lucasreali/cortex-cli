@@ -126,6 +126,26 @@ describe("DecisionSync.save", () => {
 		]);
 	});
 
+	test("declares a conflict through the same derivation as any other link", () => {
+		const older = sync.save(decisionInput(), context);
+		const newer = sync.save(
+			decisionInput({
+				title: "Sessões opacas convivem com JWT em conflito",
+				conflicts_with: [older.id],
+			}),
+			context,
+		);
+
+		expect(edgeRows("CONFLICTS_WITH")).toEqual([
+			{ from_id: newer.id, to_id: older.id },
+		]);
+		expect(nodes.getById(older.id)?.status).toBe("active");
+		sync.resync();
+		expect(edgeRows("CONFLICTS_WITH")).toEqual([
+			{ from_id: newer.id, to_id: older.id },
+		]);
+	});
+
 	test("links dependencies, and saving twice never collides on an edge", () => {
 		const base = sync.save(decisionInput(), context);
 		const first = sync.save(decisionInput({ depends_on: [base.id] }), context);

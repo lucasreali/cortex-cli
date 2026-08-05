@@ -106,6 +106,7 @@ describe("cortex MCP server e2e", () => {
 			"symbol not found in code index: AuthService.login (src/auth/service.ts)" +
 				" — did you mean: AuthService.validateToken?",
 		]);
+		expect(payload.conflict_candidates).toEqual([]);
 		decisionA = payload.id;
 	});
 
@@ -325,6 +326,64 @@ describe("cortex MCP server e2e", () => {
 			exact: true,
 		});
 		expect(lookup.payload.results).toEqual([]);
+	});
+
+	test("save_decision flags a near-duplicate as a conflict candidate", async () => {
+		const { isError, payload } = await callTool("save_decision", {
+			title: "Refresh tokens guardados no localStorage",
+			body: "Refresh tokens persistidos no localStorage para sobreviver reloads.",
+			keywords: ["refresh", "token", "cookie", "sessão", "web"],
+			module: "auth",
+		});
+
+		expect(isError).toBe(false);
+		const candidate = payload.conflict_candidates.find(
+			(entry: { id: string }) => entry.id === decisionB,
+		);
+		expect(candidate).toMatchObject({
+			id: decisionB,
+			title: "Refresh tokens em cookie httpOnly",
+			module: "auth",
+		});
+		expect(candidate.reason).toContain("shares keywords");
+	});
+
+	test("conflicts_with surfaces on both partners in get_context", async () => {
+		const save = await callTool("save_decision", {
+			title: "Rotação de refresh tokens no servidor",
+			body: "O servidor rotaciona refresh tokens, contradizendo o armazenamento em cookie.",
+			keywords: ["refresh", "rotação", "rotation", "server", "token"],
+			module: "auth",
+			conflicts_with: [decisionB],
+		});
+		expect(save.isError).toBe(false);
+
+		const { payload } = await callTool("get_context", {});
+		const byId = new Map(
+			payload.decisions.map((decision: { id: string }) => [
+				decision.id,
+				decision,
+			]),
+		);
+		expect(byId.get(save.payload.id)).toMatchObject({
+			conflicts_with: [decisionB],
+		});
+		expect(byId.get(decisionB)).toMatchObject({
+			conflicts_with: [save.payload.id],
+		});
+	});
+
+	test("save_decision with an unknown conflicts_with id returns guidance", async () => {
+		const ghost = "01890000-0000-7000-8000-00000000beef";
+		const { isError, payload } = await callTool("save_decision", {
+			title: "Conflito com decisão fantasma",
+			body: "Corpo suficiente para o schema de decisão aceitar este registro.",
+			keywords: ["conflito", "conflict", "ghost", "teste", "guidance"],
+			conflicts_with: [ghost],
+		});
+		expect(isError).toBe(false);
+		expect(payload.status).toBe("not_found");
+		expect(payload.guidance).toContain(ghost);
 	});
 
 	test("search with unmatched terms returns empty results with guidance", async () => {

@@ -16,6 +16,7 @@ interface Frontmatter {
 	module?: string;
 	replaces?: string;
 	depends_on?: string[];
+	conflicts_with?: string[];
 	anchors?: string[];
 	commit?: string;
 	dirty?: boolean;
@@ -52,6 +53,7 @@ function frontmatterOf(file: DecisionFile): string[] {
 		...omittable("module", file.module),
 		...omittable("replaces", file.replaces),
 		...omittableSequence("depends_on", file.dependsOn),
+		...omittableSequence("conflicts_with", file.conflictsWith),
 		...anchorLines(file.anchors),
 		...commitLines(file),
 		`provenance: ${scalar(file.provenance)}`,
@@ -153,6 +155,9 @@ function frontmatterProblem(
 	if (!isOptionalTextList(data.depends_on)) {
 		return "depends_on must be a list of strings";
 	}
+	if (!isOptionalTextList(data.conflicts_with)) {
+		return "conflicts_with must be a list of strings";
+	}
 	if (!isOptionalTextList(data.anchors)) {
 		return "anchors must be a list of strings";
 	}
@@ -180,6 +185,7 @@ function toDecisionFile(
 		module: data.module ?? null,
 		replaces: data.replaces ?? null,
 		dependsOn: data.depends_on ?? [],
+		conflictsWith: data.conflicts_with ?? [],
 		anchors: (data.anchors ?? []).map(toAnchor),
 		commitSha: data.commit ?? null,
 		commitDirty: data.dirty === true,

@@ -52,6 +52,7 @@ function toDecisionFile(
 		module: input.module ?? null,
 		replaces: input.replaces ?? null,
 		dependsOn: input.depends_on ?? [],
+		conflictsWith: input.conflicts_with ?? [],
 		anchors: (input.anchors ?? []).map(toAnchor),
 		commitSha: context.commitSha,
 		commitDirty: context.commitDirty,

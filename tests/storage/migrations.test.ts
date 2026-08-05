@@ -5,6 +5,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDecisionsDb } from "@/storage/connection";
 import { migrate } from "@/storage/migrations";
+import decisionsSchema from "@/storage/migrations/001-decisions-schema.sql" with {
+	type: "text",
+};
+import decisionsPresent from "@/storage/migrations/004-decisions-present.sql" with {
+	type: "text",
+};
+import migrationsTable from "@/storage/migrations/migrations-table.sql" with {
+	type: "text",
+};
 
 let dir: string;
 let db: Database;
@@ -46,6 +55,7 @@ describe("migrations", () => {
 		expect(rows).toEqual([
 			{ id: 1, name: "decisions-schema" },
 			{ id: 2, name: "decisions-present" },
+			{ id: 3, name: "decisions-graph-vocabulary" },
 		]);
 	});
 
@@ -54,14 +64,18 @@ describe("migrations", () => {
 		db = openDecisionsDb(dir);
 		expect(migrate(db)).toEqual([]);
 		expect(db.query("SELECT count(*) AS n FROM _migrations").get()).toEqual({
-			n: 2,
+			n: 3,
 		});
 	});
 
 	test("reports the migrations it applied to a fresh database", () => {
 		const fresh = openDecisionsDb(mkdtempSync(join(tmpdir(), "cortex-fresh-")));
 		try {
-			expect(migrate(fresh)).toEqual(["decisions-schema", "decisions-present"]);
+			expect(migrate(fresh)).toEqual([
+				"decisions-schema",
+				"decisions-present",
+				"decisions-graph-vocabulary",
+			]);
 		} finally {
 			fresh.close();
 		}
@@ -112,6 +126,130 @@ describe("migrations", () => {
 		expect(row?.sql).toContain("fts5");
 		expect(row?.sql).not.toContain("content=");
 		expect(row?.sql).toContain("unicode61 remove_diacritics 2");
+	});
+
+	test("accepts the widened status and edge vocabulary", () => {
+		db.query(
+			"INSERT INTO nodes (id, kind, title, status) VALUES ('n1', 'decision', 'Old', 'archived')",
+		).run();
+		db.query(
+			"INSERT INTO nodes (id, kind, title) VALUES ('n2', 'decision', 'New')",
+		).run();
+		db.query(
+			"INSERT INTO edges (from_id, to_id, kind) VALUES ('n1', 'n2', 'CONFLICTS_WITH')",
+		).run();
+		db.query(
+			"INSERT INTO edges (from_id, to_id, kind) VALUES ('n1', 'n2', 'ARCHIVED_BY')",
+		).run();
+
+		expect(db.query("SELECT count(*) AS n FROM edges").get()).toEqual({ n: 2 });
+	});
+
+	test("still rejects unknown statuses and edge kinds", () => {
+		db.query(
+			"INSERT INTO nodes (id, kind, title) VALUES ('n1', 'decision', 'Some')",
+		).run();
+		expect(() =>
+			db.query("UPDATE nodes SET status = 'retired' WHERE id = 'n1'").run(),
+		).toThrow();
+		expect(() =>
+			db
+				.query(
+					"INSERT INTO edges (from_id, to_id, kind) VALUES ('n1', 'n1', 'RELATES_TO')",
+				)
+				.run(),
+		).toThrow();
+	});
+
+	test("still enforces foreign keys on the rebuilt edges table", () => {
+		expect(() =>
+			db
+				.query(
+					"INSERT INTO edges (from_id, to_id, kind) VALUES ('ghost', 'ghost', 'DEPENDS_ON')",
+				)
+				.run(),
+		).toThrow();
+	});
+
+	test("the vocabulary rebuild carries a pre-005 store's data across", () => {
+		const preDir = mkdtempSync(join(tmpdir(), "cortex-pre005-"));
+		const pre = openDecisionsDb(preDir);
+		try {
+			pre.run(migrationsTable);
+			pre.run(decisionsSchema);
+			pre.run(decisionsPresent);
+			pre
+				.query("INSERT INTO _migrations (id, name) VALUES (?, ?)")
+				.run(1, "decisions-schema");
+			pre
+				.query("INSERT INTO _migrations (id, name) VALUES (?, ?)")
+				.run(2, "decisions-present");
+			pre
+				.query(
+					`INSERT INTO nodes (id, kind, title, status, present)
+				 VALUES ('n1', 'decision', 'Kept', 'replaced', 0)`,
+				)
+				.run();
+			pre
+				.query(
+					"INSERT INTO nodes (id, kind, title) VALUES ('n2', 'decision', 'Other')",
+				)
+				.run();
+			pre
+				.query(
+					"INSERT INTO edges (from_id, to_id, kind) VALUES ('n1', 'n2', 'REPLACED_BY')",
+				)
+				.run();
+
+			expect(migrate(pre)).toEqual(["decisions-graph-vocabulary"]);
+			expect(
+				pre.query("SELECT status, present FROM nodes WHERE id = 'n1'").get(),
+			).toEqual({ status: "replaced", present: 0 });
+			expect(pre.query("SELECT count(*) AS n FROM edges").get()).toEqual({
+				n: 1,
+			});
+			expect(pre.query("PRAGMA foreign_key_check").all()).toEqual([]);
+			expect(pre.query("PRAGMA foreign_keys").get()).toEqual({
+				foreign_keys: 1,
+			});
+		} finally {
+			pre.close();
+			rmSync(preDir, { recursive: true, force: true });
+		}
+	});
+
+	test("a rebuild that would carry broken references across refuses to commit", () => {
+		const preDir = mkdtempSync(join(tmpdir(), "cortex-pre005-broken-"));
+		const pre = openDecisionsDb(preDir);
+		try {
+			pre.run(migrationsTable);
+			pre.run(decisionsSchema);
+			pre.run(decisionsPresent);
+			pre
+				.query("INSERT INTO _migrations (id, name) VALUES (?, ?)")
+				.run(1, "decisions-schema");
+			pre
+				.query("INSERT INTO _migrations (id, name) VALUES (?, ?)")
+				.run(2, "decisions-present");
+			pre.run("PRAGMA foreign_keys = OFF");
+			pre
+				.query(
+					"INSERT INTO edges (from_id, to_id, kind) VALUES ('ghost', 'ghost', 'DEPENDS_ON')",
+				)
+				.run();
+			pre.run("PRAGMA foreign_keys = ON");
+
+			expect(() => migrate(pre)).toThrow(/foreign key violation/);
+			expect(pre.query("SELECT count(*) AS n FROM _migrations").get()).toEqual({
+				n: 2,
+			});
+			expect(pre.query("PRAGMA foreign_keys").get()).toEqual({
+				foreign_keys: 1,
+			});
+		} finally {
+			pre.close();
+			rmSync(preDir, { recursive: true, force: true });
+		}
 	});
 
 	test("anchors.symbol defaults to empty string", () => {

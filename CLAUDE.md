@@ -72,7 +72,8 @@ revisit a `content_sha` column that day, and not before.
 - Nothing is deleted, ever. Switching branches flips `present`; a decision
   that comes back keeps its embedding and its row.
 - Versioned in the file: the decision, its anchors, `DEPENDS_ON`,
-  `REPLACED_BY`. Local to the machine: session and project nodes,
+  `REPLACED_BY`, `CONFLICTS_WITH` (declared one-sided via `conflicts_with`,
+  read symmetrically). Local to the machine: session and project nodes,
   `BELONGS_TO`, `GENERATED_IN`, embeddings, `nodes_fts`. A decision imported
   from someone else's branch has no `GENERATED_IN` — that session never
   happened here, and that is correct.

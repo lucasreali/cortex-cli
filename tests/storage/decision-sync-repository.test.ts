@@ -47,6 +47,7 @@ function decisionFile(overrides: Partial<DecisionFile> = {}): DecisionFile {
 		module: null,
 		replaces: null,
 		dependsOn: [],
+		conflictsWith: [],
 		anchors: [],
 		commitSha: null,
 		commitDirty: false,

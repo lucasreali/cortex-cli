@@ -6,6 +6,8 @@ export const EDGE_KINDS = [
 	"GENERATED_IN",
 	"DEPENDS_ON",
 	"REPLACED_BY",
+	"CONFLICTS_WITH",
+	"ARCHIVED_BY",
 ] as const;
 export type EdgeKind = (typeof EDGE_KINDS)[number];
 
@@ -52,6 +54,7 @@ export interface DecisionFile {
 	module: string | null;
 	replaces: string | null;
 	dependsOn: string[];
+	conflictsWith: string[];
 	anchors: Anchor[];
 	commitSha: string | null;
 	commitDirty: boolean;

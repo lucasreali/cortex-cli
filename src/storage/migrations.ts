@@ -7,6 +7,9 @@ import codeMeta from "./migrations/003-code-meta.sql" with { type: "text" };
 import decisionsPresent from "./migrations/004-decisions-present.sql" with {
 	type: "text",
 };
+import decisionsGraphVocabulary from "./migrations/005-decisions-graph-vocabulary.sql" with {
+	type: "text",
+};
 import migrationsTable from "./migrations/migrations-table.sql" with {
 	type: "text",
 };
@@ -15,6 +18,10 @@ interface Migration {
 	id: number;
 	name: string;
 	up(db: Database): void;
+	// A migration that drops and recreates a referenced table needs foreign
+	// keys off, and the pragma is a no-op inside a transaction — so the runner
+	// toggles it around the transaction instead.
+	rebuildsTables?: boolean;
 }
 
 // Ids are per-list, filenames are numbered across both lists: each database
@@ -29,6 +36,12 @@ const decisionsMigrations: Migration[] = [
 		id: 2,
 		name: "decisions-present",
 		up: (db) => db.run(decisionsPresent),
+	},
+	{
+		id: 3,
+		name: "decisions-graph-vocabulary",
+		up: (db) => db.run(decisionsGraphVocabulary),
+		rebuildsTables: true,
 	},
 ];
 
@@ -80,12 +93,42 @@ function applyOnce(db: Database, migration: Migration): boolean {
 		.query("SELECT 1 FROM _migrations WHERE id = ?")
 		.get(migration.id);
 	if (applied) return false;
+	if (migration.rebuildsTables) applyRebuilding(db, migration);
+	else applyInTransaction(db, migration);
+	return true;
+}
+
+function applyInTransaction(db: Database, migration: Migration): void {
 	db.transaction(() => {
 		migration.up(db);
-		db.query("INSERT INTO _migrations (id, name) VALUES (?, ?)").run(
-			migration.id,
-			migration.name,
-		);
+		record(db, migration);
 	})();
-	return true;
+}
+
+function applyRebuilding(db: Database, migration: Migration): void {
+	db.run("PRAGMA foreign_keys = OFF");
+	try {
+		db.transaction(() => {
+			migration.up(db);
+			assertForeignKeysIntact(db, migration);
+			record(db, migration);
+		})();
+	} finally {
+		db.run("PRAGMA foreign_keys = ON");
+	}
+}
+
+function assertForeignKeysIntact(db: Database, migration: Migration): void {
+	const violations = db.query("PRAGMA foreign_key_check").all();
+	if (violations.length === 0) return;
+	throw new Error(
+		`migration ${migration.name} left ${violations.length} foreign key violation(s)`,
+	);
+}
+
+function record(db: Database, migration: Migration): void {
+	db.query("INSERT INTO _migrations (id, name) VALUES (?, ?)").run(
+		migration.id,
+		migration.name,
+	);
 }

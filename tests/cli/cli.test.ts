@@ -364,6 +364,7 @@ describe("cortex CLI", () => {
 			module: null,
 			replaces: null,
 			dependsOn: ["019f0000-0000-7000-8000-0000000000aa"],
+			conflictsWith: [],
 			anchors: [],
 			commitSha: null,
 			commitDirty: false,

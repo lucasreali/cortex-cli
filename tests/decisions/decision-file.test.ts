@@ -16,6 +16,7 @@ function decisionFile(overrides: Partial<DecisionFile> = {}): DecisionFile {
 		module: null,
 		replaces: null,
 		dependsOn: [],
+		conflictsWith: [],
 		anchors: [],
 		commitSha: null,
 		commitDirty: false,
@@ -41,6 +42,7 @@ describe("formatDecisionFile", () => {
 			module: "embedding",
 			replaces: "019f0000-0000-7000-8000-000000000001",
 			dependsOn: ["019f0000-0000-7000-8000-000000000002"],
+			conflictsWith: ["019f0000-0000-7000-8000-000000000003"],
 			anchors: [
 				{ filePath: "src/embedding/semantic-search.ts", symbol: "Search.run" },
 				{ filePath: "src/storage/search-repository.ts", symbol: "" },
@@ -56,6 +58,7 @@ keywords: ["busca", "search", "rrf", "bm25", "embeddings"]
 module: "embedding"
 replaces: "019f0000-0000-7000-8000-000000000001"
 depends_on: ["019f0000-0000-7000-8000-000000000002"]
+conflicts_with: ["019f0000-0000-7000-8000-000000000003"]
 anchors:
   - "src/embedding/semantic-search.ts#Search.run"
   - "src/storage/search-repository.ts"
@@ -192,6 +195,9 @@ created_at: "2026-07-22T14:03:11.204Z"`;
 		);
 		expect(reasonFor(withFrontmatter(`${valid}\ndepends_on: "x"`))).toBe(
 			"depends_on must be a list of strings",
+		);
+		expect(reasonFor(withFrontmatter(`${valid}\nconflicts_with: "x"`))).toBe(
+			"conflicts_with must be a list of strings",
 		);
 		expect(reasonFor(withFrontmatter(`${valid}\nanchors: "x"`))).toBe(
 			"anchors must be a list of strings",

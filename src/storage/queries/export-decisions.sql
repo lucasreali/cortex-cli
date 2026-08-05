@@ -29,6 +29,13 @@ SELECT
 		)
 	) AS depends_on,
 	(
+		SELECT json_group_array(target) FROM (
+			SELECT e.to_id AS target FROM edges e
+			WHERE e.from_id = n.id AND e.kind = 'CONFLICTS_WITH'
+			ORDER BY e.to_id
+		)
+	) AS conflicts_with,
+	(
 		SELECT json_group_array(anchor) FROM (
 			SELECT
 				CASE

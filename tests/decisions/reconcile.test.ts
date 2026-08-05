@@ -61,6 +61,7 @@ function decisionFile(overrides: Partial<DecisionFile> = {}): DecisionFile {
 		module: null,
 		replaces: null,
 		dependsOn: [],
+		conflictsWith: [],
 		anchors: [],
 		commitSha: null,
 		commitDirty: false,
@@ -208,6 +209,40 @@ describe("reconcileDecisions derives the versioned links", () => {
 		reconcile();
 
 		expect(edgeRows("DEPENDS_ON")).toEqual([{ from_id: FIRST, to_id: SECOND }]);
+	});
+
+	test("conflicts_with derives one directed edge from the declaring file", () => {
+		write({ id: SECOND });
+		write({ conflictsWith: [SECOND] });
+
+		reconcile();
+
+		expect(edgeRows("CONFLICTS_WITH")).toEqual([
+			{ from_id: FIRST, to_id: SECOND },
+		]);
+		expect(nodes.getById(FIRST)?.status).toBe("active");
+		expect(nodes.getById(SECOND)?.status).toBe("active");
+	});
+
+	test("a conflicts_with nobody knows is skipped and reported", () => {
+		write({ conflictsWith: [ELSEWHERE] });
+
+		expect(reconcile().dangling).toEqual([
+			{ from: FIRST, kind: "CONFLICTS_WITH", to: ELSEWHERE },
+		]);
+		expect(edgeRows("CONFLICTS_WITH")).toEqual([]);
+	});
+
+	test("two files declaring each other keep both directed edges", () => {
+		write({ conflictsWith: [SECOND] });
+		write({ id: SECOND, conflictsWith: [FIRST] });
+
+		reconcile();
+
+		expect(edgeRows("CONFLICTS_WITH")).toEqual([
+			{ from_id: FIRST, to_id: SECOND },
+			{ from_id: SECOND, to_id: FIRST },
+		]);
 	});
 });
 
@@ -375,8 +410,12 @@ describe("a store whose decisions directory never arrives", () => {
 
 describe("decision files round-trip through the reconciler unchanged", () => {
 	test("what the store exports is what the writer would have written", () => {
+		write({ id: SECOND });
+		write({ id: THIRD });
 		const file = write({
 			module: "auth",
+			dependsOn: [SECOND],
+			conflictsWith: [THIRD],
 			anchors: [{ filePath: "src/auth/service.ts", symbol: "Auth.login" }],
 			commitSha: "ca43a65",
 			commitDirty: true,
@@ -385,6 +424,6 @@ describe("decision files round-trip through the reconciler unchanged", () => {
 
 		expect(
 			dependencies.repository.listExportRows().map(formatDecisionFile),
-		).toEqual([formatDecisionFile(file)]);
+		).toContain(formatDecisionFile(file));
 	});
 });

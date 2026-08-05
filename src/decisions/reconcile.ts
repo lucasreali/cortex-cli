@@ -202,6 +202,13 @@ function edgesOf(file: DecisionFile): VersionedEdge[] {
 				to: target,
 			}),
 		),
+		...file.conflictsWith.map(
+			(target): VersionedEdge => ({
+				from: file.id,
+				kind: "CONFLICTS_WITH",
+				to: target,
+			}),
+		),
 		...supersedes,
 	];
 }

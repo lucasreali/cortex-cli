@@ -75,37 +75,56 @@ async function intentContext(
 	const filtered = module
 		? results.filter((result) => result.node.module === module)
 		: results;
+	const conflicts = conflictsOf(
+		runtime,
+		filtered.map((result) => result.node),
+	);
 	return jsonResult({
-		decisions: filtered.map(searchEntry),
+		decisions: filtered.map((result) => searchEntry(result, conflicts)),
 		...(filtered.length === 0 ? { guidance: NO_MATCH_GUIDANCE } : {}),
 	});
 }
 
 function overviewContext(runtime: CortexRuntime, module?: string) {
 	const recent = runtime.nodes.listActive({ module }).slice(0, RECENT_LIMIT);
+	const conflicts = conflictsOf(runtime, recent);
 	return jsonResult({
 		project: runtime.projectCanonicalId,
 		modules: runtime.nodes.listModules(),
-		decisions: recent.map(decisionEntry),
+		decisions: recent.map((decision) => decisionEntry(decision, conflicts)),
 		sessions: runtime.nodes.listSessionSummaries(SESSION_LIMIT),
 		...(recent.length === 0 ? { guidance: EMPTY_STORE_GUIDANCE } : {}),
 	});
 }
 
-function searchEntry(result: SemanticSearchResult) {
+function conflictsOf(
+	runtime: CortexRuntime,
+	decisions: Decision[],
+): Map<string, string[]> {
+	return runtime.edges.listConflictPartners(
+		decisions.map((decision) => decision.id),
+	);
+}
+
+function searchEntry(
+	result: SemanticSearchResult,
+	conflicts: Map<string, string[]>,
+) {
 	return {
-		...decisionEntry(result.node),
+		...decisionEntry(result.node, conflicts),
 		score: Number(result.score.toFixed(3)),
 		source: result.source,
 	};
 }
 
-function decisionEntry(decision: Decision) {
+function decisionEntry(decision: Decision, conflicts: Map<string, string[]>) {
+	const partners = conflicts.get(decision.id) ?? [];
 	return {
 		id: decision.id,
 		title: decision.title,
 		summary: truncate(decision.body, SUMMARY_LIMIT),
 		module: decision.module,
 		createdAt: decision.createdAt,
+		...(partners.length > 0 ? { conflicts_with: partners } : {}),
 	};
 }

@@ -98,6 +98,57 @@ describe("EdgeRepository.getImpact", () => {
 	});
 });
 
+describe("EdgeRepository.listConflictPartners", () => {
+	test("returns partners from either endpoint, batched by decision", () => {
+		const older = create(decisionInput(), context);
+		const newer = create(
+			decisionInput({
+				title: "Sessões opacas em conflito com JWT",
+				conflicts_with: [older.id],
+			}),
+			context,
+		);
+		const bystander = create(
+			decisionInput({ title: "Paginação por cursor nas listagens" }),
+			context,
+		);
+
+		const partners = edges.listConflictPartners([
+			older.id,
+			newer.id,
+			bystander.id,
+		]);
+
+		expect(partners.get(older.id)).toEqual([newer.id]);
+		expect(partners.get(newer.id)).toEqual([older.id]);
+		expect(partners.has(bystander.id)).toBe(false);
+	});
+
+	test("a resolved partner disappears from both sides", () => {
+		const older = create(decisionInput(), context);
+		const newer = create(
+			decisionInput({
+				title: "Sessões opacas em conflito com JWT",
+				conflicts_with: [older.id],
+			}),
+			context,
+		);
+		create(
+			decisionInput({
+				title: "Sessões opacas viram a decisão vigente",
+				replaces: newer.id,
+			}),
+			context,
+		);
+
+		expect(edges.listConflictPartners([older.id]).size).toBe(0);
+	});
+
+	test("asking about nothing touches nothing", () => {
+		expect(edges.listConflictPartners([])).toEqual(new Map());
+	});
+});
+
 describe("a superseded decision", () => {
 	test("leaves listActive but stays reachable by id", () => {
 		const old = create(decisionInput(), context);

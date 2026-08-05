@@ -34,6 +34,7 @@ function decisionFile(id = ID): DecisionFile {
 		module: null,
 		replaces: null,
 		dependsOn: [],
+		conflictsWith: [],
 		anchors: [],
 		commitSha: null,
 		commitDirty: false,

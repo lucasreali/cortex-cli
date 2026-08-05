@@ -59,6 +59,14 @@ export const createDecisionSchema = z.strictObject({
 		.describe(
 			"Id of the decision this one supersedes (archived, not deleted).",
 		),
+	conflicts_with: z
+		.array(z.uuid())
+		.optional()
+		.describe(
+			"Ids of decisions this one contradicts. Declare only confirmed " +
+				"contradictions — near-duplicates suggested in conflict_candidates " +
+				"belong here only after you verified they genuinely disagree.",
+		),
 });
 
 export type AnchorInput = z.infer<typeof anchorInputSchema>;
