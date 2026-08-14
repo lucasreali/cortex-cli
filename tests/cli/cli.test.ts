@@ -23,6 +23,7 @@ import { GEMMA_MODEL } from "@/embedding/model";
 import { EXTRACTION_VERSION } from "@/indexer/extraction-version";
 import { openCodeRepository } from "@/storage/code-db";
 import { openDecisionsDb } from "@/storage/connection";
+import { EmbeddingRepository } from "@/storage/embedding-repository";
 import { CODE_SCHEMA_VERSION, SCHEMA_VERSION } from "@/storage/migrations";
 import { NodeRepository, type SaveContext } from "@/storage/node-repository";
 import { CORTEX_VERSION } from "@/version";
@@ -562,6 +563,30 @@ describe("cortex CLI", () => {
 		expect(result.stdout).toContain("keywords: all decisions have >= 5");
 		expect(result.stdout).toContain("code index: in sync");
 		expect(result.stdout).toContain("decision files: all readable");
+	});
+
+	test("doctor names vectors left behind by another model", () => {
+		const db = openDecisionsDb(join(dir, ".cortex"));
+		new EmbeddingRepository(db).upsert(
+			decisionA,
+			"older-model@128",
+			new Float32Array([0.1, 0.2]),
+		);
+		db.close();
+
+		const result = cli("doctor");
+
+		expect(result.code).toBe(1);
+		expect(result.stdout).toContain(
+			"embeddings from another model: 1 older-model@128",
+		);
+		expect(result.stdout).toContain(
+			`semantic search only reads ${GEMMA_MODEL.modelId}`,
+		);
+
+		const cleanup = openDecisionsDb(join(dir, ".cortex"));
+		cleanup.query("DELETE FROM embeddings").run();
+		cleanup.close();
 	});
 
 	test("doctor names off-branch decisions, dropped links and unreadable files", () => {

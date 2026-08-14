@@ -37,6 +37,7 @@ export async function runDoctor(args: string[], cwd: string): Promise<number> {
 		checkDecisionFiles(runtime, report);
 		checkAnchors(runtime, report);
 		checkEmbeddings(runtime, report);
+		checkEmbeddingVintages(runtime, report);
 		checkKeywords(runtime, report);
 		checkModelDownloaded(report);
 		checkProjectRegistry(report);
@@ -188,6 +189,45 @@ function checkEmbeddings(runtime: CortexRuntime, report: DoctorReport): void {
 	report.warn(
 		`${pending.length} decision(s) without embedding — run: cortex embed --missing`,
 	);
+}
+
+// Counted over the live set only, like the pending check: a vector held by a
+// superseded or off-branch decision is retained history, and `embed --missing`
+// cannot reclaim it — reporting it would open an issue the user can never
+// close. It becomes visible again when `present` flips back, which is when it
+// starts to cost recall.
+function checkEmbeddingVintages(
+	runtime: CortexRuntime,
+	report: DoctorReport,
+): void {
+	const vintages = runtime.embeddings.countsByModel();
+	if (vintages.length === 0) return;
+	const foreign = vintages.filter(
+		(vintage) => vintage.modelId !== runtime.pinnedModelId,
+	);
+	if (foreign.length === 0) {
+		report.ok(
+			`embeddings: ${countVectors(vintages)} vector(s), all ${runtime.pinnedModelId}`,
+		);
+		return;
+	}
+	report.warn(
+		`embeddings from another model: ${describeVintages(foreign)} — semantic ` +
+			`search only reads ${runtime.pinnedModelId}, so those decisions answer ` +
+			"through FTS alone — run: cortex embed --missing",
+	);
+}
+
+function countVectors(vintages: Array<{ count: number }>): number {
+	return vintages.reduce((total, vintage) => total + vintage.count, 0);
+}
+
+function describeVintages(
+	vintages: Array<{ modelId: string; count: number }>,
+): string {
+	return vintages
+		.map((vintage) => `${vintage.count} ${vintage.modelId}`)
+		.join(", ");
 }
 
 function checkKeywords(runtime: CortexRuntime, report: DoctorReport): void {

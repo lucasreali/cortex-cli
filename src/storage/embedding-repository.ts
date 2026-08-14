@@ -67,6 +67,19 @@ export class EmbeddingRepository {
 			}));
 	}
 
+	countsByModel(): Array<{ modelId: string; count: number }> {
+		return this.db
+			.query<{ model_id: string; count: number }, []>(
+				`SELECT e.model_id, count(*) AS count FROM embeddings e
+				 JOIN nodes n ON n.id = e.node_id
+				 WHERE n.kind = 'decision' AND n.status = 'active' AND n.present = 1
+				 GROUP BY e.model_id
+				 ORDER BY e.model_id`,
+			)
+			.all()
+			.map((row) => ({ modelId: row.model_id, count: row.count }));
+	}
+
 	listMissingNodeIds(modelId: string): string[] {
 		return this.db
 			.query<{ id: string }, [string]>(

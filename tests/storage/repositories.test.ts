@@ -7,6 +7,7 @@ import { seedDecision } from "@tests/support/seed";
 import type { CreateDecisionInput, Decision } from "@/domain";
 import { openDecisionsDb } from "@/storage/connection";
 import { EdgeRepository } from "@/storage/edge-repository";
+import { EmbeddingRepository } from "@/storage/embedding-repository";
 import { migrate } from "@/storage/migrations";
 import { NodeRepository, type SaveContext } from "@/storage/node-repository";
 import { SearchRepository } from "@/storage/search-repository";
@@ -428,6 +429,44 @@ describe("NodeRepository.listByFileAnchorOrSymbol", () => {
 			fileLevel.id,
 			exactSymbol.id,
 		]);
+	});
+});
+
+describe("EmbeddingRepository.countsByModel", () => {
+	const vector = new Float32Array([0.1, 0.2]);
+
+	test("names every vintage the live set holds", () => {
+		const embeddings = new EmbeddingRepository(db);
+		const current = create(decisionInput(), context);
+		const stale = create(
+			decisionInput({ title: "Paginação por cursor nas listagens" }),
+			context,
+		);
+		embeddings.upsert(current.id, "gemma@256", vector);
+		embeddings.upsert(stale.id, "older@128", vector);
+
+		expect(embeddings.countsByModel()).toEqual([
+			{ modelId: "gemma@256", count: 1 },
+			{ modelId: "older@128", count: 1 },
+		]);
+	});
+
+	// The doctor turns this count into "run: cortex embed --missing", and that
+	// command only fills the live set — so history keeping an old vector must
+	// not reach the report, or the warning could never be closed.
+	test("leaves out vectors kept by superseded and off-branch decisions", () => {
+		const embeddings = new EmbeddingRepository(db);
+		const superseded = create(decisionInput(), context);
+		const offBranch = create(
+			decisionInput({ title: "Paginação por cursor nas listagens" }),
+			context,
+		);
+		embeddings.upsert(superseded.id, "older@128", vector);
+		embeddings.upsert(offBranch.id, "older@128", vector);
+		create(decisionInput({ replaces: superseded.id }), context);
+		db.query("UPDATE nodes SET present = 0 WHERE id = ?").run(offBranch.id);
+
+		expect(embeddings.countsByModel()).toEqual([]);
 	});
 });
 
