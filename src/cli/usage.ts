@@ -3,7 +3,7 @@
 // two copies — cortex --help documented neither --json nor --force on upgrade.
 export const USAGE = {
 	init: "init [--yes]",
-	install: "install [--yes] [--target auto|all|<ids>]",
+	install: "install [--yes] [--target T] [--git-hooks [--uninstall]]",
 	serve: "serve --mcp",
 	log: "log [--module M] [--since SHA] [--json]",
 	why: "why <path|symbol> [--json]",
@@ -15,6 +15,7 @@ export const USAGE = {
 	doctor: "doctor [--json]",
 	upgrade: "upgrade [--check [--json]] [--version V] [--force]",
 	"prompt-hook": "prompt-hook",
+	"git-hook": "git-hook <event> [git arguments...]",
 	"embed-worker": "embed-worker",
 	"embed-daemon": "embed-daemon [model]",
 } as const;

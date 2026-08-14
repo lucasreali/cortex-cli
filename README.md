@@ -107,6 +107,16 @@ each project by maintaining a marker-fenced usage block in the instruction
 files of the harnesses you use — `CLAUDE.md`, `AGENTS.md` (Codex/Cursor) and
 `GEMINI.md` — so agents know to consult and record decisions.
 
+Registration is user-wide; git hooks are per repository. In each repo you want
+reconciled automatically:
+
+```bash
+cortex install --git-hooks              # post-commit, post-checkout, post-merge
+cortex install --git-hooks --uninstall  # remove them again
+```
+
+See [Automatic reconcile](#automatic-reconcile-git-hooks) for what they do.
+
 Manual registration remains possible; the equivalent entries are:
 
 ```jsonc
@@ -181,6 +191,10 @@ Deleting `.cortex/decisions.db` costs nothing you cannot rebuild — the next
 command reconstructs every decision, anchor and link from the files. Session
 history is the exception: it is local and does not come back.
 
+Reconciling is lazy by default — it happens when you run a command. `cortex
+install --git-hooks` makes it happen when the branch changes instead; see
+[Automatic reconcile](#automatic-reconcile-git-hooks).
+
 `cortex sync` forces the full pass and reports what it found: files that will
 not parse, links whose target this store has never seen, and decisions
 superseded from two branches at once. A fresh clone has no vectors until
@@ -191,6 +205,7 @@ measures 0.978 recall@5 against 1.000 with vectors.
 
 ```bash
 cortex install [--yes] [--target T]     # register the MCP server with detected agents
+cortex install --git-hooks              # reconcile on commit, checkout and merge
 cortex log [--module M] [--since SHA]   # active decisions, newest first
 cortex why <path>                       # decisions anchored to a file or directory
 cortex search <terms...> [--exact]      # search with score and origin
@@ -230,6 +245,37 @@ Register it in `~/.claude/settings.json`:
 ```
 
 Kill-switch: `CORTEX_NO_PROMPT_HOOK=1`.
+
+## Automatic reconcile (git hooks)
+
+`cortex install --git-hooks` writes a marker-fenced block into three hooks of
+the repository you run it in:
+
+- **post-checkout** — the branch changed, so decisions that live on the branch
+  you left drop out of `log`, `why`, `search` and passive recall, and the ones
+  you came back to return;
+- **post-commit** — a decision committed with the code it explains is in the
+  store before you type anything else;
+- **post-merge** — a `git pull` that fast-forwards fires neither of the other
+  two, and pulling someone else's decisions is the whole point.
+
+The block calls `cortex git-hook`, which reconciles and then, after a commit or
+a merge, embeds anything new in the background. It never fails the git command
+that ran it, and it never creates a store: a repository with no `.cortex/` is
+left exactly as it was.
+
+The hooks directory comes from git itself (`git rev-parse --git-path hooks`),
+so `core.hooksPath` and husky are respected and every linked worktree is served
+by the same file — each one reconciles its own store. A hook you already own is
+kept and the block appended below it; uninstalling removes only the block. A
+hook written in another language is refused rather than broken.
+
+The absolute path of this binary is pinned at install time, because git runs
+hooks with the minimal `PATH` of GUI clients and CI runners. If that path stops
+existing, the hooks quietly do nothing until you rerun the install.
+
+Kill-switch: `CORTEX_NO_GIT_HOOK=1`. The code index is deliberately not rebuilt
+here — it stays lazy, and `cortex index` is the explicit pass.
 
 ## Code index
 

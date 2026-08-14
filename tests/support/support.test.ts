@@ -8,6 +8,7 @@ import { errnoCode, errorMessage } from "@/support/errors";
 import { sha256Hex } from "@/support/hash";
 import { parseJsonOrNull } from "@/support/json";
 import { truncate } from "@/support/text";
+import { tildify } from "@/support/tildify";
 
 describe("errorMessage", () => {
 	test("unwraps an Error and stringifies anything else", () => {
@@ -76,5 +77,15 @@ describe("writeAtomically", () => {
 		await writeAtomically(target, "second");
 		expect(readFileSync(target, "utf8")).toBe("second");
 		expect(readdirSync(directory)).toEqual(["asset.bin"]);
+	});
+});
+
+describe("tildify", () => {
+	test("shortens a path under the home directory", () => {
+		expect(tildify("/home/dev/.cortex", "/home/dev")).toBe("~/.cortex");
+	});
+
+	test("leaves a path elsewhere alone", () => {
+		expect(tildify("/opt/hooks", "/home/dev")).toBe("/opt/hooks");
 	});
 });

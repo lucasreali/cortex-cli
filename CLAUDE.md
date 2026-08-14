@@ -42,7 +42,8 @@ Dependency direction, no cycles:
   derived store, share types through `domain/`. Everything here is
   synchronous — the reconcile runs in one `bun:sqlite` transaction, which
   cannot survive an `await`.
-- `git/` — subprocess git: repo root, HEAD, canonical project identity.
+- `git/` — subprocess git: repo root, HEAD, canonical project identity, hooks
+  path. Every accessor answers `null` outside a repo; none of them throw.
 - `indexer/` — tree-sitter code index (TS/JS only), reconciled lazily on
   first use; no file watcher (deliberate — see todo.md).
 - `embedding/` — the hard part; see topology below.
@@ -53,7 +54,16 @@ Dependency direction, no cycles:
 - `app/` — use cases; `runtime.ts` is the composition root. Use cases narrow
   `CortexRuntime` with `Pick<>` instead of introducing interfaces.
 - `cli/` — hand-rolled dispatch table in `main.ts` (deliberate, no CLI
-  framework); one file per command in `cli/commands/`.
+  framework); one file per command in `cli/commands/`. Four are `hidden`
+  because another program invokes them, never a person: `prompt-hook` (Claude
+  Code), `git-hook` (the installed git hooks), `embed-worker` and
+  `embed-daemon` (the binary spawning itself).
+- `install/` — pure logic only, home and cwd passed in as parameters, 100%
+  in-process coverage; the thin command files touch process state.
+  `marked-block.ts` is the one marker fence, shared by the instruction block
+  `init` writes into `CLAUDE.md` and the shell block `install --git-hooks`
+  writes into a hook, and its `remove` is the exact inverse of its append —
+  that is what lets uninstall hand a file the user owns back unchanged.
 - `mcp/` — server with 6 tools; `RuntimeRegistry` caches one runtime per
   resolved project root. Recoverable states return `guidanceResult`, never
   `isError`. `search_all_projects` is deliberately unscoped (no
@@ -101,6 +111,14 @@ revisit a `content_sha` column that day, and not before.
   `cortex embed --missing` owns that, and doctor reports the pending count.
 - `prompt-hook` never reconciles — it is read-only and must never migrate. It
   serves the previous view until the next command runs.
+- `git-hook` is its mirror image: reconciling is the whole job, so it opens the
+  store read-write — but only when `decisions.db` already exists, so a hook can
+  never conjure a store behind a commit. It bypasses `app/runtime` (which would
+  register the project, may rewrite the config, and prints when uninitialized),
+  returns 0 on every path so it cannot fail a commit, and spawns
+  `embed --missing` detached after a commit or a merge only. Not after a
+  checkout: `git rebase` replays that hook once per commit, and a restored
+  decision still has its vector. It does not touch the code index.
 
 ## Embedding process topology
 

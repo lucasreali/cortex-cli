@@ -22,6 +22,7 @@ const CLI_IMPACT_PARITY = "019f8732-abea-7000-8776-707b0ed05597";
 const APP_LAYER_COMPOSITION_ROOT = "019f874c-5429-7000-8ad2-8ca97eb71949";
 const INDEXING_OPTIMIZATIONS_REJECTED = "019f8aaf-9e4d-7000-b73f-6b6a367c0869";
 const NO_FILE_WATCHER = "019f8aaf-9e54-7000-a55f-33e6857eae2f";
+const GIT_HOOKS_RECONCILE = "01a0026e-5098-7000-b08f-eb55b9b38a33";
 const INIT_GITIGNORES_CORTEX = "019f8ab8-5de0-7000-baa0-797e10ac3ed2";
 const PROMPT_HOOK_TIER_GATE = "019f8ba3-d013-7000-bc25-bbcf1d7bfd42";
 const MCP_MULTI_PROJECT = "019f8bbd-1e5f-7000-b3df-5e6c26ffaf09";
@@ -211,6 +212,16 @@ export const GROUND_TRUTH: EvalCase[] = [
 		id: "watcher-en",
 		query: "keeping the code index up to date automatically when files change",
 		expected: [NO_FILE_WATCHER, INDEX_FULL_OR_INCREMENTAL],
+	},
+	{
+		id: "git-hooks-pt",
+		query: "trocar de branch precisa rodar cortex sync na mão?",
+		expected: [GIT_HOOKS_RECONCILE],
+	},
+	{
+		id: "git-hooks-en",
+		query: "post-commit post-checkout post-merge hook reconcile decisions",
+		expected: [GIT_HOOKS_RECONCILE],
 	},
 	{
 		id: "gitignore-pt",
