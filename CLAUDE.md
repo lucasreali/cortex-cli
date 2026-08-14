@@ -178,6 +178,16 @@ purpose: it runs on every prompt and must never fail or migrate state.
   absent (subprocess-covered or type-only) and fails on anything else — a new
   untested file cannot slip past the threshold. Both directions are checked:
   an exemption that becomes instrumented or deleted fails too.
+- Every name this file puts in backticks is asserted by
+  `tests/docs/claude-md.test.ts`: a path must resolve in the tree, a hidden
+  command must have a file under `cli/commands/`, and a multi-word identifier
+  must appear in `src/`, `scripts/` or `install.sh` with comments stripped —
+  a name that survives only in a comment, in a test or in a derived store has
+  not survived. Spans matching none of those shapes are ignored, so a
+  minimum-match floor guards the extractor itself. A name that deliberately
+  does not exist — `content_sha` is the standing example — goes in that
+  test's exemption map with its reason, checked in both directions like the
+  coverage audit.
 
 ## Dogfooding
 

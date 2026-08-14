@@ -10,32 +10,6 @@ where the reference implementation lives in graphify.
 
 ---
 
-## High priority
-
-### 4. Doc/code parity test for CLAUDE.md
-
-`CLAUDE.md` is unusually prescriptive — embedding process topology, dependency
-direction, reconciler invariants, named files and constants — and nothing
-guarantees it stays true. `scripts/coverage-audit.ts` is the precedent: it
-already fails when the explicit exemption list drifts from reality, in both
-directions.
-
-graphify's `tests/test_architecture_doc.py` parses the module table in
-`ARCHITECTURE.md` and imports every symbol it names, so adding a row extends
-coverage automatically and renaming a function fails the suite until the doc
-is updated. It also guards the parser itself with an assertion that a minimum
-number of symbols were matched — a regex that silently matches nothing would
-make every parametrized test vacuous.
-
-- Extract the paths and identifiers cited in `CLAUDE.md`
-  (`embedding/serial-lane.ts`, `MINIMUM_KEYWORDS`, `DecisionSyncRepository`,
-  `RELEASE_SUFFIXES`, …) and assert each still exists.
-- Guard the extractor with a minimum-match assertion.
-- Acceptance: deleting or renaming any file named in `CLAUDE.md` fails
-  `bun test`.
-
----
-
 ## Medium priority
 
 ### 5. Usefulness signal as a local sidecar
