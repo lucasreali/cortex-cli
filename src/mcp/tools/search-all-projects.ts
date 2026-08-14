@@ -7,7 +7,11 @@ import {
 } from "@/app/search-all-projects";
 import type { SemanticSearchResult } from "@/embedding/semantic-search";
 import type { RuntimeRegistry } from "@/mcp/runtime-registry";
-import { readRegisteredProjects } from "@/storage/project-registry";
+import {
+	type ProjectRegistryRead,
+	projectsRegistryPath,
+	readProjectRegistry,
+} from "@/storage/project-registry";
 import { READ_ONLY_ANNOTATIONS } from "./annotations";
 import { errorResult, guidanceResult, jsonResult } from "./results";
 
@@ -21,6 +25,15 @@ const NO_PROJECTS_GUIDANCE =
 	"No Cortex projects registered on this machine yet. A project registers " +
 	"when `cortex init` runs there or when a session first touches it; after " +
 	"that, this tool can search it.";
+
+function registryUnreadableGuidance(): string {
+	return (
+		`The project registry at ${projectsRegistryPath()} is not valid JSON, so ` +
+		"no project could be listed. It is kept as a `.corrupt.<timestamp>` " +
+		"sibling the next time a project registers; run `cortex doctor` for the " +
+		"details."
+	);
+}
 
 export function registerSearchAllProjects(
 	server: McpServer,
@@ -60,8 +73,15 @@ async function searchEverywhere(
 	registry: RuntimeRegistry,
 	args: { terms: string[]; exact?: boolean },
 ) {
-	const roots = knownRoots(registry);
+	const registered = readProjectRegistry();
+	const roots = knownRoots(registered, registry);
 	if (roots.length === 0) {
+		if (registered.state === "unreadable") {
+			return guidanceResult(
+				"registry_unreadable",
+				registryUnreadableGuidance(),
+			);
+		}
 		return guidanceResult("no_projects", NO_PROJECTS_GUIDANCE);
 	}
 	const outcome = await searchAllProjects(
@@ -70,20 +90,34 @@ async function searchEverywhere(
 		args.terms,
 		args.exact === true,
 	);
-	return jsonResult(toPayload(outcome));
+	return jsonResult(toPayload(outcome, registered));
 }
 
-function knownRoots(registry: RuntimeRegistry): string[] {
-	const roots = readRegisteredProjects().map((project) => project.root);
+function knownRoots(
+	registered: ProjectRegistryRead,
+	registry: RuntimeRegistry,
+): string[] {
+	const roots =
+		registered.state === "ok"
+			? registered.projects.map((entry) => entry.root)
+			: [];
 	const current = registry.defaultRoot;
 	if (current && !roots.includes(current)) roots.push(current);
 	return roots;
 }
 
-function toPayload(outcome: AllProjectsSearch) {
+// An unreadable registry narrows the sweep to whatever root the session already
+// had, so the answer has to say it is partial instead of reading as complete.
+function toPayload(
+	outcome: AllProjectsSearch,
+	registered: ProjectRegistryRead,
+) {
 	return {
 		projects: outcome.projects.map(projectEntry),
 		...(outcome.skipped.length > 0 ? { skipped: outcome.skipped } : {}),
+		...(registered.state === "unreadable"
+			? { registry_unreadable: projectsRegistryPath() }
+			: {}),
 	};
 }
 

@@ -147,6 +147,11 @@ The agent gets six tools:
 | `search` | Keyword search (accent-insensitive FTS) with optional semantic ranking |
 | `search_all_projects` | Search every Cortex project registered on this machine (`~/.cortex/projects.json`, filled by `cortex init` and first use); results grouped per project, never merged — also available as `cortex search --all-projects` |
 
+The registry is a cache and can be deleted, but never silently: if
+`projects.json` is ever unreadable, it is kept as
+`projects.json.corrupt.<timestamp>` before anything writes over it, and
+`cortex doctor` reports both the backup and how many projects are registered.
+
 Every tool accepts an optional `projectPath` (any directory inside the target
 project): the nearest `.cortex/` store is resolved walking up on each call and
 its runtime is cached per resolved root, so one server answers for as many

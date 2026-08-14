@@ -4,6 +4,8 @@ import {
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
+	readFileSync,
 	realpathSync,
 	rmSync,
 	unlinkSync,
@@ -389,6 +391,69 @@ describe("cortex CLI", () => {
 		} finally {
 			rmSync(other, { recursive: true, force: true });
 			rmSync(dirname(registry), { recursive: true, force: true });
+		}
+	});
+
+	test("an unreadable registry is kept aside instead of overwritten", () => {
+		const registryDir = realpathSync(
+			mkdtempSync(join(tmpdir(), "cortex-xp-corrupt-cli-")),
+		);
+		const registry = join(registryDir, "projects.json");
+		const first = realpathSync(mkdtempSync(join(tmpdir(), "cortex-cli-one-")));
+		const second = realpathSync(mkdtempSync(join(tmpdir(), "cortex-cli-two-")));
+		const spawnIn = (cwd: string, ...args: string[]) =>
+			Bun.spawnSync(["bun", MAIN_PATH, ...args], {
+				cwd,
+				stdout: "pipe",
+				stderr: "pipe",
+				env: {
+					...process.env,
+					CORTEX_DISABLE_EMBEDDINGS: "1",
+					HOME: fakeHome,
+					CORTEX_PROJECTS_FILE: registry,
+				},
+			});
+		const backups = () =>
+			readdirSync(registryDir).filter((name) =>
+				name.startsWith("projects.json.corrupt."),
+			);
+		try {
+			expect(spawnIn(first, "init", "--yes").exitCode).toBe(0);
+			const truncated = readFileSync(registry, "utf8").slice(0, -20);
+			writeFileSync(registry, truncated);
+
+			const init = spawnIn(second, "init", "--yes");
+			expect(init.exitCode).toBe(0);
+			const stderr = init.stderr.toString();
+			expect(stderr).toContain("is not valid JSON");
+			expect(stderr).toContain("moved to");
+
+			expect(backups()).toHaveLength(1);
+			const kept = readFileSync(
+				join(registryDir, backups()[0] as string),
+				"utf8",
+			);
+			expect(kept).toBe(truncated);
+			expect(kept).toContain(first);
+			expect(readFileSync(registry, "utf8")).toContain(second);
+
+			const doctor = spawnIn(second, "doctor");
+			expect(doctor.stdout.toString()).toContain(
+				"project registry: 1 project(s) registered",
+			);
+			expect(doctor.stdout.toString()).toContain("kept aside");
+
+			writeFileSync(registry, truncated);
+			const search = spawnIn(second, "search", "jwt", "--all-projects");
+			expect(search.exitCode).toBe(0);
+			expect(search.stderr.toString()).toContain(
+				"only the current project was searched",
+			);
+			expect(backups()).toHaveLength(1);
+		} finally {
+			for (const path of [first, second, registryDir]) {
+				rmSync(path, { recursive: true, force: true });
+			}
 		}
 	});
 

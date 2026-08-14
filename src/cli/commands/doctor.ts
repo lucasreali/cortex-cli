@@ -17,6 +17,11 @@ import { type OpenCodeRepository, openCodeRepository } from "@/storage/code-db";
 import type { CodeRepository } from "@/storage/code-repository";
 import { readConfigState } from "@/storage/config";
 import { CODE_SCHEMA_VERSION, SCHEMA_VERSION } from "@/storage/migrations";
+import {
+	corruptRegistryBackups,
+	projectsRegistryPath,
+	readProjectRegistry,
+} from "@/storage/project-registry";
 import { errorMessage } from "@/support/errors";
 
 const MINIMUM_RESOLUTION_RATE = 0.85;
@@ -34,6 +39,7 @@ export async function runDoctor(args: string[], cwd: string): Promise<number> {
 		checkEmbeddings(runtime, report);
 		checkKeywords(runtime, report);
 		checkModelDownloaded(report);
+		checkProjectRegistry(report);
 		await checkCodeIndex(runtime, report);
 		return values.json ? report.finishJson() : report.finish();
 	});
@@ -332,6 +338,34 @@ function hasResolvableIntent(
 ): boolean {
 	if (specifier.startsWith("./") || specifier.startsWith("../")) return true;
 	return aliases.expand(specifier).length > 0;
+}
+
+// Every command registers its project before the checks run, so an unreadable
+// registry that reaches here is one whose backup failed too — the file needs
+// hands. A backup that is merely lying around is reported as a fact, not as an
+// issue, the way off-branch decisions are.
+function checkProjectRegistry(report: DoctorReport): void {
+	const registered = readProjectRegistry();
+	if (registered.state === "unreadable") {
+		report.warn(
+			`project registry at ${projectsRegistryPath()} is not valid JSON and ` +
+				"could not be moved aside — fix or delete it, or cross-project " +
+				"search only sees this project",
+		);
+		return;
+	}
+	reportRegistryBackups(report);
+	const count = registered.state === "ok" ? registered.projects.length : 0;
+	report.ok(`project registry: ${count} project(s) registered`);
+}
+
+function reportRegistryBackups(report: DoctorReport): void {
+	const backups = corruptRegistryBackups();
+	if (backups.length === 0) return;
+	report.ok(
+		`${backups.length} unreadable project registry(ies) kept aside: ` +
+			`${backups.join(", ")} — restore or delete them`,
+	);
 }
 
 function checkModelDownloaded(report: DoctorReport): void {

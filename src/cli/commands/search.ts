@@ -10,7 +10,11 @@ import { projectRootFor, withRuntime } from "@/cli/open-runtime";
 import { style, warning } from "@/cli/style";
 import { usageError } from "@/cli/usage";
 import type { SemanticSearchResult } from "@/embedding/semantic-search";
-import { readRegisteredProjects } from "@/storage/project-registry";
+import {
+	type ProjectRegistryRead,
+	projectsRegistryPath,
+	readProjectRegistry,
+} from "@/storage/project-registry";
 
 export async function runSearch(args: string[], cwd: string): Promise<number> {
 	const { values, positionals } = parseArgs({
@@ -53,9 +57,11 @@ async function searchEverywhere(
 	json: boolean,
 ): Promise<number> {
 	const opened: CortexRuntime[] = [];
+	const registry = readProjectRegistry();
+	reportUnreadableRegistry(registry);
 	try {
 		const outcome = await searchAllProjects(
-			knownRoots(cwd),
+			knownRoots(registry, cwd),
 			async (root) => {
 				const runtime = await buildRuntimeAt(root, { sharedEmbedding: true });
 				opened.push(runtime);
@@ -72,13 +78,28 @@ async function searchEverywhere(
 	}
 }
 
-function knownRoots(cwd: string): string[] {
-	const roots = readRegisteredProjects().map((project) => project.root);
+function knownRoots(registry: ProjectRegistryRead, cwd: string): string[] {
+	const roots =
+		registry.state === "ok"
+			? registry.projects.map((project) => project.root)
+			: [];
 	const current = projectRootFor(cwd);
 	if (current.isInitialized() && !roots.includes(current.directory)) {
 		roots.push(current.directory);
 	}
 	return roots;
+}
+
+// An unreadable registry narrows the sweep to the current project, so saying
+// nothing would pass a partial answer off as a complete one.
+function reportUnreadableRegistry(registry: ProjectRegistryRead): void {
+	if (registry.state !== "unreadable") return;
+	console.error(
+		warning(
+			`project registry at ${projectsRegistryPath()} is not valid JSON — ` +
+				"only the current project was searched",
+		),
+	);
 }
 
 function printEverywhere(outcome: AllProjectsSearch, json: boolean): void {

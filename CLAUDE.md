@@ -61,6 +61,12 @@ Dependency direction, no cycles:
   per-user registry filled by `cortex init` and first use, pruned on read —
   and returns results grouped per project, never merged into one ranking.
   Scoped reads stay scoped; never fold cross-project search into them.
+  Rebuildable is not disposable: a registry that is there but unreadable is
+  renamed to `projects.json.corrupt.<timestamp>` before anything writes over
+  it, and left alone when even that fails, because starting fresh drops every
+  other project the user tracks. Reads never write; the state reaches the
+  caller (`ProjectRegistryRead`) so a narrowed sweep says so instead of
+  passing for a complete one.
 
 ## Decisions are files, the database is a cache
 
