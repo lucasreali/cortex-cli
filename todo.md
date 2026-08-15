@@ -12,28 +12,6 @@ where the reference implementation lives in graphify.
 
 ## Medium priority
 
-### 5. Usefulness signal as a local sidecar
-
-The closest conceptual match in graphify: `graphify/reflect.py` aggregates
-`useful` / `dead_end` / `corrected` outcomes over past answers using a signed,
-time-decayed score (30-day half-life, so a fresh dead end outweighs a
-months-old useful), requires corroboration from 2 distinct results before
-promoting a source to "preferred", and handles the contested case explicitly
-(both positive and negative signals → recency decides). It is deterministic:
-no LLM, stable sort order, byte-stable output for a given input and `now`.
-
-The load-bearing design decision is that this lands in a **sidecar**
-(`.graphify_learning.json`), never stamped into the durable graph. That is
-cortex's own file/cache split: a decision file is immutable and versioned;
-which decisions proved useful *on this machine* is derived, local, and must
-not touch the markdown.
-
-- Record which decisions `get_context` returned and which the session actually
-  acted on, under `.cortex/local/` (gitignored, rebuildable, deletable).
-- Feed it into search ranking as a tiebreaker, not as a primary signal.
-- Acceptance: deleting the sidecar changes ranking but never results; no
-  decision file is ever rewritten.
-
 ### 6. Anchor confidence labels
 
 graphify labels every edge `EXTRACTED` (explicit in the source), `INFERRED`

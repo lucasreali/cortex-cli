@@ -18,6 +18,8 @@ import { migrate, SCHEMA_VERSION } from "@/storage/migrations";
 import { NodeRepository, type SaveContext } from "@/storage/node-repository";
 import { ProjectRoot } from "@/storage/project-root";
 import { SearchRepository } from "@/storage/search-repository";
+import { UsefulnessEventLog } from "@/usefulness/event-log";
+import { UsefulnessRecorder } from "@/usefulness/recorder";
 
 export interface CortexRuntime {
 	repoRoot: string;
@@ -34,6 +36,7 @@ export interface CortexRuntime {
 	semanticSearch: SemanticSearch;
 	codeIndex: CodeIndex;
 	decisions: DecisionSync;
+	usefulness: UsefulnessRecorder;
 	ensureSession(): string;
 	saveContext(): SaveContext;
 	dispose(): void;
@@ -51,7 +54,8 @@ export async function buildRuntimeAt(
 	repoRoot: string,
 	options: RuntimeOptions = {},
 ): Promise<CortexRuntime> {
-	const cortexDir = ProjectRoot.at(repoRoot).cortexDir;
+	const project = ProjectRoot.at(repoRoot);
+	const cortexDir = project.cortexDir;
 	mkdirSync(cortexDir, { recursive: true });
 	const db = openDecisionsDb(cortexDir);
 	exportDecisionsIfNeeded(cortexDir, db, migrate(db));
@@ -80,11 +84,13 @@ export async function buildRuntimeAt(
 		: createProvider(pinnedModelId, {
 				shared: options.sharedEmbedding === true,
 			});
+	const usefulnessLog = new UsefulnessEventLog(project.usefulnessLogPath);
 	const semanticSearch = new SemanticSearch({
 		nodes,
 		embeddings,
 		fts,
 		provider,
+		usefulness: usefulnessLog,
 	});
 	const queue = provider
 		? new EmbedQueue({
@@ -109,9 +115,13 @@ export async function buildRuntimeAt(
 	const codeIndex = new LazyCodeIndex(repoRoot);
 	const projectCanonicalId = getCanonicalProjectId(repoRoot) ?? repoRoot;
 	const projectNodeId = nodes.ensureProject(projectCanonicalId);
+	// Minted here, inserted only when a write path needs the row: the local
+	// usefulness log keys its events by this id from the first read, and a
+	// read-only tool must not leave a session node behind to be recorded.
+	const sessionId = Bun.randomUUIDv7();
 	let sessionNodeId: string | null = null;
 	const ensureSession = (): string => {
-		sessionNodeId ??= nodes.createSession(projectNodeId);
+		sessionNodeId ??= nodes.createSession(projectNodeId, sessionId);
 		return sessionNodeId;
 	};
 
@@ -130,6 +140,7 @@ export async function buildRuntimeAt(
 		semanticSearch,
 		codeIndex,
 		decisions,
+		usefulness: new UsefulnessRecorder(usefulnessLog, sessionId),
 		ensureSession,
 		saveContext() {
 			const head = getHead(repoRoot);

@@ -9,7 +9,10 @@ import { printJson } from "@/cli/json";
 import { projectRootFor, withRuntime } from "@/cli/open-runtime";
 import { style, warning } from "@/cli/style";
 import { usageError } from "@/cli/usage";
-import type { SemanticSearchResult } from "@/embedding/semantic-search";
+import {
+	SCORE_PRECISION,
+	type SemanticSearchResult,
+} from "@/embedding/semantic-search";
 import {
 	type ProjectRegistryRead,
 	projectsRegistryPath,
@@ -126,7 +129,7 @@ function printEverywhere(outcome: AllProjectsSearch, json: boolean): void {
 }
 
 function formatLine(result: SemanticSearchResult): string {
-	const score = style.dim(result.score.toFixed(3));
+	const score = style.dim(result.score.toFixed(SCORE_PRECISION));
 	const id = style.dim(result.node.id);
 	return `${score}  ${paintSource(result.source)}  ${result.node.title}  ${id}`;
 }

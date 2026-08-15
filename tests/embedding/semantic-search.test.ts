@@ -7,7 +7,12 @@ import { seedDecision } from "@tests/support/seed";
 import type { CreateDecisionInput } from "@/domain";
 import type { EmbeddingProvider } from "@/embedding/provider";
 import { EmbedQueue } from "@/embedding/queue";
-import { dot, fuseRankings, SemanticSearch } from "@/embedding/semantic-search";
+import {
+	displayScore,
+	dot,
+	fuseRankings,
+	SemanticSearch,
+} from "@/embedding/semantic-search";
 import { openDecisionsDb } from "@/storage/connection";
 import { EmbeddingRepository } from "@/storage/embedding-repository";
 import { migrate } from "@/storage/migrations";
@@ -396,5 +401,95 @@ describe("SemanticSearch — replaced decisions", () => {
 		const results = await search.search("jwt");
 
 		expect(results.map((result) => result.node.id)).toEqual([replacement.id]);
+	});
+});
+
+describe("SemanticSearch — usefulness tiebreaker", () => {
+	function ranking(scores: Record<string, number>) {
+		return { scores: () => new Map(Object.entries(scores)) };
+	}
+
+	function textualSearch(usefulness?: { scores(): Map<string, number> }) {
+		return new SemanticSearch({
+			nodes,
+			embeddings,
+			fts,
+			provider: null,
+			usefulness,
+		});
+	}
+
+	function seedBoth(): void {
+		seedDecision(dir, db, jwtInput, context);
+		seedDecision(dir, db, postgresInput, context);
+	}
+
+	test("orders results the printed score cannot tell apart", async () => {
+		seedBoth();
+		const baseline = await textualSearch().search("jwt migrations");
+		expect(baseline).toHaveLength(2);
+		const printed = baseline.map((result) => displayScore(result.score));
+		expect(printed[0]).toBe(printed[1] as number);
+		const runnerUp = baseline[1]?.node.id as string;
+
+		const results = await textualSearch(ranking({ [runnerUp]: 2 })).search(
+			"jwt migrations",
+		);
+
+		expect(results.map((result) => result.node.id)).toEqual([
+			runnerUp,
+			baseline[0]?.node.id as string,
+		]);
+	});
+
+	test("a passed-over decision falls behind", async () => {
+		seedBoth();
+		const baseline = await textualSearch().search("jwt migrations");
+		const leader = baseline[0]?.node.id as string;
+
+		const results = await textualSearch(ranking({ [leader]: -0.25 })).search(
+			"jwt migrations",
+		);
+
+		expect(results[1]?.node.id).toBe(leader);
+	});
+
+	test("an empty sidecar leaves the fused order alone", async () => {
+		seedBoth();
+
+		const baseline = await textualSearch().search("jwt migrations");
+		const results = await textualSearch(ranking({})).search("jwt migrations");
+
+		expect(results.map((result) => result.node.id)).toEqual(
+			baseline.map((result) => result.node.id),
+		);
+	});
+
+	test("it never changes which decisions come back", async () => {
+		seedBoth();
+		const onlyOne = { topK: 1 };
+		const without = new SemanticSearch(
+			{ nodes, embeddings, fts, provider: null },
+			onlyOne,
+		);
+		const baseline = await without.search("jwt migrations");
+		const runnerUp = (await textualSearch().search("jwt migrations"))[1]?.node
+			.id as string;
+		const with_ = new SemanticSearch(
+			{
+				nodes,
+				embeddings,
+				fts,
+				provider: null,
+				usefulness: ranking({ [runnerUp]: 99 }),
+			},
+			onlyOne,
+		);
+
+		const results = await with_.search("jwt migrations");
+
+		expect(results.map((result) => result.node.id)).toEqual(
+			baseline.map((result) => result.node.id),
+		);
 	});
 });

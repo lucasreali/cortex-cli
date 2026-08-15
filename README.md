@@ -174,6 +174,15 @@ Saving writes the markdown file first, then the row that mirrors it. Embeddings
 happen asynchronously off the save path and degrade to full-text search
 whenever the model is unavailable.
 
+Cortex also keeps track of which decisions a session was shown and which it
+actually acted on — it called `get_impact` on them, or linked them from a new
+decision. That signal lives in `.cortex/local/`, is never committed, and only
+breaks ties: among results your search cannot tell apart by score, the ones
+that proved useful on this machine come first. Deleting the directory changes
+the order of results, never which results you get, and `cortex doctor` reports
+how much of it has accumulated. `CORTEX_NO_USEFULNESS=1` turns the recording
+off.
+
 ### Decisions and branches
 
 A decision file is immutable: changing your mind writes a new file that

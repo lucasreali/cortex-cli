@@ -99,9 +99,11 @@ export class NodeRepository {
 		return id;
 	}
 
-	createSession(projectNodeId: string): string {
+	// The id may be minted before the row exists: the runtime needs a session
+	// identity for the local usefulness log from the first read, and a read must
+	// not insert a session node to get one.
+	createSession(projectNodeId: string, id = Bun.randomUUIDv7()): string {
 		return this.db.transaction(() => {
-			const id = Bun.randomUUIDv7();
 			this.db
 				.query("INSERT INTO nodes (id, kind) VALUES (?, 'session')")
 				.run(id);

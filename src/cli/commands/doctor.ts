@@ -22,7 +22,9 @@ import {
 	projectsRegistryPath,
 	readProjectRegistry,
 } from "@/storage/project-registry";
+import { ProjectRoot } from "@/storage/project-root";
 import { errorMessage } from "@/support/errors";
+import { UsefulnessEventLog } from "@/usefulness/event-log";
 
 const MINIMUM_RESOLUTION_RATE = 0.85;
 
@@ -39,6 +41,7 @@ export async function runDoctor(args: string[], cwd: string): Promise<number> {
 		checkEmbeddings(runtime, report);
 		checkEmbeddingVintages(runtime, report);
 		checkKeywords(runtime, report);
+		checkUsefulness(runtime, report);
 		checkModelDownloaded(report);
 		checkProjectRegistry(report);
 		await checkCodeIndex(runtime, report);
@@ -241,6 +244,24 @@ function checkKeywords(runtime: CortexRuntime, report: DoctorReport): void {
 			`fewer than ${MINIMUM_KEYWORDS} keywords: ${entry.title} (${entry.id})`,
 		);
 	}
+}
+
+// A fact, never an issue: an empty sidecar is the normal state of a fresh
+// clone, and the only thing that could go wrong with it — losing it — costs
+// nothing but the tiebreaker it feeds.
+function checkUsefulness(runtime: CortexRuntime, report: DoctorReport): void {
+	const log = new UsefulnessEventLog(
+		ProjectRoot.at(runtime.repoRoot).usefulnessLogPath,
+	);
+	const events = log.events();
+	if (events.length === 0) {
+		report.ok("usefulness signal: nothing recorded yet");
+		return;
+	}
+	report.ok(
+		`usefulness signal: ${events.length} event(s), ${log.scores().size} ` +
+			"decision(s) ranked by it — delete .cortex/local/ to reset",
+	);
 }
 
 async function checkCodeIndex(

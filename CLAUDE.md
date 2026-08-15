@@ -42,6 +42,13 @@ Dependency direction, no cycles:
   derived store, share types through `domain/`. Everything here is
   synchronous — the reconcile runs in one `bun:sqlite` transaction, which
   cannot survive an `await`.
+- `usefulness/` — the local signal behind the search tiebreaker: which
+  decisions a session was shown and which it acted on, appended to a
+  gitignored JSONL (`usefulness.jsonl`, under `LOCAL_DIRECTORY`). The mirror
+  image of `decisions/`: same shape, opposite status — nothing here is
+  versioned, nothing here may ever reach a markdown file, and deleting the
+  directory costs only an ordering. `usefulnessScores` is pure and takes
+  `now`, so one log always yields one map.
 - `git/` — subprocess git: repo root, HEAD, canonical project identity, hooks
   path. Every accessor answers `null` outside a repo; none of them throw.
 - `indexer/` — tree-sitter code index (TS/JS only), reconciled lazily on
@@ -119,6 +126,40 @@ revisit a `content_sha` column that day, and not before.
   `embed --missing` detached after a commit or a merge only. Not after a
   checkout: `git rebase` replays that hook once per commit, and a restored
   decision still has its vector. It does not touch the code index.
+
+## The usefulness sidecar ranks, it never selects
+
+Which decisions proved useful is a fact about *this machine*, so it lives in
+the same relation to the markdown as the SQLite caches do: derived, local,
+deletable. The rule that keeps it honest is that it reorders results already
+chosen, never chooses them — delete the sidecar and the ordering changes, the
+result set cannot.
+
+- Recorded, at most once per decision per kind per session
+  (`UsefulnessRecorder`): `shown` from `get_context` **with an intent** and
+  from `search`; `used` from `get_impact`, and from every id a `save_decision`
+  cites in `depends_on`, `replaces`, `archives` or `conflicts_with`. The
+  overview path of `get_context` records nothing — listing the most recent
+  decisions is browsing, and counting it would mark every new decision as
+  passed over. Neither does `search_all_projects`: a discovery sweep has no
+  follow-through inside a project to observe.
+- Scored by `usefulnessScores`: signed, halving every `HALF_LIFE_DAYS`. A
+  positive counts only once `MINIMUM_CORROBORATING_SESSIONS` distinct sessions
+  used the decision; a `PASSED_OVER_WEIGHT` negative lands only on a decision
+  a session saw while acting on a different one — a session that used nothing
+  may simply never have got there, and its silence is not a verdict. Both
+  signs on one decision is the contested case, and the decayed sum settles it
+  by recency.
+- Applied after the top-K slice, ordering only results that share a
+  `displayScore` — the very rounding every surface prints, so the rule is one
+  a reader can check: results the printed score cannot tell apart are ordered
+  by what proved useful here. `exact=true` is left alone; a literal lookup has
+  no ties worth breaking.
+- `UsefulnessEventLog` never throws and never blocks: an unreadable or
+  unwritable log degrades to no signal, and compaction re-reads before
+  rewriting so a concurrent process's events are not what disappears.
+  `CORTEX_NO_USEFULNESS=1` stops the recording; deleting the directory is the
+  reset, and `doctor` reports the counts as a fact, never as an issue.
 
 ## Embedding process topology
 

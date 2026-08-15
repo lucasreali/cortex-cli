@@ -64,6 +64,11 @@ async function getImpact(
 				"project, pass its projectPath.",
 		);
 	}
+	// A read-only tool that writes: the annotation is about the product — no
+	// decision file, row or edge changes here — while the local sidecar records
+	// ids and timestamps inside this repo alone. Nothing a query said leaves the
+	// machine, which is what would force the opt-in posture instead.
+	runtime.usefulness.used([args.decision_id]);
 	return jsonResult(toPayload(impact));
 }
 

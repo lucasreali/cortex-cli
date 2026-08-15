@@ -2,7 +2,10 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { CortexRuntime } from "@/app/runtime";
 import type { Decision } from "@/domain";
-import type { SemanticSearchResult } from "@/embedding/semantic-search";
+import {
+	displayScore,
+	type SemanticSearchResult,
+} from "@/embedding/semantic-search";
 import type { RuntimeRegistry } from "@/mcp/runtime-registry";
 import { truncate } from "@/support/text";
 import { READ_ONLY_ANNOTATIONS } from "./annotations";
@@ -75,6 +78,10 @@ async function intentContext(
 	const filtered = module
 		? results.filter((result) => result.node.module === module)
 		: results;
+	// Only the intent path records: the overview lists the most recent
+	// decisions, which is browsing rather than a judgement about relevance, and
+	// counting it would mark every new decision as passed over.
+	runtime.usefulness.shown(filtered.map((result) => result.node.id));
 	const conflicts = conflictsOf(
 		runtime,
 		filtered.map((result) => result.node),
@@ -112,7 +119,7 @@ function searchEntry(
 ) {
 	return {
 		...decisionEntry(result.node, conflicts),
-		score: Number(result.score.toFixed(3)),
+		score: displayScore(result.score),
 		source: result.source,
 	};
 }
