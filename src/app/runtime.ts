@@ -10,6 +10,9 @@ import { EmbedQueue } from "@/embedding/queue";
 import { SemanticSearch } from "@/embedding/semantic-search";
 import { getCanonicalProjectId, getHead, getRepoRoot } from "@/git";
 import { type CodeIndex, LazyCodeIndex } from "@/indexer/lazy-code-index";
+import { QueryLog } from "@/querylog/query-log";
+import { QueryRecorder } from "@/querylog/recorder";
+import { QueryLogSettings } from "@/querylog/settings";
 import { readConfig, writeConfig } from "@/storage/config";
 import { openDecisionsDb } from "@/storage/connection";
 import { EdgeRepository } from "@/storage/edge-repository";
@@ -37,6 +40,7 @@ export interface CortexRuntime {
 	codeIndex: CodeIndex;
 	decisions: DecisionSync;
 	usefulness: UsefulnessRecorder;
+	queries: QueryRecorder;
 	ensureSession(): string;
 	saveContext(): SaveContext;
 	dispose(): void;
@@ -141,6 +145,10 @@ export async function buildRuntimeAt(
 		codeIndex,
 		decisions,
 		usefulness: new UsefulnessRecorder(usefulnessLog, sessionId),
+		queries: new QueryRecorder(
+			new QueryLog(QueryLogSettings.from(cortexDir)),
+			sessionId,
+		),
 		ensureSession,
 		saveContext() {
 			const head = getHead(repoRoot);

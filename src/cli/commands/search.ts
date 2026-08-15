@@ -13,6 +13,7 @@ import {
 	SCORE_PRECISION,
 	type SemanticSearchResult,
 } from "@/embedding/semantic-search";
+import { searchQuery } from "@/querylog/entry";
 import {
 	type ProjectRegistryRead,
 	projectsRegistryPath,
@@ -35,6 +36,10 @@ export async function runSearch(args: string[], cwd: string): Promise<number> {
 	}
 	return withRuntime(cwd, async (runtime) => {
 		const results = await searchDecisions(runtime, positionals, values.exact);
+		runtime.queries.record(
+			searchQuery(positionals, values.exact),
+			results.map((result) => result.node.id),
+		);
 		if (values.json) {
 			printJson(results);
 			return 0;

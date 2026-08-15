@@ -18,6 +18,11 @@ const MAX_TERMS = 24;
 const MAX_HIGH_DECISIONS = 3;
 const MAX_MEDIUM_DECISIONS = 5;
 
+// The prompt itself is never written anywhere, query log included: it is
+// whatever the user typed, not a query an agent composed, and `prompt-hook`
+// runs on every one of them. Recording here would turn an opt-in evaluation
+// aid into a keylogger.
+//
 // Tiers are precision-first: a false injection costs trust on every
 // unrelated prompt, a miss costs nothing (the agent can still call
 // get_context). Curated keywords (min 5 per decision, PT+EN) are the

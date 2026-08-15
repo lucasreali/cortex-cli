@@ -11,6 +11,7 @@ import {
 	type SemanticSearchResult,
 } from "@/embedding/semantic-search";
 import type { RuntimeRegistry } from "@/mcp/runtime-registry";
+import { contextQuery } from "@/querylog/entry";
 import { truncate } from "@/support/text";
 import { READ_ONLY_ANNOTATIONS } from "./annotations";
 import { projectPathField, scopedToProject } from "./project-scope";
@@ -86,6 +87,13 @@ async function intentContext(
 	// decisions, which is browsing rather than a judgement about relevance, and
 	// counting it would mark every new decision as passed over.
 	runtime.usefulness.shown(filtered.map((result) => result.node.id));
+	// The opt-in query log, for the same reason and with the opposite default:
+	// the intent is a question someone asked, not an id this store already
+	// holds, so it is recorded only where the user turned it on.
+	runtime.queries.record(
+		contextQuery(intent, module ?? null),
+		filtered.map((result) => result.node.id),
+	);
 	const nodes = filtered.map((result) => result.node);
 	const conflicts = conflictsOf(runtime, nodes);
 	const anchors = await anchorsByDecision(runtime, nodes);

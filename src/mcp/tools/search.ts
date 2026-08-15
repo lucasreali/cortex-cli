@@ -7,6 +7,7 @@ import {
 	type SemanticSearchResult,
 } from "@/embedding/semantic-search";
 import type { RuntimeRegistry } from "@/mcp/runtime-registry";
+import { searchQuery } from "@/querylog/entry";
 import { READ_ONLY_ANNOTATIONS } from "./annotations";
 import { projectPathField, scopedToProject } from "./project-scope";
 import { jsonResult } from "./results";
@@ -60,6 +61,10 @@ async function search(
 		args.exact === true,
 	);
 	runtime.usefulness.shown(results.map((result) => result.node.id));
+	runtime.queries.record(
+		searchQuery(args.terms, args.exact === true),
+		results.map((result) => result.node.id),
+	);
 	return jsonResult({
 		results: results.map(resultEntry),
 		...(results.length === 0 ? { guidance: NO_MATCH_GUIDANCE } : {}),

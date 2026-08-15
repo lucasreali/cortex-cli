@@ -13,6 +13,9 @@ import { computeDrift } from "@/indexer/code-indexer";
 import { EXTRACTION_VERSION } from "@/indexer/extraction-version";
 import { listSourceFiles } from "@/indexer/source-walker";
 import { TsconfigAliases } from "@/indexer/tsconfig-aliases";
+import { QueryLog } from "@/querylog/query-log";
+import { ENABLE_VARIABLE, QueryLogSettings } from "@/querylog/settings";
+import { type RecentQueries, recentQueries } from "@/querylog/stats";
 import { type OpenCodeRepository, openCodeRepository } from "@/storage/code-db";
 import type { CodeRepository } from "@/storage/code-repository";
 import { readConfigState } from "@/storage/config";
@@ -42,6 +45,7 @@ export async function runDoctor(args: string[], cwd: string): Promise<number> {
 		checkEmbeddingVintages(runtime, report);
 		checkKeywords(runtime, report);
 		checkUsefulness(runtime, report);
+		checkQueryLog(runtime, report);
 		checkModelDownloaded(report);
 		checkProjectRegistry(report);
 		await checkCodeIndex(runtime, report);
@@ -262,6 +266,34 @@ function checkUsefulness(runtime: CortexRuntime, report: DoctorReport): void {
 		`usefulness signal: ${events.length} event(s), ${log.scores().size} ` +
 			"decision(s) ranked by it — delete .cortex/local/ to reset",
 	);
+}
+
+// Off is the documented default, so reporting it as an issue would ask the
+// user to fix the posture the project chose. A log an earlier opt-in left
+// behind is named even while recording is off: knowing the file is there is
+// the difference between deleting it and forgetting it exists.
+function checkQueryLog(runtime: CortexRuntime, report: DoctorReport): void {
+	const log = new QueryLog(QueryLogSettings.from(runtime.cortexDir));
+	const recent = recentQueries(log.entries());
+	if (!log.enabled) {
+		report.ok(`query log: off — ${offDetail(recent, log.path)}`);
+		return;
+	}
+	if (recent.recorded === 0) {
+		report.ok(`query log: on, nothing recorded yet — ${log.path}`);
+		return;
+	}
+	report.ok(
+		`query log: ${recent.empty} of your last ${recent.considered} queries ` +
+			`returned nothing (${recent.recorded} recorded) — ${log.path}`,
+	);
+}
+
+function offDetail(recent: RecentQueries, path: string): string {
+	if (recent.recorded === 0) {
+		return `no query text is recorded (set ${ENABLE_VARIABLE}=1 to record locally)`;
+	}
+	return `${recent.recorded} query(ies) recorded earlier are still at ${path} — delete the file to discard them`;
 }
 
 async function checkCodeIndex(
