@@ -20,6 +20,19 @@ export type ImportProvenance = (typeof IMPORT_PROVENANCES)[number];
 export const DECISION_STATUSES = ["active", "replaced", "archived"] as const;
 export type DecisionStatus = (typeof DECISION_STATUSES)[number];
 
+// How well the local code index and working tree corroborate an anchor, from
+// strongest to weakest — the order is the ranking, so `strongestConfidence`
+// reads it off this list. Never part of a decision file: the anchor is
+// versioned, its resolution is a fact about the checkout that reads it.
+export const ANCHOR_CONFIDENCES = [
+	"exact",
+	"name_only",
+	"file_only",
+	"unresolved",
+	"unknown",
+] as const;
+export type AnchorConfidence = (typeof ANCHOR_CONFIDENCES)[number];
+
 export interface Anchor {
 	filePath: string;
 	symbol: string;

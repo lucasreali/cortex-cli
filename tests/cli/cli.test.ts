@@ -506,7 +506,9 @@ describe("cortex CLI", () => {
 	});
 
 	test("index builds code.db in full, then incrementally, then forced", () => {
-		const first = cli("index");
+		// --force, because reading anchors already builds the index lazily:
+		// whether an earlier command got there first must not decide this test.
+		const first = cli("index", "--force");
 		expect(first.code).toBe(0);
 		expect(first.stdout).toContain("Indexed 1 file(s) (full)");
 		expect(existsSync(join(dir, ".cortex/code.db"))).toBe(true);

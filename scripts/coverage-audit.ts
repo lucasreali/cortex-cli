@@ -7,6 +7,7 @@ import { relative } from "node:path";
 const LCOV_PATH = process.env.CORTEX_LCOV ?? "coverage/lcov.info";
 
 const SUBPROCESS_COVERED = [
+	"src/cli/anchor-tag.ts",
 	"src/cli/commands/code-index.ts",
 	"src/cli/commands/doctor.ts",
 	"src/cli/commands/embed-all.ts",

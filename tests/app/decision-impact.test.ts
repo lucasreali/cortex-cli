@@ -82,7 +82,7 @@ afterEach(() => {
 });
 
 function runtime(codeIndex: CodeIndex = workingCodeIndex()) {
-	return { nodes, edges, codeIndex };
+	return { repoRoot: dir, nodes, edges, codeIndex };
 }
 
 function workingCodeIndex(): CodeIndex {
