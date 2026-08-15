@@ -6,6 +6,11 @@ import type {
 	ImportProvenance,
 	IndexedFile,
 } from "@/domain";
+import {
+	canonicalSymbolName,
+	symbolKey,
+	symbolKeyParts,
+} from "@/support/symbol-key";
 import matchSymbolsSql from "./queries/match-symbols.sql" with { type: "text" };
 import transitiveImportersSql from "./queries/transitive-importers.sql" with {
 	type: "text",
@@ -137,20 +142,32 @@ export class CodeRepository {
 			});
 	}
 
+	// SQLite cannot run the normalizer, so the comparison happens here rather
+	// than in a WHERE clause: file_path is indexed, which keeps the row set one
+	// file wide, and the alternative — a second stored column holding the key —
+	// buys speed this store does not need at the cost of a schema that can
+	// disagree with the recipe.
 	hasSymbol(filePath: string, name: string): boolean {
-		return (
-			this.db
-				.query("SELECT 1 FROM symbols WHERE file_path = ? AND name = ?")
-				.get(filePath, name) !== null
-		);
+		const wanted = symbolKey(name);
+		return this.db
+			.query<{ name: string }, [string]>(
+				"SELECT name FROM symbols WHERE file_path = ?",
+			)
+			.all(filePath)
+			.some((row) => symbolKey(row.name) === wanted);
 	}
 
 	findSymbol(name: string): SymbolLocation[] {
+		const wanted = symbolKey(name);
 		return this.db
-			.query<{ file_path: string; kind: string; line: number }, [string]>(
-				"SELECT file_path, kind, line FROM symbols WHERE name = ? ORDER BY file_path, line",
+			.query<
+				{ file_path: string; kind: string; line: number; name: string },
+				[]
+			>(
+				"SELECT file_path, kind, line, name FROM symbols ORDER BY file_path, line",
 			)
-			.all(name)
+			.all()
+			.filter((row) => symbolKey(row.name) === wanted)
 			.map((row) => ({
 				filePath: row.file_path,
 				kind: row.kind,
@@ -169,10 +186,7 @@ export class CodeRepository {
 		limit: number,
 		filePath: string | null,
 	): string[] {
-		const lastSegment = name.split(".").at(-1) ?? name;
-		const owner = name.includes(".")
-			? name.slice(0, name.lastIndexOf("."))
-			: "";
+		const parts = symbolKeyParts(name);
 		return this.db
 			.query<
 				{ name: string },
@@ -186,9 +200,9 @@ export class CodeRepository {
 			>(matchSymbolsSql)
 			.all({
 				$file: filePath,
-				$full: name,
-				$last: lastSegment,
-				$owner: owner,
+				$full: parts.key,
+				$last: parts.lastSegment,
+				$owner: parts.owner,
 				$limit: limit,
 			})
 			.map((row) => row.name);
@@ -247,7 +261,12 @@ export class CodeRepository {
 			"INSERT INTO symbols (file_path, name, kind, line) VALUES (?, ?, ?, ?)",
 		);
 		for (const symbol of symbols) {
-			statement.run(filePath, symbol.name, symbol.kind, symbol.line);
+			statement.run(
+				filePath,
+				canonicalSymbolName(symbol.name),
+				symbol.kind,
+				symbol.line,
+			);
 		}
 	}
 

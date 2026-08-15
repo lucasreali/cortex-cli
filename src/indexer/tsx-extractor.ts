@@ -3,6 +3,7 @@ import runtimeWasm from "web-tree-sitter/web-tree-sitter.wasm" with {
 	type: "file",
 };
 import type { CodeSymbol } from "@/domain";
+import { QUALIFIED_SEPARATOR } from "@/support/symbol-key";
 
 export interface ExtractedSource {
 	symbols: CodeSymbol[];
@@ -104,7 +105,7 @@ export class TsxExtractor {
 			const owner = named.get("owner") as Node;
 			const name = named.get("name") as Node;
 			return {
-				name: `${owner.text}.${name.text}`,
+				name: `${owner.text}${QUALIFIED_SEPARATOR}${name.text}`,
 				kind: "method",
 				line: name.startPosition.row + 1,
 			};
