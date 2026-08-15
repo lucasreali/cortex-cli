@@ -12,6 +12,7 @@
 		"test:coverage": "bun test --coverage",
 		"coverage:audit": "bun scripts/coverage-audit.ts",
 		"eval:search": "bun tests/evaluation/runner.ts",
+		"benchmark": "bun src/cli/main.ts benchmark --write",
 		"typecheck": "tsc --noEmit",
 		"check": "bunx --bun @biomejs/biome check --write",
 		"lint:ci": "bunx --bun @biomejs/biome ci",

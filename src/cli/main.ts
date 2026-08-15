@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { errorMessage } from "@/support/errors";
 import { CORTEX_VERSION } from "@/version";
+import { runBenchmark } from "./commands/benchmark";
 import { runIndex } from "./commands/code-index";
 import { runDoctor } from "./commands/doctor";
 import { runEmbed } from "./commands/embed";
@@ -82,6 +83,11 @@ const COMMANDS: Record<string, Command> = {
 		run: runDoctor,
 		usage: USAGE.doctor,
 		description: "check store and index health",
+	},
+	benchmark: {
+		run: runBenchmark,
+		usage: USAGE.benchmark,
+		description: "measure the context economy of answering from decisions",
 	},
 	upgrade: {
 		run: runUpgrade,

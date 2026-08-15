@@ -13,6 +13,7 @@ export const USAGE = {
 	sync: "sync [--json]",
 	embed: "embed --missing | --rebuild [--yes]",
 	doctor: "doctor [--json]",
+	benchmark: "benchmark [--limit N] [--write] [--json]",
 	upgrade: "upgrade [--check [--json]] [--version V] [--force]",
 	"prompt-hook": "prompt-hook",
 	"git-hook": "git-hook <event> [git arguments...]",
