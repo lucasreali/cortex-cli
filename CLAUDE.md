@@ -11,6 +11,8 @@ on the code.
 - `bun run test:coverage` — 100% line/function threshold enforced (`bunfig.toml`)
 - `bun run coverage:audit` — fails when a source file is missing from the
   coverage report entirely; reads the `lcov.info` the previous command writes
+- `bun run benchmark` — regenerate `BENCHMARKS.md` from the real corpus
+  (`cortex benchmark --write`); needs the embedding model, ~25s here
 - `RUN_MODEL_TESTS=1 bun test` — also loads the real embedding model
 - `bun run typecheck` / `bun run check` — strict tsc / Biome (writes fixes);
   `bun run lint:ci` is the read-only Biome used by CI
@@ -25,9 +27,10 @@ Dependency direction, no cycles:
 - `domain/` — pure types + Zod schemas; depends only on zod. Shared
   invariants (e.g. `MINIMUM_KEYWORDS`) are defined here, nowhere else.
 - `support/` — dependency-free leaf helpers (`errorMessage`, `errnoCode`,
-  `parseJsonOrNull`, `sha256Hex`, `truncate`, `writeAtomically`,
+  `parseJsonOrNull`, `sha256Hex`, `symbolKey`, `truncate`, `writeAtomically`,
   `userCortexDir`). Anything may import it, including `release/`; it imports
-  nothing. Put a helper here only once a third call site wants it.
+  nothing. Put a helper here only once a third call site wants it — `symbolKey`
+  arrived with exactly three.
 - `storage/` — thin repositories over `bun:sqlite`. Two databases per
   project, on purpose: `decisions.db` and `code.db` — never merge them. Both
   are derived caches now; the product is `.cortex/decisions/`. `nodes_fts` is
@@ -49,6 +52,20 @@ Dependency direction, no cycles:
   versioned, nothing here may ever reach a markdown file, and deleting the
   directory costs only an ordering. `usefulnessScores` is pure and takes
   `now`, so one log always yields one map.
+- `querylog/` — the opt-in record of what was asked here: one JSONL line per
+  `get_context` intent and per `search`, in the same gitignored
+  `LOCAL_DIRECTORY` as the usefulness log. Same mechanics as `usefulness/`,
+  opposite default, and the reason is the content: usefulness holds ids this
+  store already versions, a query holds the text of the question. `QueryLog`
+  never throws and never reads on the write path; `observedQueries` turns the
+  log into candidate evaluation cases.
+- `benchmark/` — the context-economy measurement behind `BENCHMARKS.md`, and
+  the third pure peer of `decisions/` and `usefulness/`: it depends on nothing
+  but itself and takes the retrieval path as a parameter, so it is the one
+  directory here that can be reasoned about without a store. `TokenCount` is an
+  approximation on purpose — no tokenizer for the model that will read these
+  decisions exists in process — so `TOKEN_METHOD` names the rule in every
+  output, and both sides of every ratio use the same counter.
 - `git/` — subprocess git: repo root, HEAD, canonical project identity, hooks
   path. Every accessor answers `null` outside a repo; none of them throw.
 - `indexer/` — tree-sitter code index (TS/JS only), reconciled lazily on
@@ -96,6 +113,19 @@ revisit a `content_sha` column that day, and not before.
 
 - `nodes.present` is a working-tree fact (is the file on this branch?),
   `status` a product fact (was it superseded?). Orthogonal, never folded.
+- An anchor is versioned; its resolution is not. `src/app/anchor-confidence.ts`
+  grades every anchor against this checkout — `exact` (the anchored file
+  declares that symbol), `name_only` (the symbol is indexed under another
+  file), `file_only` (no symbol, or a symbol in a file the indexer does not
+  cover), `unresolved` (the file left the working tree, or the symbol vanished
+  from a file that is indexed) and `unknown` (the code index could not be
+  read). The vocabulary is `ANCHOR_CONFIDENCES`, strongest first, which is what
+  `strongestConfidence` reads. Computed on read, never stored: it is derived
+  from `code.db` and the working tree, so writing it into the decisions store
+  would give one derived cache a stale copy of another, and would make a read a
+  write — which `prompt-hook` cannot be. `labelAnchors` skips the code index
+  entirely when nothing on the payload is anchored, and degrades to `unknown`
+  rather than to a wrong downgrade when the index is unavailable.
 - Nothing is deleted, ever. Switching branches flips `present`; a decision
   that comes back keeps its embedding and its row.
 - Versioned in the file: the decision, its anchors, `DEPENDS_ON`,
@@ -104,7 +134,8 @@ revisit a `content_sha` column that day, and not before.
   `conflicts_with`, read symmetrically). Status is derived from `replaces`
   and `archives`, with `replaced` winning when both name the same decision.
   Local to the machine: session and project nodes,
-  `BELONGS_TO`, `GENERATED_IN`, embeddings, `nodes_fts`. A decision imported
+  `BELONGS_TO`, `GENERATED_IN`, embeddings, `nodes_fts`, and how well each
+  anchor resolves. A decision imported
   from someone else's branch has no `GENERATED_IN` — that session never
   happened here, and that is correct.
 - Edge targets are validated against the store, not the branch. A dangling
@@ -160,6 +191,113 @@ result set cannot.
   rewriting so a concurrent process's events are not what disappears.
   `CORTEX_NO_USEFULNESS=1` stops the recording; deleting the directory is the
   reset, and `doctor` reports the counts as a fact, never as an issue.
+
+## One recipe for a symbol name
+
+Three producers name the same symbol and none of them can see the other two:
+the tree-sitter extractor reads it out of the source, an LLM writes it into an
+anchor through `save_decision`, and the matching side reconciles the two. Let
+them each normalize their own way and one symbol becomes two rows that never
+meet. `src/support/symbol-key.ts` holds the recipe once, and the order of its
+steps is load-bearing: every step that can *expand* a character runs before the
+step that drops characters. Compatibility decomposition expands a ligature into
+its letters, and so does case mapping — lowercasing the Turkish dotted capital I
+yields `i` followed by a combining dot above, one code point becoming two.
+Filter first and that mark survives into the output for a second pass to remove,
+so the function is no longer idempotent and the extractor disagrees with the
+matcher on every Turkish identifier. Sweeping the code points, that capital is
+the only character that breaks idempotence under the wrong order; one is enough.
+`tests/support/symbol-key.test.ts` pins idempotence and the output character
+class as properties, not examples.
+
+The recipe is exposed at two stages of the same pipeline, never as two functions
+with two truths. `canonicalSymbolName` stops before the case fold and is what
+`insertSymbols` stores, because that name is handed back as a suggestion and an
+LLM copies it into a decision file, which is immutable once written — the index
+is the only place the human spelling survives, so it keeps it. `symbolKey` runs
+the fold too and is what every comparison uses: `hasSymbol`, `findSymbol`, and
+the parameters `suggestSymbols` feeds to
+`src/storage/queries/match-symbols.sql`. A property test
+pins `symbolKey` composed with `canonicalSymbolName` to `symbolKey` alone, which
+is what makes storing the canonical form free of consequence. Normalization
+never touches `.cortex/decisions/`: an anchor is compared normalized and stored
+verbatim.
+
+Because the stored spelling changed, `EXTRACTION_VERSION` went to 2 — rows an
+older writer left behind keep the source's own spelling and would match neither
+a fresh row nor the suggestion query. Bump it again for any change to this
+recipe.
+
+## The query log is off until someone turns it on
+
+The usefulness sidecar and the query log are the same machine with opposite
+defaults, and the difference is the content, not the taste. Usefulness records
+decision ids and timestamps — facts about rows this store already holds, which
+is why it can record on a read-only path and default to on. A query log records
+the *text of the questions*: proprietary content, in a file no repository's
+`.gitignore` or retention policy was written for. A default-on record of that
+contradicts the on-device posture, so it defaults off and says so.
+
+- Three environment variables, read once per runtime by `QueryLogSettings`:
+  `CORTEX_QUERY_LOG=1` enables, `CORTEX_QUERY_LOG_PATH` relocates the file,
+  `CORTEX_NO_QUERY_LOG=1` disables — and the disable wins over the enable, so a
+  machine told to stay quiet stays quiet when a later config turns the flag on
+  somewhere it cannot see. An explicit path says *where*, never *whether*.
+- Recorded: the intent or the terms, `exact`, the `module` filter, the result
+  count, and the head of the returned ids — enough to replay a case and judge
+  the ranking. Not recorded: titles, bodies or scores (derived, and the ids
+  resolve against the store), the cross-project sweep (no single store a
+  fixture could be replayed against), and the prompt behind `prompt-hook` —
+  that is whatever the user typed, on every prompt, and logging it would make
+  an evaluation aid into a keylogger.
+- `QueryLog` never throws and never reads on the write path: one short append
+  per query, with compaction — which re-reads before rewriting, so a concurrent
+  process's queries are not what disappears — paid once per hundred appends.
+- Reading is not recording, so the log stays readable while recording is off:
+  that is how `doctor` reports a log an earlier opt-in left behind instead of
+  pretending nothing was ever written. Every state is a fact, never an issue.
+- `observedQueries` is the consumer: real traffic, deduplicated by question and
+  ordered by how often it was asked, as *candidates* for `tests/evaluation/`.
+  What the log holds is what the ranking returned, which is the thing a case
+  exists to judge — promoting one into the ground truth stays a human act.
+
+## The benchmark measures the economy, never the quality
+
+`cortex benchmark` answers one question: how many tokens does an agent read to
+get an answer, against how many it would read without cortex. It is the
+context-size half of the evaluation; `tests/evaluation/` is the retrieval half,
+and neither substitutes for the other.
+
+- The questions are the corpus asking about itself — one per active decision,
+  its own title, ordered by id (`questionsFromDecisions`). Fixed for a given
+  corpus and derivable in any project, where the graded PT/EN paraphrases in
+  `tests/evaluation/ground-truth.ts` only ever fit this one. That makes the
+  reported hit rate a ceiling, not a measurement: `bun run eval:search` stays
+  the authority on recall, and the benchmark says so in its own output.
+- The grep baseline charges one term at a time, never their union
+  (`RepositoryCorpus.grepCosts`). Half the words in any question are
+  connectives that match nearly every file, so a union measures the stopwords.
+  Two single greps are reported instead: the narrowest term, which is the floor
+  of the alternative and the number the claim should be judged on, and the
+  median term.
+- `TOKEN_METHOD` travels with every number. The count is deterministic and
+  approximate — calibrated to 1.03x a real SentencePiece tokenizer over this
+  repo — and a ratio of two counts by the same rule is what the command
+  actually claims.
+- `--write` regenerates `BENCHMARKS.md` in place, and the command is the only
+  thing that writes it. A benchmark a person keeps up to date is a benchmark
+  that is wrong by the next commit; the file it writes excludes itself from the
+  repository it measures, so a second run reports what the first one did.
+- Known difference from graphify, checked and deliberately not copied: its
+  benchmark degrades box-drawing and arrows to ASCII because CPython encodes
+  stdout through the locale codec and raises mid-output on a cp1252 console.
+  That failure mode does not exist in Bun — there is no encoder between a JS
+  string and the fd, and a C locale still emits the same UTF-8 bytes and exits
+  0. So `src/cli/style.ts`, `src/cli/commands/impact.ts` and
+  `src/cli/commands/sync.ts` keep their glyphs and no ASCII fallback is added:
+  the residual risk is a legacy console *rendering* them wrongly, never a
+  command failing. The benchmark's own table is ASCII regardless, because a
+  table is the one place box drawing would have been tempting.
 
 ## Embedding process topology
 
@@ -241,6 +379,9 @@ against `cortex serve --mcp` — then run `cortex embed --missing` and
 `tests/evaluation/ground-truth.test.ts` reads those files and asserts every
 id it cites is still an active decision here, so deleting or superseding one
 breaks the suite on purpose.
+
+`BENCHMARKS.md` is generated, never edited: after a batch of decisions lands,
+run `bun run benchmark` and commit the file with them.
 
 <!-- cortex:begin -->
 ## Cortex — decision memory

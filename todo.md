@@ -10,9 +10,16 @@ where the reference implementation lives in graphify.
 
 ---
 
-## Medium priority
+## Medium priority — all shipped 2026-08-15
 
-### 6. Anchor confidence labels
+### 6. Anchor confidence labels — done
+
+Shipped: `src/app/anchor-confidence.ts` grades every anchor `exact` /
+`name_only` / `file_only` / `unresolved` / `unknown` against the local index
+and the working tree, surfaced in `get_context`, `get_impact`, `cortex why`
+and `cortex impact`. Computed on read, stored nowhere and no migration — the
+confidence is a property of the resolution, and writing it into `decisions.db`
+would give one derived cache a stale copy of another.
 
 graphify labels every edge `EXTRACTED` (explicit in the source), `INFERRED`
 (a reasonable deduction, e.g. a call-graph second pass) or `AMBIGUOUS`
@@ -30,7 +37,13 @@ weight, so it has no way to discount the weak ones.
 - Watch the interaction with the immutability rule: this is a property of the
   *resolution*, which is derived, not of the decision file.
 
-### 7. Opt-in query log
+### 7. Opt-in query log — done
+
+Shipped: `src/querylog/`, default off, `CORTEX_QUERY_LOG=1` enables,
+`CORTEX_QUERY_LOG_PATH` relocates, `CORTEX_NO_QUERY_LOG=1` disables and wins.
+`doctor` reports the state as a fact, `observedQueries` turns real traffic into
+candidate evaluation cases. Not recorded: `search_all_projects`, and the prompt
+behind `prompt-hook` — logging every prompt would make it a keylogger.
 
 `graphify/querylog.py` is 90 lines: append-only JSONL, fail-silent (never
 raises), and **off by default** — with the reasoning written down, that a
@@ -47,7 +60,15 @@ nothing".
 - Copy the privacy posture verbatim: default off, documented, disable wins.
 - Must never raise and never slow down the query path.
 
-### 8. `cortex benchmark` and a BENCHMARKS.md
+### 8. `cortex benchmark` and a BENCHMARKS.md — done
+
+Shipped: `src/benchmark/` plus `cortex benchmark [--limit N] [--write]
+[--json]`, and a generated `BENCHMARKS.md`. Token counting is a named,
+deterministic approximation (no tokenizer for the model that reads these
+decisions exists in process), calibrated to 1.03x a real SentencePiece count.
+The `_safe()` check came back negative and is recorded as a known difference:
+Bun has no encoder between a JS string and the fd, so a cp1252 console cannot
+raise the way CPython does.
 
 `graphify/benchmark.py` measures tokens for the whole corpus against tokens
 for the query's subgraph, over a fixed list of sample questions, and the repo
@@ -63,7 +84,13 @@ glyphs to ASCII when stdout cannot encode them, because Windows consoles
 default to cp1252 and raise `UnicodeEncodeError` mid-output. `src/cli/style.ts`
 should be checked against the same failure.
 
-### 9. Single source of truth for symbol-ID normalization
+### 9. Single source of truth for symbol-ID normalization — done
+
+Shipped: `src/support/symbol-key.ts`, with idempotence and output-character
+-class pinned as properties. The Turkish bug reproduced verbatim in JS —
+sweeping every code point, `U+0130` is the only one that breaks idempotence
+under the wrong step order. `EXTRACTION_VERSION` went to 2 so a stale `code.db`
+is re-extracted. One comparison site is still raw — see item 14.
 
 `graphify/ids.py` exists because three independent producers generate node IDs
 — the AST extractor, the LLM subagents, and the builder reconciling edge
@@ -127,6 +154,20 @@ fires `post-checkout` once per replayed commit, which already reconciles, so
 the only real gap is an amend that rewrites a decision file without changing
 the branch. Deliberately deferred: the next command catches it, and reconcile
 is idempotent, so a fourth hook buys little for the surface it adds.
+
+### 14. The fourth symbol comparison site
+
+Item 9 put one normalizer behind the extractor, the anchors an LLM writes and
+the matching side — but `NodeRepository.listByFileAnchorOrSymbol` still
+compares two anchor symbols with `a.symbol = ?` inside `decisions.db`, where no
+normalized key is stored. It is the one producer the shared recipe does not
+reach, so the class of bug item 9 closed is still open on that path.
+
+Closing it means either a `symbol_key` column on `anchors` (a `decisions.db`
+migration — the `006-` slot is free, item 6 did not need it) or a read-time
+comparison in TypeScript. The column is the tempting one and probably the wrong
+one: it would be a second copy of the recipe, able to go stale against it, and
+`anchors` is small enough that comparing in TypeScript costs nothing.
 
 ---
 
