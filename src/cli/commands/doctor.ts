@@ -4,6 +4,7 @@ import { parseArgs } from "node:util";
 import type { CortexRuntime } from "@/app/runtime";
 import { symbolHint } from "@/app/symbol-hints";
 import { printJson } from "@/cli/json";
+import { boundedMalformedLines } from "@/cli/malformed-files";
 import { withRuntime } from "@/cli/open-runtime";
 import { success, warning } from "@/cli/style";
 import { MINIMUM_KEYWORDS } from "@/domain";
@@ -137,8 +138,11 @@ function checkDecisionFiles(
 ): void {
 	const reconciled = runtime.decisions.resync();
 	reportAbsent(runtime, report);
-	for (const entry of reconciled.malformed) {
-		report.warn(`decision file unreadable: ${entry.name} — ${entry.reason}`);
+	for (const line of boundedMalformedLines(
+		reconciled.malformed,
+		(entry) => `decision file unreadable: ${entry.name} — ${entry.reason}`,
+	)) {
+		report.warn(line);
 	}
 	for (const edge of reconciled.dangling) {
 		report.warn(

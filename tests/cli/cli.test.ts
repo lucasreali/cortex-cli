@@ -58,6 +58,10 @@ function cli(...args: string[]): {
 	};
 }
 
+function countOccurrences(haystack: string, needle: string): number {
+	return haystack.split(needle).length - 1;
+}
+
 function git(...args: string[]): void {
 	const result = Bun.spawnSync(["git", ...args], { cwd: dir, stderr: "pipe" });
 	if (result.exitCode !== 0) throw new Error(result.stderr.toString());
@@ -624,6 +628,34 @@ describe("cortex CLI", () => {
 		unlinkSync(join(store.directory, "rascunho.md"));
 		unlinkSync(store.pathFor(orphanId));
 		store.write(parsed.file);
+		cli("sync");
+	});
+
+	test("doctor and sync cap the unreadable files they name and count the rest", () => {
+		const store = DecisionStore.at(join(dir, ".cortex"));
+		const names = Array.from({ length: 7 }, (_, index) => `draft-${index}.md`);
+		for (const name of names) {
+			writeFileSync(join(store.directory, name), "sem frontmatter\n");
+		}
+
+		const doctor = cli("doctor");
+		const sync = cli("sync");
+
+		expect(countOccurrences(doctor.stdout, "decision file unreadable:")).toBe(
+			5,
+		);
+		expect(doctor.stdout).toContain(
+			"... and 2 more unreadable decision file(s) — run: cortex sync --json",
+		);
+		expect(countOccurrences(sync.stdout, "could not read ")).toBe(5);
+		expect(sync.stdout).toContain("... and 2 more unreadable decision file(s)");
+
+		const whole: { malformed: { name: string }[] } = JSON.parse(
+			cli("sync", "--json").stdout,
+		);
+		expect(whole.malformed).toHaveLength(7);
+
+		for (const name of names) unlinkSync(join(store.directory, name));
 		cli("sync");
 	});
 
