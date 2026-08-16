@@ -12,29 +12,36 @@ where the reference implementation lives in graphify.
 
 ## Low priority / watch
 
-### 15. A rebase spawns one `embed --missing` per replayed commit
-
-Found while measuring hook behavior for item 13, not from graphify.
-
-`shouldEmbed` in `src/cli/commands/git-hook.ts` excludes only `post-checkout`,
-and its comment explains why: "replays post-checkout once per commit, and each
-embed loads the model." Measured against git 2.53, that is the wrong hook — a
-rebase fires `post-checkout` once, and `post-commit` once per replayed commit.
-Since `post-commit` does embed, rebasing fifty commits spawns fifty detached
-`cortex embed --missing` processes, each of which loads the embedding model.
-
-The exclusion of `post-checkout` is still correct, but for the reason
-`CLAUDE.md` already gives — a restored decision keeps its vector — not the one
-the comment gives. Fixing this means correcting the comment and deciding how
-`post-commit` should behave mid-rebase; git sets `GIT_REBASE_TODO` and the
-rebase state directory is observable, so the hook can tell a replay from an
-ordinary commit and leave the embed to the end.
+Nothing open.
 
 ---
 
 ## Done
 
-Closed on 2026-08-15, in one pass over the low-priority section.
+Closed on 2026-08-15, in one pass over the low-priority section — except item
+15, closed on 2026-08-16.
+
+- **15. A rebase spawns one `embed --missing` per replayed commit.** Fixed by
+  reading the file git already keeps: `src/git/replay.ts` answers whether the
+  sequencer still has steps to run, and `embedsAfter` in
+  `src/cli/commands/git-hook.ts` skips the spawn while it does. `GIT_REBASE_TODO`
+  turned out to be the wrong lead — measured against git 2.53, post-commit
+  inherits no such variable, and no GIT_DIR either — but the todo file itself is
+  exact: git rewrites `rebase-merge/git-rebase-todo` before each replayed
+  commit's post-commit, so it holds only the steps still to come and is empty on
+  the last one. Skipping while steps remain therefore does not defer the embed
+  to some later command: the final replayed commit spawns exactly one, and it
+  covers everything the whole rebase brought. `sequencer/todo` gets the same
+  treatment, which covers a multi-commit `git cherry-pick` and `git revert`.
+  Deliberately not adopted: a fourth hook (see below — post-rewrite is still
+  redundant, and would have needed every user to reinstall), and a lock file
+  coalescing concurrent embeds (racy where this is deterministic). The git
+  directory is found by walking up from the hook's cwd rather than by asking
+  git, so a linked worktree and a submodule read their own state and an
+  unresolvable one degrades to the old behavior. Known gap, small and reported
+  rather than fixed: an interactive rebase whose todo ends in `exec` or `break`
+  lines leaves steps behind after the last commit, so its embed waits for the
+  next commit or merge — `cortex doctor` names the pending count meanwhile.
 
 - **10. Corrupt cache entry is not a cache miss.** The premise was half wrong:
   a decision file that fails to parse was never silent — `reconcile.ts`
@@ -93,9 +100,9 @@ Closed on 2026-08-15, in one pass over the low-priority section.
   which reconciles — covers both the amend and the replay. There is no gap for
   a fourth hook to close, and `decisions.db` is a derived cache whose reconcile
   is idempotent even if there were. An earlier draft of this item claimed a
-  rebase fires `post-checkout` once per replayed commit; it does not, and
-  `src/cli/commands/git-hook.ts` still carries that mistake in a comment (see
-  the open item above).
+  rebase fires `post-checkout` once per replayed commit; it does not, and the
+  comment in `src/cli/commands/git-hook.ts` that repeated the mistake was
+  corrected with item 15.
 - **Module size.** `graphify/extract.py` is 6,719 lines and `cli.py` is 4,224.
   The 25+ language extractors explain part of it, but the organization did not
   keep up — the repo ships an `extractors/MIGRATION.md` acknowledging it. This

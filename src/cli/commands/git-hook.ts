@@ -3,6 +3,7 @@ import { selfCommand } from "@/cli/self-command";
 import { exportDecisionsIfNeeded } from "@/decisions/bootstrap";
 import { openDecisionSync } from "@/decisions/decision-sync";
 import { GEMMA_MODEL } from "@/embedding/model";
+import { replayStepsRemaining } from "@/git/replay";
 import {
 	type HookEvent,
 	hookEventActs,
@@ -39,7 +40,7 @@ async function reconcileProject(event: HookEvent, cwd: string): Promise<void> {
 	const project = ProjectRoot.nearest(cwd);
 	if (!project || !existsSync(project.decisionsDbPath)) return;
 	const modelId = await pinnedModelId(project.cortexDir);
-	if (reconcile(project, embedsAfter(event) ? modelId : null)) {
+	if (reconcile(project, embedsAfter(event, cwd) ? modelId : null)) {
 		spawnEmbedMissing(project.directory);
 	}
 }
@@ -59,12 +60,21 @@ function reconcile(project: ProjectRoot, modelId: string | null): boolean {
 	}
 }
 
-// Only a commit or a merge brings decisions that were never embedded here; a
-// checkout restores rows that kept their vectors. It matters because git rebase
-// replays post-checkout once per commit, and each embed loads the model.
-function embedsAfter(event: HookEvent): boolean {
+// Only a commit or a merge brings decisions that were never embedded here: a
+// checkout restores rows that kept their vectors, because nothing is deleted
+// when a branch goes away.
+//
+// The replay guard is the other half, and the measurement behind it is git
+// 2.53 with the merge backend: a rebase fires post-checkout once, moving onto
+// the new base, and post-commit once per replayed commit — so fifty replayed
+// commits would spawn fifty detached embeds, each loading the model. While the
+// sequencer still has steps to run the embed is left to the last of them,
+// whose todo is empty by the time this hook sees it, and one embed covers
+// everything the replay brought.
+function embedsAfter(event: HookEvent, cwd: string): boolean {
 	if (process.env.CORTEX_DISABLE_EMBEDDINGS === "1") return false;
-	return event !== "post-checkout";
+	if (event === "post-checkout") return false;
+	return !replayStepsRemaining(cwd);
 }
 
 async function pinnedModelId(cortexDir: string): Promise<string> {

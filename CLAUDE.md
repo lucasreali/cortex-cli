@@ -73,6 +73,9 @@ Dependency direction, no cycles:
   output, and both sides of every ratio use the same counter.
 - `git/` — subprocess git: repo root, HEAD, canonical project identity, hooks
   path. Every accessor answers `null` outside a repo; none of them throw.
+  `src/git/replay.ts` is the one file here that reads the git directory instead
+  of spawning git: a hook must not trust the GIT_DIR it inherits (git names the
+  superproject during submodule work), and a replay is a fact on disk anyway.
 - `indexer/` — tree-sitter code index (TS/JS only), reconciled lazily on
   first use; no file watcher (deliberate — see todo.md).
 - `embedding/` — the hard part; see topology below.
@@ -165,8 +168,12 @@ revisit a `content_sha` column that day, and not before.
   register the project, may rewrite the config, and prints when uninitialized),
   returns 0 on every path so it cannot fail a commit, and spawns
   `embed --missing` detached after a commit or a merge only. Not after a
-  checkout: `git rebase` replays that hook once per commit, and a restored
-  decision still has its vector. It does not touch the code index.
+  checkout — a restored decision still has its vector — and not while git's
+  sequencer has steps left: a rebase replays post-commit once per commit, so
+  fifty replayed commits would load the model fifty times.
+  `replayStepsRemaining` reads the todo file git rewrites before each of them,
+  which is empty on the last one, so the whole replay costs one embed. It does
+  not touch the code index.
 
 ## The usefulness sidecar ranks, it never selects
 
