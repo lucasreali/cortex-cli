@@ -30,7 +30,12 @@ Dependency direction, no cycles:
   `parseJsonOrNull`, `sha256Hex`, `symbolKey`, `truncate`, `writeAtomically`,
   `userCortexDir`). Anything may import it, including `release/`; it imports
   nothing. Put a helper here only once a third call site wants it — `symbolKey`
-  arrived with exactly three.
+  arrived with exactly three. `writeAtomically` and its sync twin resolve the
+  leaf symlink chain before choosing the staging path, so a managed path that
+  is a link is written *through* rather than replaced, and the staging file
+  stays on the target's filesystem — which is the only place rename is atomic.
+  They also copy the destination's permission bits onto the staging file, so a
+  replace never silently tightens a widened file back to the umask default.
 - `storage/` — thin repositories over `bun:sqlite`. Two databases per
   project, on purpose: `decisions.db` and `code.db` — never merge them. Both
   are derived caches now; the product is `.cortex/decisions/`. `nodes_fts` is
@@ -81,7 +86,12 @@ Dependency direction, no cycles:
   framework); one file per command in `cli/commands/`. Four are `hidden`
   because another program invokes them, never a person: `prompt-hook` (Claude
   Code), `git-hook` (the installed git hooks), `embed-worker` and
-  `embed-daemon` (the binary spawning itself).
+  `embed-daemon` (the binary spawning itself). A file directly under `cli/` is
+  rendering two commands share: `malformed-files.ts` caps how many unreadable
+  decision files `doctor` and `sync` name and states the remainder, so neither
+  can truncate silently and a corrupt checkout cannot bury every other finding.
+  It is pure and unit-tested in process, which is why it sits beside
+  `cli/commands/` rather than inside it.
 - `install/` — pure logic only, home and cwd passed in as parameters, 100%
   in-process coverage; the thin command files touch process state.
   `marked-block.ts` is the one marker fence, shared by the instruction block
@@ -215,9 +225,15 @@ with two truths. `canonicalSymbolName` stops before the case fold and is what
 `insertSymbols` stores, because that name is handed back as a suggestion and an
 LLM copies it into a decision file, which is immutable once written — the index
 is the only place the human spelling survives, so it keeps it. `symbolKey` runs
-the fold too and is what every comparison uses: `hasSymbol`, `findSymbol`, and
-the parameters `suggestSymbols` feeds to
-`src/storage/queries/match-symbols.sql`. A property test
+the fold too and is what every comparison uses: `hasSymbol`, `findSymbol`, the
+parameters `suggestSymbols` feeds to
+`src/storage/queries/match-symbols.sql`, and `listByFileAnchorOrSymbol` — the
+fourth site, and the one inside `decisions.db`, where no normalized key is
+stored and none should be. SQLite cannot run the recipe, so that query keeps
+only the file half in SQL and hands every anchor on that file to `symbolKey`
+here; a `symbol_key` column would be a second copy of the recipe, free to go
+stale against it, and `anchors` is small enough that the filter costs nothing.
+A property test
 pins `symbolKey` composed with `canonicalSymbolName` to `symbolKey` alone, which
 is what makes storing the canonical form free of consequence. Normalization
 never touches `.cortex/decisions/`: an anchor is compared normalized and stored
@@ -388,7 +404,7 @@ run `bun run benchmark` and commit the file with them.
 
 This project records its technical decisions with cortex (MCP server
 `cortex`, tools: `save_decision`, `save_session_summary`,
-`get_context`, `get_impact`, `search`).
+`get_context`, `get_impact`, `search`, `search_all_projects`).
 
 - Before proposing an approach or changing existing behavior, call
   `get_context` with your intent (or `search` with keywords) — a past

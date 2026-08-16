@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import {
+	CORTEX_INSTRUCTIONS_BODY,
+	INSTRUCTIONS_BLOCK,
+} from "@/install/instructions";
+import type { BlockUpsert } from "@/install/marked-block";
 
 const ROOT = new URL("../../", import.meta.url).pathname;
 
@@ -32,6 +37,8 @@ const NOT_IN_THE_TREE: Record<string, string> = {
 	"code.db": "derived store, gitignored, created at runtime",
 	"lcov.info": "coverage output, written by bun test --coverage",
 	content_sha: "a column CLAUDE.md says it deliberately does not have yet",
+	symbol_key:
+		"the anchors column CLAUDE.md rejects — a second copy of the symbol recipe",
 };
 
 const MINIMUM_REFERENCES = 25;
@@ -178,5 +185,45 @@ describe("CLAUDE.md names things that exist", () => {
 				`${span} resolves now — drop it from the exemption map`,
 			).toBe(false);
 		}
+	});
+});
+
+const REGENERATION =
+	"the region between the cortex markers is generated from " +
+	"CORTEX_INSTRUCTIONS_BODY (src/install/instructions.ts): regenerate it by " +
+	"running `cortex init` in this repo, or paste that constant between the " +
+	"markers verbatim";
+
+const BLOCK_DIAGNOSIS: Record<BlockUpsert["action"], string> = {
+	unchanged: "the fenced block matches",
+	updated: "the fenced block has drifted from CORTEX_INSTRUCTIONS_BODY",
+	created: "CLAUDE.md is empty",
+	appended: "CLAUDE.md has no <!-- cortex:begin --> marker",
+	"skipped-malformed":
+		"<!-- cortex:begin --> has no matching <!-- cortex:end -->",
+};
+
+const MARKERS_FOUND: BlockUpsert["action"][] = ["unchanged", "updated"];
+
+// Asking `upsert` what it would write keeps one marker recipe instead of a
+// second parser here, and makes every way of losing the block a distinct
+// action: only `unchanged` means CLAUDE.md already holds the generated body,
+// so a fence that went missing fails rather than passing vacuously.
+const blockState = INSTRUCTIONS_BLOCK.upsert(
+	markdown,
+	CORTEX_INSTRUCTIONS_BODY,
+);
+
+function diagnose(state: BlockUpsert): string {
+	return `${BLOCK_DIAGNOSIS[state.action]} — ${REGENERATION}`;
+}
+
+describe("CLAUDE.md dogfoods the instruction block cortex installs", () => {
+	test("both cortex markers are present and paired", () => {
+		expect(MARKERS_FOUND, diagnose(blockState)).toContain(blockState.action);
+	});
+
+	test("the fenced block is CORTEX_INSTRUCTIONS_BODY verbatim", () => {
+		expect(blockState.action, diagnose(blockState)).toBe("unchanged");
 	});
 });
