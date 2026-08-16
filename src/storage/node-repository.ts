@@ -5,6 +5,7 @@ import type {
 	DecisionStatus,
 	NodeProvenance,
 } from "@/domain";
+import { symbolKey } from "@/support/symbol-key";
 
 export interface SaveContext {
 	projectId: string;
@@ -32,6 +33,16 @@ interface NodeRow {
 	provenance: NodeProvenance;
 	props: string | null;
 	created_at: string;
+}
+
+interface AnchoredRow extends NodeRow {
+	anchor_symbol: string;
+}
+
+function anchoringSymbol(symbol: string): (row: AnchoredRow) => boolean {
+	const wanted = symbolKey(symbol);
+	return (row) =>
+		row.anchor_symbol === "" || symbolKey(row.anchor_symbol) === wanted;
 }
 
 export class NodeRepository {
@@ -168,18 +179,21 @@ export class NodeRepository {
 			}));
 	}
 
+	// SQLite cannot run the symbol recipe, and `decisions.db` stores an anchor
+	// verbatim, so the file half stays in SQL and every anchor on that file comes
+	// back for `symbolKey` to judge here — the alternative, a stored key column,
+	// would be a second copy of the recipe free to go stale against it.
 	listByFileAnchorOrSymbol(filePath: string, symbol: string): Decision[] {
-		return this.db
-			.query<NodeRow, [string, string]>(
-				`SELECT DISTINCT n.* FROM nodes n
+		const rows = this.db
+			.query<AnchoredRow, [string]>(
+				`SELECT n.*, a.symbol AS anchor_symbol FROM nodes n
 				 JOIN anchors a ON a.node_id = n.id
 				 WHERE n.kind = 'decision' AND n.present = 1
 				   AND a.file_path = ?
-				   AND (a.symbol = '' OR a.symbol = ?)
 				 ORDER BY n.id ASC`,
 			)
-			.all(filePath, symbol)
-			.map((row) => this.toDecision(row));
+			.all(filePath);
+		return this.oncePerNode(rows.filter(anchoringSymbol(symbol)));
 	}
 
 	listActiveWithFewKeywords(minimum: number): Array<{
@@ -205,6 +219,11 @@ export class NodeRepository {
 			)
 			.all()
 			.map((row) => row.module);
+	}
+
+	private oncePerNode(rows: NodeRow[]): Decision[] {
+		const oneRowPerNode = new Map(rows.map((row) => [row.id, row]));
+		return Array.from(oneRowPerNode.values(), (row) => this.toDecision(row));
 	}
 
 	private insertEdge(fromId: string, kind: string, toId: string): void {

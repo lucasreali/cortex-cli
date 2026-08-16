@@ -430,6 +430,174 @@ describe("NodeRepository.listByFileAnchorOrSymbol", () => {
 			exactSymbol.id,
 		]);
 	});
+
+	// The class of bug item 9 closed on the extractor and the matcher was still
+	// open here: an anchor is stored verbatim, so the only spelling that used to
+	// match was the one the LLM happened to write.
+	test("matches anchor spellings the shared recipe unifies", () => {
+		const upperCase = create(
+			decisionInput({
+				title: "Decisão ancorada com outra caixa no símbolo",
+				anchors: [
+					{
+						file_path: "src/auth/service.ts",
+						symbol: "AuthService.VALIDATETOKEN",
+					},
+				],
+			}),
+			context,
+		);
+		const turkishCapital = create(
+			decisionInput({
+				title: "Decisão ancorada com I maiúsculo turco",
+				anchors: [
+					{ file_path: "src/auth/service.ts", symbol: "AuthService.VALİDATE" },
+				],
+			}),
+			context,
+		);
+		const ligature = create(
+			decisionInput({
+				title: "Decisão ancorada com ligadura tipográfica",
+				anchors: [
+					{ file_path: "src/auth/service.ts", symbol: "AuthService.conﬁrm" },
+				],
+			}),
+			context,
+		);
+
+		const matched = (symbol: string) =>
+			nodes
+				.listByFileAnchorOrSymbol("src/auth/service.ts", symbol)
+				.map((decision) => decision.id);
+
+		expect(matched("AuthService.validateToken")).toEqual([upperCase.id]);
+		expect(matched("AuthService.validate")).toEqual([turkishCapital.id]);
+		expect(matched("AuthService.confirm")).toEqual([ligature.id]);
+	});
+
+	test("keeps the anchor verbatim in what it returns", () => {
+		create(
+			decisionInput({
+				anchors: [
+					{
+						file_path: "src/auth/service.ts",
+						symbol: "AuthService.VALIDATETOKEN",
+					},
+				],
+			}),
+			context,
+		);
+
+		const [decision] = nodes.listByFileAnchorOrSymbol(
+			"src/auth/service.ts",
+			"authservice.validatetoken",
+		);
+
+		expect(decision?.anchors).toEqual([
+			{ filePath: "src/auth/service.ts", symbol: "AuthService.VALIDATETOKEN" },
+		]);
+	});
+
+	test("leaves out symbols no normalization makes equal", () => {
+		create(
+			decisionInput({
+				anchors: [
+					{
+						file_path: "src/auth/service.ts",
+						symbol: "AuthService.validateTokens",
+					},
+				],
+			}),
+			context,
+		);
+		create(
+			decisionInput({
+				title: "Decisão ancorada no mesmo símbolo em outro arquivo",
+				anchors: [
+					{
+						file_path: "src/auth/other.ts",
+						symbol: "AuthService.validateToken",
+					},
+				],
+			}),
+			context,
+		);
+
+		expect(
+			nodes.listByFileAnchorOrSymbol(
+				"src/auth/service.ts",
+				"AuthService.validateToken",
+			),
+		).toEqual([]);
+	});
+
+	test("names a decision once however many of its anchors match", () => {
+		const twiceAnchored = create(
+			decisionInput({
+				anchors: [
+					{ file_path: "src/auth/service.ts" },
+					{
+						file_path: "src/auth/service.ts",
+						symbol: "AuthService.validateToken",
+					},
+				],
+			}),
+			context,
+		);
+
+		const decisions = nodes.listByFileAnchorOrSymbol(
+			"src/auth/service.ts",
+			"AuthService.validateToken",
+		);
+
+		expect(decisions.map((decision) => decision.id)).toEqual([
+			twiceAnchored.id,
+		]);
+	});
+
+	// Superseded is still an answer to "why is this symbol like this"; off this
+	// branch is not.
+	test("keeps replaced decisions and drops the ones absent from the branch", () => {
+		const replaced = create(
+			decisionInput({
+				anchors: [
+					{
+						file_path: "src/auth/service.ts",
+						symbol: "AuthService.validateToken",
+					},
+				],
+			}),
+			context,
+		);
+		create(
+			decisionInput({
+				title: "Substituta sem âncoras de arquivo",
+				replaces: replaced.id,
+			}),
+			context,
+		);
+		const offBranch = create(
+			decisionInput({
+				title: "Decisão ancorada numa branch que não é esta",
+				anchors: [
+					{
+						file_path: "src/auth/service.ts",
+						symbol: "AuthService.validateToken",
+					},
+				],
+			}),
+			context,
+		);
+		db.query("UPDATE nodes SET present = 0 WHERE id = ?").run(offBranch.id);
+
+		const decisions = nodes.listByFileAnchorOrSymbol(
+			"src/auth/service.ts",
+			"AuthService.validateToken",
+		);
+
+		expect(decisions.map((decision) => decision.id)).toEqual([replaced.id]);
+	});
 });
 
 describe("EmbeddingRepository.countsByModel", () => {
