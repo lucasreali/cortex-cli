@@ -3,6 +3,7 @@ import type {
 	DecisionSyncRepository,
 	VersionedEdgeKind,
 } from "@/storage/decision-sync-repository";
+import { errorMessage } from "@/support/errors";
 import type { DecisionStore } from "./decision-store";
 
 export interface ReconcileDependencies {
@@ -65,29 +66,34 @@ export function reconcileDecisions(
 	const restored = stored
 		.filter((entry) => !entry.present && onDisk.has(entry.id))
 		.map((entry) => entry.id);
+	const drift = { arriving, absent, restored };
 
-	if (
-		!options.full &&
-		arriving.length + absent.length + restored.length === 0
-	) {
-		return quiet();
+	if (!options.full) {
+		const arrivals = parseAll(dependencies, arriving);
+		if (nothingMoves(arrivals, drift)) return quiet(arrivals.malformed);
 	}
-	return apply(
-		dependencies,
-		{ arriving, absent, restored },
-		[...onDisk],
-		stored,
+	return apply(dependencies, drift, [...onDisk], stored);
+}
+
+// A file that does not parse is never inserted, so it stays in `arriving` for
+// as long as it sits there — and counting ids alone would then send every
+// process that builds a runtime down the full path, clearing and re-deriving
+// the whole edge table on an ordinary read. Parsing the arrivals is what the
+// cheap path pays to stay cheap, and when there are none it costs nothing.
+function nothingMoves(arrivals: ParsedFiles, drift: Drift): boolean {
+	return (
+		arrivals.files.length + drift.absent.length + drift.restored.length === 0
 	);
 }
 
-function quiet(): ReconcileReport {
+function quiet(malformed: MalformedDecisionFile[]): ReconcileReport {
 	return {
 		imported: [],
 		absent: [],
 		restored: [],
 		dangling: [],
 		multiplyReplaced: [],
-		malformed: [],
+		malformed,
 	};
 }
 
@@ -105,17 +111,14 @@ function apply(
 ): ReconcileReport {
 	const parsed = parseAll(dependencies, onDisk);
 	const usable = new Map(parsed.files.map((file) => [file.id, file]));
-	const imported = drift.arriving.filter((id) => usable.has(id));
+	const arrivals = drift.arriving
+		.filter((id) => usable.has(id))
+		.map((id) => usable.get(id) as DecisionFile);
 	const known = new Set([...stored.map((entry) => entry.id), ...usable.keys()]);
 	const links = deriveLinks(parsed.files, known);
 
-	dependencies.repository.transaction(() => {
-		for (const id of imported) {
-			dependencies.repository.insertDecision(
-				usable.get(id) as DecisionFile,
-				null,
-			);
-		}
+	const insertion = dependencies.repository.transaction(() => {
+		const outcome = insertArrivals(dependencies.repository, arrivals);
 		dependencies.repository.setPresent(drift.absent, false);
 		dependencies.repository.setPresent(drift.restored, true);
 		dependencies.repository.clearVersionedEdges();
@@ -127,16 +130,48 @@ function apply(
 			);
 		}
 		dependencies.repository.applyStatuses(links.replaced, links.archived);
+		return outcome;
 	});
 
 	return {
-		imported,
+		imported: insertion.imported,
 		absent: drift.absent,
 		restored: drift.restored,
 		dangling: links.dangling,
 		multiplyReplaced: supersededTwice(parsed.files),
-		malformed: [...parsed.malformed, ...unnamed(dependencies)],
+		malformed: [
+			...parsed.malformed,
+			...insertion.refused,
+			...unnamed(dependencies),
+		],
 	};
+}
+
+interface Insertion {
+	imported: string[];
+	refused: MalformedDecisionFile[];
+}
+
+// A decision the store refuses is reported like an unreadable file and skipped,
+// because letting it out would roll the whole reconcile back — and `arriving`
+// is recomputed from the same files on every run, so the next command would
+// fail identically, naming neither the file nor the reason. One bad file must
+// not be able to take every command down until a human guesses which one it is.
+function insertArrivals(
+	repository: DecisionSyncRepository,
+	files: DecisionFile[],
+): Insertion {
+	const imported: string[] = [];
+	const refused: MalformedDecisionFile[] = [];
+	for (const file of files) {
+		try {
+			repository.insertDecision(file, null);
+			imported.push(file.id);
+		} catch (error) {
+			refused.push({ name: `${file.id}.md`, reason: errorMessage(error) });
+		}
+	}
+	return { imported, refused };
 }
 
 // A file that exists but does not parse is present-but-unusable, never absent:

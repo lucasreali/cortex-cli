@@ -61,13 +61,22 @@ export class DecisionSyncRepository {
 			.map((row) => ({ id: row.id, present: row.present === 1 }));
 	}
 
+	// The five writes are one fact, and the invariant lives here rather than in
+	// the callers because no caller can restore it: a node row that lost its FTS
+	// row is invisible to every search and to prompt-hook, and the reconciler
+	// only ever inserts ids it has never seen, so no pass — `--full` included —
+	// will ever add the missing one back. Nested inside the reconcile's
+	// transaction this is a savepoint, which is what lets one refused decision
+	// roll back alone.
 	insertDecision(file: DecisionFile, local: LocalLinks | null): void {
-		this.insertNode(file);
-		this.insertAnchors(file.id, file.anchors);
-		this.insertFtsRow(file);
-		if (!local) return;
-		this.insertLocalEdge(file.id, "BELONGS_TO", local.projectId);
-		this.insertLocalEdge(file.id, "GENERATED_IN", local.sessionId);
+		this.transaction(() => {
+			this.insertNode(file);
+			this.insertAnchors(file.id, file.anchors);
+			this.insertFtsRow(file);
+			if (!local) return;
+			this.insertLocalEdge(file.id, "BELONGS_TO", local.projectId);
+			this.insertLocalEdge(file.id, "GENERATED_IN", local.sessionId);
+		});
 	}
 
 	setPresent(ids: string[], present: boolean): void {
