@@ -86,7 +86,17 @@ Dependency direction, no cycles:
   of spawning git: a hook must not trust the GIT_DIR it inherits (git names the
   superproject during submodule work), and a replay is a fact on disk anyway.
 - `indexer/` — tree-sitter code index (TS/JS only), reconciled lazily on
-  first use; no file watcher (deliberate — see todo.md).
+  first use; no file watcher (deliberate — see todo.md). Two lifetime rules
+  hold the pass together. A parsed tree is freed by `extract` itself:
+  web-tree-sitter registers no `FinalizationRegistry`, so a tree handed to the
+  GC keeps roughly thirty times the parsed bytes for the life of the process —
+  which is a long-lived MCP server, not a command. And a file the pass cannot
+  use is a *skipped file*, never a failed run: unreadable, oversized or binary,
+  it goes into `IndexReport.skipped` with its reason, and `cortex index` and
+  `doctor` name the first few through `cli/skipped-sources.ts`. An oversized
+  file stays in the listing regardless, because an import can point at it —
+  it is `computeDrift`, reading the same skip list, that keeps it from looking
+  like drift forever.
 - `embedding/` — the hard part; see topology below.
 - `release/` — self-update: resolve a GitHub release, verify its checksum,
   unpack the ustar member, replace the running binary by atomic rename. It
@@ -102,8 +112,10 @@ Dependency direction, no cycles:
   rendering two commands share: `malformed-files.ts` caps how many unreadable
   decision files `doctor` and `sync` name and states the remainder, so neither
   can truncate silently and a corrupt checkout cannot bury every other finding.
-  It is pure and unit-tested in process, which is why it sits beside
-  `cli/commands/` rather than inside it.
+  `skipped-sources.ts` is the same cap for the source files the code index
+  could not use, shared by `index` and `doctor`. Both are pure and unit-tested
+  in process, which is why they sit beside `cli/commands/` rather than inside
+  it.
 - `install/` — pure logic only, home and cwd passed in as parameters, 100%
   in-process coverage; the thin command files touch process state.
   `marked-block.ts` is the one marker fence, shared by the instruction block

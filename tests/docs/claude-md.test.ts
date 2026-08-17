@@ -37,6 +37,8 @@ const NOT_IN_THE_TREE: Record<string, string> = {
 	"code.db": "derived store, gitignored, created at runtime",
 	"lcov.info": "coverage output, written by bun test --coverage",
 	content_sha: "a column CLAUDE.md says it deliberately does not have yet",
+	FinalizationRegistry:
+		"the hook web-tree-sitter does not register — the absence is the point",
 	symbol_key:
 		"the anchors column CLAUDE.md rejects — a second copy of the symbol recipe",
 };
