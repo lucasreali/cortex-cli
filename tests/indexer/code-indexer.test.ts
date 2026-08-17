@@ -4,6 +4,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	rmSync,
+	symlinkSync,
 	utimesSync,
 	writeFileSync,
 } from "node:fs";
@@ -11,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodeIndexer, computeDrift } from "@/indexer/code-indexer";
 import { EXTRACTION_VERSION } from "@/indexer/extraction-version";
-import { listSourceFiles } from "@/indexer/source-walker";
+import { listSources } from "@/indexer/source-walker";
 import { CodeRepository } from "@/storage/code-repository";
 import { openCodeDb } from "@/storage/connection";
 import { migrateCode } from "@/storage/migrations";
@@ -54,6 +55,10 @@ function fileContent(position: number): string {
 	);
 }
 
+function oversizedSource(): Buffer {
+	return Buffer.alloc(1024 * 1024 + 1, 0x20);
+}
+
 function bumpMtime(path: string): void {
 	const future = new Date(Date.now() + 5000);
 	utimesSync(join(dir, path), future, future);
@@ -68,6 +73,7 @@ describe("CodeIndexer", () => {
 			indexed: FILE_COUNT,
 			unchanged: 0,
 			removed: 0,
+			skipped: [],
 		});
 		expect(repository.listFiles()).toHaveLength(FILE_COUNT);
 		expect(repository.symbolsIn("src/file07.ts")).toEqual([
@@ -91,6 +97,7 @@ describe("CodeIndexer", () => {
 			indexed: 0,
 			unchanged: FILE_COUNT,
 			removed: 0,
+			skipped: [],
 		});
 	});
 
@@ -109,6 +116,7 @@ describe("CodeIndexer", () => {
 			indexed: 1,
 			unchanged: FILE_COUNT - 1,
 			removed: 0,
+			skipped: [],
 		});
 		expect(repository.symbolsIn("src/file10.ts").map((s) => s.name)).toEqual([
 			"value10",
@@ -183,6 +191,94 @@ describe("CodeIndexer", () => {
 		expect(report.indexed).toBe(FILE_COUNT);
 	});
 
+	// The listing is taken synchronously at the top of run(), so deleting a file
+	// after the call and before the await is the ordinary race against a
+	// checkout or an editor save — one file, not a failed index.
+	test("a file that vanishes mid-run is skipped, not fatal", async () => {
+		const running = indexer.run();
+		rmSync(join(dir, "src/file25.ts"));
+
+		const report = await running;
+
+		expect(report.indexed).toBe(FILE_COUNT - 1);
+		expect(report.skipped.map((entry) => entry.path)).toEqual([
+			"src/file25.ts",
+		]);
+		expect(repository.listFiles()).toHaveLength(FILE_COUNT - 1);
+	});
+
+	test("a symlink cycle is skipped and the rest of the tree is indexed", async () => {
+		symlinkSync("cycle.ts", join(dir, "src/cycle.ts"));
+
+		const report = await indexer.run();
+
+		expect(report.indexed).toBe(FILE_COUNT);
+		expect(report.skipped.map((entry) => entry.path)).toEqual(["src/cycle.ts"]);
+	});
+
+	// A file the pass could not read is not a file that left the tree, so
+	// pruning its rows would drop symbols over a transient permission error.
+	test("an unreadable file keeps the rows it already had", async () => {
+		await indexer.run();
+		rmSync(join(dir, "src/file15.ts"));
+		symlinkSync("file15.ts", join(dir, "src/file15.ts"));
+
+		const report = await indexer.run();
+
+		expect(report.removed).toBe(0);
+		expect(repository.getFile("src/file15.ts")).not.toBeNull();
+		expect(report.skipped.map((entry) => entry.path)).toEqual([
+			"src/file15.ts",
+		]);
+	});
+
+	test("an oversized file resolves as an import target without being parsed", async () => {
+		writeFileSync(join(dir, "src/schema.ts"), oversizedSource());
+		writeFileSync(
+			join(dir, "src/uses-schema.ts"),
+			'import { Schema } from "./schema";\nexport const use = () => Schema;\n',
+		);
+
+		const report = await indexer.run();
+
+		expect(repository.importsFrom("src/uses-schema.ts")).toEqual([
+			{
+				specifier: "./schema",
+				toPath: "src/schema.ts",
+				provenance: "heuristic",
+			},
+		]);
+		expect(repository.getFile("src/schema.ts")).toBeNull();
+		expect(report.skipped.map((entry) => entry.path)).toEqual([
+			"src/schema.ts",
+		]);
+	});
+
+	test("a binary blob with a source extension is recorded but never parsed", async () => {
+		writeFileSync(join(dir, "src/blob.ts"), Buffer.from([0x01, 0x00, 0x02]));
+
+		const report = await indexer.run();
+
+		expect(report.skipped).toEqual([
+			{ path: "src/blob.ts", reason: "binary content, not source text" },
+		]);
+		expect(repository.symbolsIn("src/blob.ts")).toEqual([]);
+		expect(repository.getFile("src/blob.ts")).not.toBeNull();
+	});
+
+	// Skipped files are invisible to the index, so counting them as drift would
+	// make doctor demand a reindex that can never settle.
+	test("computeDrift ignores what the pass skipped", async () => {
+		writeFileSync(join(dir, "src/schema.ts"), oversizedSource());
+		await indexer.run();
+		rmSync(join(dir, "src/file35.ts"));
+		symlinkSync("file35.ts", join(dir, "src/file35.ts"));
+
+		const drift = computeDrift(listSources(dir), repository.listFiles());
+
+		expect(drift).toEqual({ added: 0, changed: 0, removed: 0 });
+	});
+
 	test("computeDrift reports added, changed and removed without mutating", async () => {
 		await indexer.run();
 		writeFileSync(join(dir, "src/fresh.ts"), "export const fresh = () => 1;\n");
@@ -193,7 +289,7 @@ describe("CodeIndexer", () => {
 		bumpMtime("src/file05.ts");
 		rmSync(join(dir, "src/file40.ts"));
 
-		const drift = computeDrift(listSourceFiles(dir), repository.listFiles());
+		const drift = computeDrift(listSources(dir), repository.listFiles());
 
 		expect(drift).toEqual({ added: 1, changed: 1, removed: 1 });
 		expect(repository.listFiles()).toHaveLength(FILE_COUNT);

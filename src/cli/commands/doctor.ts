@@ -6,13 +6,14 @@ import { symbolHint } from "@/app/symbol-hints";
 import { printJson } from "@/cli/json";
 import { boundedMalformedLines } from "@/cli/malformed-files";
 import { withRuntime } from "@/cli/open-runtime";
+import { boundedSkippedLines } from "@/cli/skipped-sources";
 import { success, warning } from "@/cli/style";
 import { MINIMUM_KEYWORDS } from "@/domain";
 import { GEMMA_MODEL } from "@/embedding/model";
 import { modelsDir } from "@/embedding/models-dir";
 import { computeDrift } from "@/indexer/code-indexer";
 import { EXTRACTION_VERSION } from "@/indexer/extraction-version";
-import { listSourceFiles } from "@/indexer/source-walker";
+import { listSources, type SourceListing } from "@/indexer/source-walker";
 import { TsconfigAliases } from "@/indexer/tsconfig-aliases";
 import { QueryLog } from "@/querylog/query-log";
 import { ENABLE_VARIABLE, QueryLogSettings } from "@/querylog/settings";
@@ -363,7 +364,9 @@ function checkCodeDrift(
 	report: DoctorReport,
 ): void {
 	const indexed = repository.listFiles();
-	const drift = computeDrift(listSourceFiles(runtime.repoRoot), indexed);
+	const listing = listSources(runtime.repoRoot);
+	reportSkippedSources(listing, report);
+	const drift = computeDrift(listing, indexed);
 	if (drift.added === 0 && drift.changed === 0 && drift.removed === 0) {
 		report.ok(
 			`code index: in sync with the working tree (${indexed.length} files)`,
@@ -374,6 +377,17 @@ function checkCodeDrift(
 		`code index outdated: ${drift.added} new, ${drift.changed} changed, ` +
 			`${drift.removed} deleted — run: cortex index`,
 	);
+}
+
+// A skipped file contributes no symbols and never shows up as drift, so this is
+// the only place it can be seen: without it, get_impact loses a file silently.
+function reportSkippedSources(
+	listing: SourceListing,
+	report: DoctorReport,
+): void {
+	for (const line of boundedSkippedLines(listing.skipped)) {
+		report.warn(line);
+	}
 }
 
 async function checkImportResolution(

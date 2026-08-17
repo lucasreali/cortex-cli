@@ -1,6 +1,7 @@
 import { parseArgs } from "node:util";
 import { requireInitialized } from "@/cli/open-runtime";
-import { success } from "@/cli/style";
+import { boundedSkippedLines } from "@/cli/skipped-sources";
+import { success, warning } from "@/cli/style";
 import { CodeIndexer } from "@/indexer/code-indexer";
 import { openCodeRepository } from "@/storage/code-db";
 
@@ -20,9 +21,13 @@ export async function runIndex(args: string[], cwd: string): Promise<number> {
 		console.log(
 			success(
 				`Indexed ${report.indexed} file(s) (${report.mode}), ` +
-					`${report.unchanged} unchanged, ${report.removed} removed in ${elapsed} ms.`,
+					`${report.unchanged} unchanged, ${report.removed} removed, ` +
+					`${report.skipped.length} skipped in ${elapsed} ms.`,
 			),
 		);
+		for (const line of boundedSkippedLines(report.skipped)) {
+			console.log(warning(line));
+		}
 		return 0;
 	} finally {
 		database.close();

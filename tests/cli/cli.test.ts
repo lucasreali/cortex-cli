@@ -8,6 +8,7 @@ import {
 	readFileSync,
 	realpathSync,
 	rmSync,
+	symlinkSync,
 	unlinkSync,
 	writeFileSync,
 } from "node:fs";
@@ -524,6 +525,27 @@ describe("cortex CLI", () => {
 
 		const forced = cli("index", "--force");
 		expect(forced.stdout).toContain("(full)");
+	});
+
+	// One unreadable file used to abort the whole run, taking every other file's
+	// symbols with it — and doctor, whose job is to diagnose exactly this, died
+	// on the same call.
+	test("index and doctor name an unreadable file instead of failing", () => {
+		symlinkSync("cycle.ts", join(dir, "src/cycle.ts"));
+
+		try {
+			const indexed = cli("index", "--force");
+			expect(indexed.code).toBe(0);
+			expect(indexed.stdout).toContain("Indexed 1 file(s) (full)");
+			expect(indexed.stdout).toContain("1 skipped");
+			expect(indexed.stdout).toContain("source skipped: src/cycle.ts");
+
+			const doctor = cli("doctor");
+			expect(doctor.stdout).toContain("source skipped: src/cycle.ts");
+		} finally {
+			unlinkSync(join(dir, "src/cycle.ts"));
+			cli("index", "--force");
+		}
 	});
 
 	test("impact prints the indented dependency tree", () => {
