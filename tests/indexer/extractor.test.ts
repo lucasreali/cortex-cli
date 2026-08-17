@@ -51,4 +51,25 @@ describe("TsxExtractor", () => {
 		const source = await Bun.file(join(FIXTURES_DIR, "types-only.ts")).text();
 		expect(extractor.extract(source)).toEqual({ symbols: [], imports: [] });
 	});
+
+	// web-tree-sitter frees a tree only through delete() and registers no
+	// FinalizationRegistry, so a leaked tree is unreachable to the GC: this
+	// same loop retained ~3.5 MB per parse before extract() deleted its tree,
+	// which is what made `cortex index` peak at 935 MB on 18 MB of source.
+	test("parses do not retain the WASM heap", () => {
+		const source = Array.from(
+			{ length: 800 },
+			(_, index) =>
+				`export function f${index}(a: number) { return a + ${index}; }`,
+		).join("\n");
+		extractor.extract(source);
+		Bun.gc(true);
+		const before = process.memoryUsage().external;
+
+		for (let round = 0; round < 100; round++) extractor.extract(source);
+
+		Bun.gc(true);
+		const retained = process.memoryUsage().external - before;
+		expect(retained).toBeLessThan(50 * 1024 * 1024);
+	});
 });
