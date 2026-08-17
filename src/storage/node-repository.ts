@@ -96,13 +96,31 @@ export class NodeRepository {
 		);
 	}
 
+	// Check-then-insert, so the two halves have to share one write lock: every
+	// runtime calls this, and two processes opening the same repository at once
+	// would otherwise mint two project nodes for one canonical id, splitting
+	// every session's BELONGS_TO edges across two identities. The lookup runs
+	// first and unlocked because it answers on all but the very first call.
 	ensureProject(canonicalId: string): string {
-		const existing = this.db
-			.query<{ id: string }, [string]>(
-				"SELECT id FROM nodes WHERE kind = 'project' AND title = ?",
-			)
-			.get(canonicalId);
-		if (existing) return existing.id;
+		return (
+			this.findProject(canonicalId) ??
+			this.db.transaction(() => this.createProject(canonicalId)).immediate()
+		);
+	}
+
+	private findProject(canonicalId: string): string | null {
+		return (
+			this.db
+				.query<{ id: string }, [string]>(
+					"SELECT id FROM nodes WHERE kind = 'project' AND title = ?",
+				)
+				.get(canonicalId)?.id ?? null
+		);
+	}
+
+	private createProject(canonicalId: string): string {
+		const existing = this.findProject(canonicalId);
+		if (existing) return existing;
 		const id = Bun.randomUUIDv7();
 		this.db
 			.query("INSERT INTO nodes (id, kind, title) VALUES (?, 'project', ?)")

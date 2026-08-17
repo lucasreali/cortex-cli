@@ -10,6 +10,9 @@ import decisionsPresent from "./migrations/004-decisions-present.sql" with {
 import decisionsGraphVocabulary from "./migrations/005-decisions-graph-vocabulary.sql" with {
 	type: "text",
 };
+import decisionsProjectIdentity from "./migrations/006-decisions-project-identity.sql" with {
+	type: "text",
+};
 import migrationsTable from "./migrations/migrations-table.sql" with {
 	type: "text",
 };
@@ -43,6 +46,11 @@ const decisionsMigrations: Migration[] = [
 		up: (db) => db.run(decisionsGraphVocabulary),
 		rebuildsTables: true,
 	},
+	{
+		id: 4,
+		name: "decisions-project-identity",
+		up: (db) => db.run(decisionsProjectIdentity),
+	},
 ];
 
 const codeMigrations: Migration[] = [
@@ -68,16 +76,43 @@ export const CODE_SCHEMA_VERSION =
 // crossing a version boundary — the decision export needs to run exactly once,
 // on the store that predates `.cortex/decisions/`.
 export function migrate(db: Database): string[] {
-	return applyAll(db, decisionsMigrations);
+	return applyAll(db, decisionsMigrations, "decisions.db");
 }
 
 export function migrateCode(db: Database): string[] {
-	return applyAll(db, codeMigrations);
+	return applyAll(db, codeMigrations, "code.db");
 }
 
-function applyAll(db: Database, migrations: Migration[]): string[] {
+function applyAll(
+	db: Database,
+	migrations: Migration[],
+	store: string,
+): string[] {
 	ensureMigrationsTable(db);
+	assertKnownSchema(db, migrations, store);
 	return migrations.filter((migration) => applyOnce(db, migration)).map(named);
+}
+
+// An older binary must never write to a schema it does not know. Every
+// migration so far only widened a CHECK, so the damage would be silent — rows
+// this binary cannot represent, read back through columns it never saw — and
+// doctor's warning does not stop `log`, `search`, `save_decision` or the git
+// hook from writing meanwhile. Refusing costs one query and names the fix.
+function assertKnownSchema(
+	db: Database,
+	migrations: Migration[],
+	store: string,
+): void {
+	const known = migrations[migrations.length - 1]?.id ?? 0;
+	const applied =
+		db
+			.query<{ id: number | null }, []>("SELECT MAX(id) AS id FROM _migrations")
+			.get()?.id ?? 0;
+	if (applied <= known) return;
+	throw new Error(
+		`${store} is at schema v${applied}, newer than the v${known} this cortex ` +
+			"knows — run: cortex upgrade",
+	);
 }
 
 function named(migration: Migration): string {
@@ -89,30 +124,44 @@ function ensureMigrationsTable(db: Database): void {
 }
 
 function applyOnce(db: Database, migration: Migration): boolean {
-	const applied = db
-		.query("SELECT 1 FROM _migrations WHERE id = ?")
-		.get(migration.id);
-	if (applied) return false;
-	if (migration.rebuildsTables) applyRebuilding(db, migration);
-	else applyInTransaction(db, migration);
-	return true;
+	if (isApplied(db, migration)) return false;
+	if (migration.rebuildsTables) {
+		return withForeignKeysOff(db, () => applyExclusively(db, migration));
+	}
+	return applyExclusively(db, migration);
 }
 
-function applyInTransaction(db: Database, migration: Migration): void {
-	db.transaction(() => {
-		migration.up(db);
-		record(db, migration);
-	})();
+function isApplied(db: Database, migration: Migration): boolean {
+	return (
+		db.query("SELECT 1 FROM _migrations WHERE id = ?").get(migration.id) !==
+		null
+	);
 }
 
-function applyRebuilding(db: Database, migration: Migration): void {
+// The check above is a shortcut; this one decides. The question and the write
+// that answers it have to be the same transaction, and it has to be BEGIN
+// IMMEDIATE: a deferred transaction takes no write lock until its first write,
+// so on a fresh store two processes both read "not applied" and the loser then
+// runs DDL that is no longer valid — an ordinary first command in a fresh
+// clone, where the MCP server, a CLI invocation and the post-commit hook all
+// migrate. With the lock taken up front busy_timeout makes the loser wait, and
+// the re-check inside is what makes it correctly do nothing.
+function applyExclusively(db: Database, migration: Migration): boolean {
+	return db
+		.transaction(() => {
+			if (isApplied(db, migration)) return false;
+			migration.up(db);
+			if (migration.rebuildsTables) assertForeignKeysIntact(db, migration);
+			record(db, migration);
+			return true;
+		})
+		.immediate();
+}
+
+function withForeignKeysOff<T>(db: Database, body: () => T): T {
 	db.run("PRAGMA foreign_keys = OFF");
 	try {
-		db.transaction(() => {
-			migration.up(db);
-			assertForeignKeysIntact(db, migration);
-			record(db, migration);
-		})();
+		return body();
 	} finally {
 		db.run("PRAGMA foreign_keys = ON");
 	}

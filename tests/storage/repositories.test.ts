@@ -217,6 +217,18 @@ describe("NodeRepository project and session nodes", () => {
 		expect(other).not.toBe(first);
 	});
 
+	// The transaction ensureProject holds is what makes the race lose; this is
+	// the backstop under it, so a second identity cannot be written by any path.
+	test("the store refuses a second project node for one canonical id", () => {
+		nodes.ensureProject("github.com/acme/app");
+
+		expect(() =>
+			db
+				.query("INSERT INTO nodes (id, kind, title) VALUES (?, 'project', ?)")
+				.run("second-identity", "github.com/acme/app"),
+		).toThrow(/UNIQUE constraint failed/);
+	});
+
 	test("createSession links the session to the project", () => {
 		const sessionId = nodes.createSession(PROJECT_ID);
 		expect(edgeRows("BELONGS_TO")).toContainEqual({
