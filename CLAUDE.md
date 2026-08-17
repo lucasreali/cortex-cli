@@ -43,7 +43,16 @@ Dependency direction, no cycles:
   present = 1`, so neither a replaced decision nor one belonging to another
   branch leaves the index, and consumers do not re-filter.
   `DecisionSyncRepository` holds the decision write surface, apart from
-  `NodeRepository`, because only the reconciler may use it.
+  `NodeRepository`, because only the reconciler may use it. Concurrency is a
+  first-use problem here, not a load problem: on a fresh clone the MCP server, a
+  CLI invocation and the post-commit hook all reach the store at once. So
+  `busy_timeout` is set before anything that could need a lock, the one switch
+  SQLite refuses to run a busy handler for — turning the file to WAL — is
+  retried rather than trusted to it, and every migration takes the write lock up
+  front and re-checks `_migrations` inside it, so the loser waits and correctly
+  does nothing. A store whose `_migrations` is ahead of this binary is refused
+  outright: migrations so far only widen a CHECK, so an older binary writing to
+  a newer schema is silent damage, not a loud one.
 - `decisions/` — the versioned product: one immutable markdown file per
   decision under `.cortex/decisions/`, and the reconciler that derives SQLite
   from them. Peer of `indexer/`, same shape: read the working tree, fill a
@@ -157,6 +166,20 @@ revisit a `content_sha` column that day, and not before.
 - `save_decision` writes the file, inserts the row, then reconciles. Status
   and versioned edges are derived in exactly one place, so a decision saved
   here goes through the same path as one that arrived from a pull.
+- `insertDecision` writes the node, its anchors and its FTS row in one
+  transaction, because a node row without its FTS row is unrepairable: the
+  reconciler only ever inserts ids it has never seen, so `--full` included, no
+  pass would ever add the missing one back and the decision would sit on disk,
+  listed by `cortex log`, unfindable forever. Nested in the reconcile it is a
+  savepoint, which is what lets a decision the store refuses roll back alone —
+  named as `malformed` and skipped, never taking the pass down with it. That
+  matters because the pass is recomputed from the same files every run: a file
+  that kills it once kills every command until a human finds it.
+- Anchors are deduplicated on the way in, by `uniqueAnchors`, on the save path
+  and the parse path alike. The pair is the primary key, a repeated entry says
+  nothing the first says, and a file arrives by merge and hand edit as much as
+  by `save_decision`. Nothing about this is normalization — an anchor is still
+  stored exactly as written.
 - The reconcile does not enqueue embeddings: a pull must not make `cortex log`
   load the model, and a CLI process disposes before the embed would finish.
   `cortex embed --missing` owns that, and doctor reports the pending count.
