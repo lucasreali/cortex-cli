@@ -35,10 +35,18 @@ export class LazyCodeIndex implements CodeIndex {
 		);
 	}
 
+	// The connection is closed here rather than left to dispose(): a rejected
+	// reconcile is not cached, so nothing holds the handle afterwards and every
+	// later retry would leak another one.
 	private async reconcile(): Promise<OpenCodeRepository> {
 		const open = openCodeRepository(ProjectRoot.at(this.repoRoot).cortexDir);
-		const indexer = await CodeIndexer.create(this.repoRoot, open.repository);
-		await indexer.run();
-		return open;
+		try {
+			const indexer = await CodeIndexer.create(this.repoRoot, open.repository);
+			await indexer.run();
+			return open;
+		} catch (error) {
+			open.database.close();
+			throw error;
+		}
 	}
 }

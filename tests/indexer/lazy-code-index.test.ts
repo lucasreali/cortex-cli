@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readlinkSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EXTRACTION_VERSION } from "@/indexer/extraction-version";
@@ -18,6 +26,22 @@ beforeEach(() => {
 afterEach(() => {
 	rmSync(dir, { recursive: true, force: true });
 });
+
+const PROCESS_DESCRIPTORS = "/proc/self/fd";
+
+function codeDbDescriptors(): number {
+	return readdirSync(PROCESS_DESCRIPTORS).filter((descriptor) =>
+		targetOf(descriptor).endsWith("code.db"),
+	).length;
+}
+
+function targetOf(descriptor: string): string {
+	try {
+		return readlinkSync(join(PROCESS_DESCRIPTORS, descriptor));
+	} catch {
+		return "";
+	}
+}
 
 describe("LazyCodeIndex", () => {
 	test("the first access reconciles the index", async () => {
@@ -95,6 +119,27 @@ describe("LazyCodeIndex", () => {
 		expect((await lazy.repository()).listFiles()).toHaveLength(1);
 		lazy.dispose();
 	});
+
+	// The retry is the point: nothing holds the handle of a reconcile that
+	// threw, so a connection left open there is one dispose() can never reach
+	// and one more handle on every later call. Counting the handles on one file
+	// is what /proc offers and macOS does not, so the measurement is Linux-only.
+	test.if(existsSync(PROCESS_DESCRIPTORS))(
+		"a reconcile that throws after opening closes its connection",
+		async () => {
+			const open = openCodeRepository(join(dir, ".cortex"));
+			open.database.run("DROP TABLE files");
+			expect(codeDbDescriptors()).toBeGreaterThan(0);
+			open.database.close();
+			const lazy = new LazyCodeIndex(dir);
+
+			for (let attempt = 0; attempt < 8; attempt++) {
+				await expect(lazy.repository()).rejects.toThrow(/no such table: files/);
+			}
+
+			expect(codeDbDescriptors()).toBe(0);
+		},
+	);
 
 	test("dispose during a doomed reconcile leaves nothing pending", async () => {
 		writeFileSync(join(dir, ".cortex/code.db"), "not a sqlite database");
