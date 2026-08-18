@@ -300,6 +300,33 @@ describe("SemanticSearch — cache", () => {
 		expect(fresh.map((result) => result.node.id)).toContain(lateId);
 	});
 
+	// Embedding is deliberately pushed out of process: the git hook spawns
+	// `cortex embed --missing` detached, and the docs tell people to run it by
+	// hand. Neither can call invalidate() on a running MCP server.
+	test("a vector another process wrote reaches the next search", async () => {
+		await createEmbedded(postgresInput, conceptProvider);
+		const search = new SemanticSearch({
+			nodes,
+			embeddings,
+			fts,
+			provider: conceptProvider,
+		});
+		await search.search("banco de dados");
+
+		const decision = seedDecision(dir, db, jwtInput, context);
+		const otherProcess = openDecisionsDb(dir);
+		new EmbeddingRepository(otherProcess).upsert(
+			decision.id,
+			conceptProvider.modelId,
+			conceptVector(jwtInput.title),
+		);
+		otherProcess.close();
+
+		const results = await search.search("jwt");
+		expect(results.map((result) => result.node.id)).toContain(decision.id);
+		expect(results.map((result) => result.source)).toContain("vector");
+	});
+
 	test("the queue's onEmbedded hook wires invalidation", async () => {
 		const search = new SemanticSearch({
 			nodes,

@@ -48,6 +48,7 @@ export interface FusedRanking {
 
 export class SemanticSearch {
 	private vectorCache: Map<string, Float32Array> | null = null;
+	private cachedWriteCounter = 0;
 
 	constructor(
 		private readonly dependencies: SemanticSearchDependencies,
@@ -130,8 +131,19 @@ export class SemanticSearch {
 		return [{ node, score, source }];
 	}
 
+	// Embedding is deliberately pushed out of process — the git hook spawns
+	// `cortex embed --missing`, and the docs tell people to run it by hand — so
+	// the in-process invalidation hooks cannot be the whole story: a cache held
+	// by a long-lived MCP server would answer from FTS for the rest of the
+	// session and tell the agent those decisions do not match. The store says
+	// when another connection wrote, and that is cheaper than re-reading.
 	private loadCache(modelId: string): Map<string, Float32Array> {
-		this.vectorCache ??= new Map(
+		const written = this.dependencies.embeddings.externalWriteCounter();
+		if (this.vectorCache && written === this.cachedWriteCounter) {
+			return this.vectorCache;
+		}
+		this.cachedWriteCounter = written;
+		this.vectorCache = new Map(
 			this.dependencies.embeddings
 				.listActiveVectors(modelId)
 				.map((entry) => [entry.nodeId, entry.vector]),
