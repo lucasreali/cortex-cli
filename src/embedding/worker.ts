@@ -8,15 +8,11 @@ import {
 	type WorkerRequest,
 	type WorkerResponse,
 } from "./protocol";
+import { RetainedLoad } from "./retained-load";
 
 type Extractor = Awaited<ReturnType<typeof pipelineType<"feature-extraction">>>;
 
-let extractorPromise: Promise<Extractor> | null = null;
-
-function loadExtractor(): Promise<Extractor> {
-	extractorPromise ??= createExtractor();
-	return extractorPromise;
-}
+const extractor = new RetainedLoad(createExtractor);
 
 async function createExtractor(): Promise<Extractor> {
 	// transformers.js v4 picks the native onnxruntime-node backend when
@@ -47,8 +43,8 @@ async function embed(request: WorkerRequest): Promise<number[][]> {
 		request.kind === "query"
 			? GEMMA_MODEL.queryPrefix
 			: GEMMA_MODEL.documentPrefix;
-	const extractor = await loadExtractor();
-	const output = (await extractor(
+	const loaded = await extractor.get();
+	const output = (await loaded(
 		request.texts.map((text) => prefix + text),
 		{ pooling: "mean", normalize: true },
 	)) as { dims: number[]; data: Float32Array };
