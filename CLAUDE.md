@@ -368,12 +368,18 @@ Three processes, reachable as hidden CLI subcommands (`prompt-hook`,
 - The MCP server prefers the per-user shared daemon (Unix socket), falling
   back to a private worker.
 - Degradation ladder — never weaken it: shared daemon → private worker →
-  pure FTS. The vector path never blocks a query: every await on it is bounded
-  by a timeout, and FTS answers when one fires. The two paths differ on
-  purpose: an embed disposes of the worker on timeout (`embedding/queue.ts`,
-  `cli/commands/embed-all.ts`, the daemon), while a query leaves it alone
-  (`embedding/semantic-search.ts`) so a model still loading after an idle-kill
-  finishes for the next query instead of restarting.
+  pure FTS. Every rung is reachable from the one above at any point of a
+  request, not only while dialling it: `shared-provider.ts` retries on the
+  private worker when the daemon leg fails for a *transport* reason, which the
+  connection itself distinguishes — a daemon that answered `error` is still
+  open and returned a verdict the private worker would only repeat. The vector
+  path never blocks a query: every await on it is bounded by a timeout, and FTS
+  answers when one fires. The two kinds differ on purpose: an embed disposes of
+  the worker on timeout (`embedding/queue.ts`, `cli/commands/embed-all.ts`,
+  `embedding/daemon/embedding-daemon.ts`), while a query leaves it alone
+  (`embedding/semantic-search.ts`, and the same daemon method reading
+  `request.kind`) so a model still loading after an idle-kill finishes for the
+  next query instead of restarting.
 - The daemon serves one worker to every session, and the worker embeds one
   request at a time, so the daemon queues rather than pipelines: a request's
   deadline starts when it reaches the worker, never while it waits behind
@@ -381,6 +387,41 @@ Three processes, reachable as hidden CLI subcommands (`prompt-hook`,
 
 `prompt-hook` bypasses `app/runtime` and opens the database read-only on
 purpose: it runs on every prompt and must never fail or migrate state.
+
+## Fetching the model is not embedding
+
+The first run downloads about 300 MB of weights, and for a long time that
+happened inside the first `embed` request — under the deadline that exists to
+catch a *wedged* worker. On any link slower than roughly 10 MB/s the download
+was killed at 30 s, the partial fetch discarded, and the next invocation
+started from zero: embedding was not slow on that machine, it was impossible.
+A worker fetching a model is not a hung worker, and the two must never share
+one budget.
+
+- `cortex embed --fetch-model` is the explicit acquisition step, with no
+  deadline at all — a person who invoked it can interrupt it, where a
+  background embed cannot. It skips `app/runtime` entirely: which model is on
+  this disk is a fact about the machine, not about a project, so the command
+  answers outside any store.
+- The implicit path is not left unrecoverable. `embedDeadlineMs` in
+  `embedding/model-cache.ts` swaps the inference deadline for
+  `MODEL_ACQUISITION_TIMEOUT_MS` while the model is not yet resident, at every
+  site that applies one — the queue, `embed-all`, and the daemon. It stays
+  bounded: a download that is genuinely stuck is still reported.
+- Residency is a stamp the worker writes (`markModelResident`), never the
+  presence of the cache directory: transformers.js creates that directory
+  before the first byte lands, so a run killed mid-download leaves one that
+  looks finished. The marker lives inside the model directory, so deleting the
+  model deletes the verdict with it, and `doctor` reports all three states —
+  downloaded, cache present but unconfirmed, absent.
+- A provider that cannot answer `modelResident` is taken at the configured
+  deadline. Only the process that would spawn the download knows there is one
+  to wait for, so a fake or a stub must not silently inherit a 15-minute
+  budget.
+- The worker narrates the download on stderr (which the parent inherits) and
+  only while acquiring: transformers.js reports the same progress for a file it
+  streams out of the cache as for one it fetches, so a resident model would
+  otherwise print a progress bar on every cold start.
 
 ## Conventions
 

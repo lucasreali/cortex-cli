@@ -2,6 +2,7 @@ import type { Decision } from "@/domain";
 import type { EmbeddingRepository } from "@/storage/embedding-repository";
 import type { NodeRepository } from "@/storage/node-repository";
 import { errorMessage } from "@/support/errors";
+import { embedDeadlineMs } from "./model-cache";
 import type { EmbeddingProvider } from "./provider";
 import { disposingOnTimeout } from "./with-timeout";
 
@@ -57,7 +58,10 @@ export class EmbedQueue {
 		return disposingOnTimeout(
 			provider,
 			provider.embedPassages([passage]),
-			this.options.timeoutMs ?? DEFAULT_EMBED_TIMEOUT_MS,
+			embedDeadlineMs(
+				provider,
+				this.options.timeoutMs ?? DEFAULT_EMBED_TIMEOUT_MS,
+			),
 		);
 	}
 }

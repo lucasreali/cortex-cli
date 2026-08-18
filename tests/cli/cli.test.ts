@@ -21,6 +21,10 @@ import { DecisionStore } from "@/decisions/decision-store";
 import { probeDaemon } from "@/embedding/daemon/client";
 import { type DaemonPaths, daemonPathsFor } from "@/embedding/daemon/paths";
 import { GEMMA_MODEL } from "@/embedding/model";
+import {
+	markModelResident,
+	modelCacheDirectory,
+} from "@/embedding/model-cache";
 import { EXTRACTION_VERSION } from "@/indexer/extraction-version";
 import { openCodeRepository } from "@/storage/code-db";
 import { openDecisionsDb } from "@/storage/connection";
@@ -57,6 +61,20 @@ function cli(...args: string[]): {
 		stdout: result.stdout.toString(),
 		stderr: result.stderr.toString(),
 	};
+}
+
+function doctorWithModels(models: string): string {
+	return Bun.spawnSync(["bun", MAIN_PATH, "doctor"], {
+		cwd: dir,
+		stdout: "pipe",
+		stderr: "pipe",
+		env: {
+			...process.env,
+			CORTEX_DISABLE_EMBEDDINGS: "1",
+			HOME: fakeHome,
+			CORTEX_MODELS_DIR: models,
+		},
+	}).stdout.toString();
 }
 
 function countOccurrences(haystack: string, needle: string): number {
@@ -581,6 +599,42 @@ describe("cortex CLI", () => {
 		const result = cli("embed");
 		expect(result.code).toBe(1);
 		expect(result.stderr).toContain("usage: cortex embed");
+	});
+
+	test("embed --fetch-model cannot be combined with a mode", () => {
+		const result = cli("embed", "--fetch-model", "--missing");
+		expect(result.code).toBe(1);
+		expect(result.stderr).toContain("usage: cortex embed");
+	});
+
+	// Acquisition is a fact about the machine, not the project, so it answers
+	// without opening a store — and never re-downloads a model already here.
+	test("embed --fetch-model is a no-op once the model is resident", () => {
+		const models = mkdtempSync(join(tmpdir(), "cortex-models-"));
+		markModelResident(models);
+		const result = Bun.spawnSync(["bun", MAIN_PATH, "embed", "--fetch-model"], {
+			cwd: tmpdir(),
+			stdout: "pipe",
+			stderr: "pipe",
+			env: { ...process.env, HOME: fakeHome, CORTEX_MODELS_DIR: models },
+		});
+		expect(result.exitCode).toBe(0);
+		expect(result.stdout.toString()).toContain("Model already available");
+	});
+
+	// Three states, not two: the cache directory exists from the first byte of
+	// a download, so "present" and "confirmed to load" are different facts.
+	test("doctor tells a model that loads from a cache that only exists", () => {
+		const missing = mkdtempSync(join(tmpdir(), "cortex-models-"));
+		expect(doctorWithModels(missing)).toContain("model not downloaded");
+
+		const partial = mkdtempSync(join(tmpdir(), "cortex-models-"));
+		mkdirSync(modelCacheDirectory(partial), { recursive: true });
+		expect(doctorWithModels(partial)).toContain("model cache present");
+
+		const resident = mkdtempSync(join(tmpdir(), "cortex-models-"));
+		markModelResident(resident);
+		expect(doctorWithModels(resident)).toContain("model downloaded");
 	});
 
 	test("doctor reports pending embeddings and exits non-zero", () => {

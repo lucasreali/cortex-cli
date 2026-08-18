@@ -131,9 +131,10 @@ command = "/home/you/.local/bin/cortex"
 args = ["serve", "--mcp"]
 ```
 
-The first embedding downloads EmbeddingGemma-300m (~hundreds of MB) to
-`~/.cortex/models/`. Run `cortex embed --missing` once after `init` to get it
-over with instead of paying for it mid-session.
+EmbeddingGemma-300m (~300 MB) is downloaded to `~/.cortex/models/` on first
+use. Run `cortex embed --fetch-model` once after `init` to get it over with
+instead of paying for it mid-session; it has no deadline, so a slow link only
+makes it slow. Until it lands, search answers on full text alone.
 
 ## Uninstall
 
@@ -250,6 +251,7 @@ cortex impact <id>                      # indented dependency tree
 cortex index [--force]                  # (re)build the code index incrementally
 cortex sync                             # reconcile the store with this branch's files
 cortex embed --missing | --rebuild      # fill or rebuild the vector index
+cortex embed --fetch-model              # download the embedding model, no deadline
 cortex doctor                           # config, anchors, embeddings, model, code index
 cortex benchmark [--write] [--json]     # tokens read per question vs corpus and grep
 cortex upgrade [--check]                # replace this binary with the latest release

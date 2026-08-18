@@ -11,7 +11,7 @@ export const USAGE = {
 	impact: "impact <id> [--depth N] [--json]",
 	index: "index [--force]",
 	sync: "sync [--json]",
-	embed: "embed --missing | --rebuild [--yes]",
+	embed: "embed --missing | --rebuild [--yes] | --fetch-model",
 	doctor: "doctor [--json]",
 	benchmark: "benchmark [--limit N] [--write] [--json]",
 	upgrade: "upgrade [--check [--json]] [--version V] [--force]",

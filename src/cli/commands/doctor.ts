@@ -10,7 +10,7 @@ import { boundedSkippedLines } from "@/cli/skipped-sources";
 import { success, warning } from "@/cli/style";
 import { MINIMUM_KEYWORDS } from "@/domain";
 import { GEMMA_MODEL } from "@/embedding/model";
-import { modelsDir } from "@/embedding/models-dir";
+import { modelCacheDirectory, modelIsResident } from "@/embedding/model-cache";
 import { computeDrift } from "@/indexer/code-indexer";
 import { EXTRACTION_VERSION } from "@/indexer/extraction-version";
 import { listSources, type SourceListing } from "@/indexer/source-walker";
@@ -479,12 +479,22 @@ function reportRegistryBackups(report: DoctorReport): void {
 	);
 }
 
+// Three states, not two: a cache directory exists from the first byte of the
+// download, so "present" and "confirmed to load" are different facts and only
+// the second one earns the deadline an inference gets.
 function checkModelDownloaded(report: DoctorReport): void {
-	if (existsSync(join(modelsDir(), GEMMA_MODEL.huggingFaceId))) {
+	if (modelIsResident()) {
 		report.ok(`model downloaded: ${GEMMA_MODEL.huggingFaceId}`);
 		return;
 	}
+	if (existsSync(modelCacheDirectory())) {
+		report.ok(
+			`model cache present (${GEMMA_MODEL.huggingFaceId}) — the next embed confirms it loads`,
+		);
+		return;
+	}
 	report.warn(
-		`model not downloaded (${GEMMA_MODEL.huggingFaceId}) — first embed will fetch it`,
+		`model not downloaded (${GEMMA_MODEL.huggingFaceId}, about 300 MB) — ` +
+			"run `cortex embed --fetch-model`, or the first embed pays for it",
 	);
 }

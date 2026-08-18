@@ -1,5 +1,7 @@
 import type { pipeline as pipelineType } from "@huggingface/transformers";
+import { DownloadProgress } from "./download-progress";
 import { GEMMA_MODEL } from "./model";
+import { markModelResident, modelIsResident } from "./model-cache";
 import { modelsDir } from "./models-dir";
 import { encodeNdjson, LineBuffer } from "./ndjson";
 import { ensureOnnxRuntimeAssets } from "./onnxruntime-assets";
@@ -30,12 +32,32 @@ async function createExtractor(): Promise<Extractor> {
 	// More than 1 thread does not work in Bun: Emscripten's pthread workers
 	// are loaded via blob URL, which Bun's worker_threads cannot resolve.
 	env.backends.onnx.wasm.numThreads = 1;
+	// transformers.js reports the same progress for a file it streams out of
+	// the cache as for one it fetches, so the only honest moment to narrate is
+	// the one where the model is not here yet — which is also the only run
+	// long enough for silence to read as a hang.
+	const progress = modelIsResident() ? null : new DownloadProgress();
 	// q8 is mandatory: q4 uses GatherBlockQuantized, which the wasm
 	// execution provider does not implement.
-	return pipeline("feature-extraction", GEMMA_MODEL.huggingFaceId, {
-		device: "wasm",
-		dtype: "q8",
-	});
+	const loaded = await pipeline(
+		"feature-extraction",
+		GEMMA_MODEL.huggingFaceId,
+		{
+			device: "wasm",
+			dtype: "q8",
+			progress_callback: (event) => reportProgress(progress, event),
+		},
+	);
+	markModelResident();
+	return loaded;
+}
+
+function reportProgress(
+	progress: DownloadProgress | null,
+	event: unknown,
+): void {
+	const line = progress?.line(event as { file?: string });
+	if (line) process.stderr.write(`${line}\n`);
 }
 
 async function embed(request: WorkerRequest): Promise<number[][]> {
