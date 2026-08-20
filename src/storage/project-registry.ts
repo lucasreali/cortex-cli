@@ -29,25 +29,29 @@ export function projectsRegistryPath(): string {
 }
 
 // A rebuildable per-user cache, like everything else under ~/.cortex: a
-// corrupt file reads as empty, and entries whose store disappeared are pruned
-// on read. Registration is best-effort on purpose — failing to record a
-// project must never fail the init or the search that triggered it.
+// corrupt file reads as empty. Registration is best-effort on purpose —
+// failing to record a project must never fail the init or the search that
+// triggered it — and it is also the only path that drops entries: pruning
+// here keeps reads from rewriting the file, and rewrites from a snapshot the
+// caller took before a concurrent `cortex init` appended to it.
 export function registerProject(root: string, canonicalId: string): void {
 	try {
 		const resolved = resolve(root);
 		const entries = readEntries();
 		if (entries.some((entry) => entry.root === resolved)) return;
-		writeEntries([...entries, newEntry(resolved, canonicalId)]);
+		const kept = entries.filter(
+			(entry) => !ProjectRoot.at(entry.root).isProvablyAbsent(),
+		);
+		writeEntries([...kept, newEntry(resolved, canonicalId)]);
 	} catch {}
 }
 
+// Filtered, never pruned: a store behind an unreachable mount reads as gone
+// for this call and comes back on the next one.
 export function readRegisteredProjects(): RegisteredProject[] {
-	const entries = readEntries();
-	const alive = entries.filter((entry) =>
-		ProjectRoot.at(entry.root).isInitialized(),
-	);
-	if (alive.length !== entries.length) pruneTo(alive);
-	return alive.map(toProject);
+	return readEntries()
+		.filter((entry) => ProjectRoot.at(entry.root).isInitialized())
+		.map(toProject);
 }
 
 function newEntry(root: string, canonicalId: string): RegistryEntry {
@@ -72,12 +76,6 @@ function readOrNull(path: string): string | null {
 	} catch {
 		return null;
 	}
-}
-
-function pruneTo(entries: RegistryEntry[]): void {
-	try {
-		writeEntries(entries);
-	} catch {}
 }
 
 function writeEntries(entries: RegistryEntry[]): void {

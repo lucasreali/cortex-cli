@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+	chmodSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -54,20 +60,55 @@ describe("project registry", () => {
 		expect(readRegisteredProjects()).toHaveLength(1);
 	});
 
-	test("an entry whose store disappeared is pruned on read", () => {
+	test("an entry whose store disappeared is filtered out, without a write", () => {
 		const kept = makeInitializedProject("alpha");
 		const doomed = makeInitializedProject("beta");
 		registerProject(kept, "github.com/acme/alpha");
 		registerProject(doomed, "github.com/acme/beta");
+		const written = readFileSync(join(dir, "projects.json"), "utf8");
 
 		rmSync(join(doomed, ".cortex"), { recursive: true, force: true });
 
 		expect(readRegisteredProjects().map((project) => project.root)).toEqual([
 			kept,
 		]);
+		expect(readFileSync(join(dir, "projects.json"), "utf8")).toBe(written);
+	});
+
+	test("a vanished entry is dropped by the next registration", () => {
+		const kept = makeInitializedProject("alpha");
+		const doomed = makeInitializedProject("beta");
+		registerProject(kept, "github.com/acme/alpha");
+		registerProject(doomed, "github.com/acme/beta");
+		rmSync(join(doomed, ".cortex"), { recursive: true, force: true });
+
+		registerProject(makeInitializedProject("gamma"), "github.com/acme/gamma");
+
 		expect(readFileSync(join(dir, "projects.json"), "utf8")).not.toContain(
 			"beta",
 		);
+	});
+
+	// A store behind an unreadable directory is not a store that is gone: the
+	// read has to come back empty for this call without forgetting the project.
+	test("an unreadable store is skipped on read but never forgotten", () => {
+		const kept = makeInitializedProject("alpha");
+		const blocked = makeInitializedProject("beta");
+		registerProject(kept, "github.com/acme/alpha");
+		registerProject(blocked, "github.com/acme/beta");
+		chmodSync(blocked, 0o000);
+
+		try {
+			expect(readRegisteredProjects().map((project) => project.root)).toEqual([
+				kept,
+			]);
+			registerProject(makeInitializedProject("gamma"), "github.com/acme/gamma");
+			expect(readFileSync(join(dir, "projects.json"), "utf8")).toContain(
+				"beta",
+			);
+		} finally {
+			chmodSync(blocked, 0o755);
+		}
 	});
 
 	test("an absent registry reads as empty", () => {

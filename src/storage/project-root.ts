@@ -1,5 +1,6 @@
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { errnoCode } from "@/support/errors";
 
 export const CORTEX_DIRECTORY = ".cortex";
 export const DECISIONS_DIRECTORY = "decisions";
@@ -39,6 +40,22 @@ export class ProjectRoot {
 	// the first command rebuilds the database from what git brought.
 	isInitialized(): boolean {
 		return existsSync(this.decisionsDbPath) || existsSync(this.decisionsPath);
+	}
+
+	// Not the negation of isInitialized: EACCES, ENOTCONN or an unmounted
+	// volume make both paths unreadable without either one being gone. Only a
+	// confirmed ENOENT on both may justify forgetting a project.
+	isProvablyAbsent(): boolean {
+		return isMissing(this.decisionsDbPath) && isMissing(this.decisionsPath);
+	}
+}
+
+function isMissing(path: string): boolean {
+	try {
+		statSync(path);
+		return false;
+	} catch (error) {
+		return errnoCode(error) === "ENOENT";
 	}
 }
 
