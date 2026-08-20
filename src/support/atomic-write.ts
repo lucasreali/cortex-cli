@@ -1,11 +1,16 @@
 import {
 	chmodSync,
+	closeSync,
+	mkdirSync,
+	openSync,
 	readlinkSync,
 	renameSync,
 	statSync,
+	unlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { errnoCode } from "./errors";
 
 type WritableSource = Blob | NodeJS.TypedArray | ArrayBufferLike | string;
 
@@ -15,6 +20,14 @@ const PERMISSION_BITS = 0o777;
 // here instead of spinning.
 const MAXIMUM_LINK_HOPS = 40;
 
+// O_EXCL: the staging path is derived from the target and therefore guessable,
+// and every path-based write follows a symlink sitting at it — which would put
+// our bytes, and then our chmod, wherever the link pointed. Creating the file
+// exclusively refuses that outright. The mode is the one Bun.write used, so a
+// brand new file is still the umask's to decide.
+const STAGING_FLAGS = "wx";
+const STAGING_MODE = 0o666;
+
 // rename is atomic on the same filesystem, so a concurrent reader observes
 // either the previous file or the complete new one, never a partial write.
 export async function writeAtomically(
@@ -23,7 +36,12 @@ export async function writeAtomically(
 ): Promise<void> {
 	const destination = linkTarget(targetPath);
 	const staging = stagingPath(destination);
-	await Bun.write(staging, source);
+	const handle = createStagingFile(staging);
+	try {
+		await Bun.write(Bun.file(handle), source);
+	} finally {
+		closeSync(handle);
+	}
 	publish(staging, destination);
 }
 
@@ -33,8 +51,49 @@ export async function writeAtomically(
 export function writeAtomicallySync(targetPath: string, source: string): void {
 	const destination = linkTarget(targetPath);
 	const staging = stagingPath(destination);
-	writeFileSync(staging, source);
+	const handle = createStagingFile(staging);
+	try {
+		writeFileSync(handle, source);
+	} finally {
+		closeSync(handle);
+	}
 	publish(staging, destination);
+}
+
+export function stagingPath(targetPath: string): string {
+	return `${targetPath}.${process.pid}.partial`;
+}
+
+export function createStagingFile(path: string): number {
+	try {
+		return openSync(path, STAGING_FLAGS, STAGING_MODE);
+	} catch (error) {
+		return afterClearingTheWay(error, path);
+	}
+}
+
+// The two things Bun.write did on its own and an exclusive open will not: make
+// the directory a caller expects to be created for it, and take over a staging
+// file left behind by a process that died mid-write — or by a pid the kernel
+// has since handed out again — which would otherwise disable every later write
+// to this path. Retrying is safe where overwriting would not be: the second
+// attempt is exclusive too, so anything planted in between fails the open
+// rather than being written through.
+function afterClearingTheWay(error: unknown, path: string): number {
+	const code = errnoCode(error);
+	if (code === "EEXIST") return replacingLeftover(path);
+	if (code === "ENOENT") return inNewDirectory(path);
+	throw error;
+}
+
+function replacingLeftover(path: string): number {
+	unlinkSync(path);
+	return openSync(path, STAGING_FLAGS, STAGING_MODE);
+}
+
+function inNewDirectory(path: string): number {
+	mkdirSync(dirname(path), { recursive: true });
+	return openSync(path, STAGING_FLAGS, STAGING_MODE);
 }
 
 function publish(staging: string, destination: string): void {
@@ -75,8 +134,4 @@ function adoptMode(destination: string, staging: string): void {
 	} catch {
 		return;
 	}
-}
-
-function stagingPath(targetPath: string): string {
-	return `${targetPath}.${process.pid}.partial`;
 }

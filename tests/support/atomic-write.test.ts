@@ -12,7 +12,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { writeAtomically, writeAtomicallySync } from "@/support/atomic-write";
+import {
+	stagingPath,
+	writeAtomically,
+	writeAtomicallySync,
+} from "@/support/atomic-write";
 
 type Writer = {
 	name: string;
@@ -149,6 +153,51 @@ for (const writer of WRITERS) {
 			await writer.write(link, "second");
 
 			expect(permissions(real)).toBe(0o750);
+		});
+
+		// The staging path is derived from the target, so anyone who can write to
+		// the directory can guess it — and a path-based write would follow a
+		// symlink left there, carrying the payload and the chmod to its target.
+		test("refuses to write through a symlink planted at the staging path", async () => {
+			const directory = scratchDirectory();
+			const target = join(directory, "asset.bin");
+			const victim = join(directory, "victim.bin");
+			writeFileSync(victim, "untouched");
+			symlinkSync(victim, stagingPath(target));
+
+			await writer.write(target, "payload");
+
+			expect(readFileSync(victim, "utf8")).toBe("untouched");
+			expect(readFileSync(target, "utf8")).toBe("payload");
+		});
+
+		test("reclaims a staging file an interrupted write left behind", async () => {
+			const directory = scratchDirectory();
+			const target = join(directory, "asset.bin");
+			writeFileSync(stagingPath(target), "half a write");
+
+			await writer.write(target, "payload");
+
+			expect(readFileSync(target, "utf8")).toBe("payload");
+			expect(readdirSync(directory)).toEqual(["asset.bin"]);
+		});
+
+		test("creates the directory the caller is writing into", async () => {
+			const directory = scratchDirectory();
+			const target = join(directory, "made", "up", "asset.bin");
+
+			await writer.write(target, "payload");
+
+			expect(readFileSync(target, "utf8")).toBe("payload");
+		});
+
+		test("reports a failure it cannot clear out of the way", async () => {
+			const directory = scratchDirectory();
+			const guarded = join(directory, "guarded");
+			mkdirSync(guarded, { mode: 0o500 });
+			expect(
+				writer.write(join(guarded, "asset.bin"), "payload"),
+			).rejects.toThrow("EACCES");
 		});
 
 		test("leaves a new file to the umask instead of inventing a mode", async () => {
