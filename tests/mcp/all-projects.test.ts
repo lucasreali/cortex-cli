@@ -1,8 +1,9 @@
+import { Database } from "bun:sqlite";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { rmSync } from "node:fs";
+import { readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { callTool, connect, makeTempDir } from "./harness";
+import { callTool, connect, makeProject, makeTempDir } from "./harness";
 
 let registryDir: string;
 let alpha: string;
@@ -18,16 +19,8 @@ function registryEnv(name: string): Record<string, string> {
 beforeAll(async () => {
 	registryDir = makeTempDir("cortex-all-projects-registry-");
 	const env = registryEnv("projects.json");
-	alpha = makeProjectWithEnv(
-		"cortex-xp-alpha-",
-		"git@github.com:acme/alpha.git",
-		env,
-	);
-	beta = makeProjectWithEnv(
-		"cortex-xp-beta-",
-		"git@github.com:acme/beta.git",
-		env,
-	);
+	alpha = makeProject("cortex-xp-alpha-", "git@github.com:acme/alpha.git", env);
+	beta = makeProject("cortex-xp-beta-", "git@github.com:acme/beta.git", env);
 	client = await connect(alpha, env);
 
 	const inAlpha = await callTool(client, "save_decision", {
@@ -52,31 +45,32 @@ afterAll(async () => {
 	}
 });
 
-function makeProjectWithEnv(
-	prefix: string,
-	remote: string,
-	env: Record<string, string>,
-): string {
-	const dir = makeTempDir(prefix);
-	const spawn = (...command: string[]) => {
-		const result = Bun.spawnSync(command, {
-			cwd: dir,
-			stderr: "pipe",
-			env: { ...process.env, ...env },
-		});
-		if (result.exitCode !== 0) {
-			throw new Error(`${command.join(" ")}: ${result.stderr.toString()}`);
-		}
-	};
-	spawn("git", "init", "-b", "main");
-	spawn("git", "remote", "add", "origin", remote);
-	spawn(
-		"bun",
-		new URL("../../src/cli/main.ts", import.meta.url).pathname,
-		"init",
-		"--yes",
+// A store one migration behind, as a project untouched since the last release
+// would be. Returns the schema version it is left at.
+function downgradeStore(cortexDir: string): number {
+	const db = new Database(join(cortexDir, "decisions.db"), {
+		readwrite: true,
+		create: false,
+	});
+	db.run(
+		"DELETE FROM _migrations WHERE id = (SELECT MAX(id) FROM _migrations)",
 	);
-	return dir;
+	db.close();
+	return storedSchema(cortexDir);
+}
+
+function storedSchema(cortexDir: string): number {
+	const db = new Database(join(cortexDir, "decisions.db"), {
+		readwrite: true,
+		create: false,
+	});
+	const row = db
+		.query<{ version: number | null }, []>(
+			"SELECT MAX(id) AS version FROM _migrations",
+		)
+		.get();
+	db.close();
+	return row?.version ?? 0;
 }
 
 describe("search_all_projects", () => {
@@ -123,8 +117,37 @@ describe("search_all_projects", () => {
 		}
 	});
 
+	// The tool is annotated read-only, and permission-gating clients run it
+	// without prompting: a project the user only asked about must come back
+	// unchanged, down to the files in its .cortex directory.
+	test("a foreign project in the sweep gains no files and keeps its schema", async () => {
+		const foreign = makeProject(
+			"cortex-xp-foreign-",
+			"git@github.com:acme/foreign.git",
+			registryEnv("projects.json"),
+		);
+		const cortexDir = join(foreign, ".cortex");
+		const schemaBefore = downgradeStore(cortexDir);
+		const filesBefore = readdirSync(cortexDir).sort();
+
+		const { isError, payload } = await callTool(client, "search_all_projects", {
+			terms: ["rate"],
+			exact: true,
+		});
+
+		expect(isError).toBe(false);
+		expect(readdirSync(cortexDir).sort()).toEqual(filesBefore);
+		expect(storedSchema(cortexDir)).toBe(schemaBefore);
+		const skipped = (payload.skipped ?? []) as Array<{
+			root: string;
+			reason: string;
+		}>;
+		expect(skipped.map((entry) => entry.root)).toContain(foreign);
+		rmSync(foreign, { recursive: true, force: true });
+	});
+
 	test("a registered project whose store vanished is pruned, not fatal", async () => {
-		const doomed = makeProjectWithEnv(
+		const doomed = makeProject(
 			"cortex-xp-doomed-",
 			"git@github.com:acme/doomed.git",
 			registryEnv("projects.json"),

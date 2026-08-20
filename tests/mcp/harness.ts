@@ -1,4 +1,4 @@
-import { mkdtempSync, realpathSync } from "node:fs";
+import { mkdtempSync, readdirSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -10,7 +10,19 @@ export const CLI_PATH = new URL("../../src/cli/main.ts", import.meta.url)
 	.pathname;
 
 export function run(cwd: string, ...command: string[]): void {
-	const result = Bun.spawnSync(command, { cwd, stderr: "pipe" });
+	runWithEnv(cwd, {}, ...command);
+}
+
+export function runWithEnv(
+	cwd: string,
+	env: Record<string, string>,
+	...command: string[]
+): void {
+	const result = Bun.spawnSync(command, {
+		cwd,
+		stderr: "pipe",
+		env: { ...process.env, ...env },
+	});
 	if (result.exitCode !== 0) {
 		throw new Error(`${command.join(" ")}: ${result.stderr.toString()}`);
 	}
@@ -20,12 +32,25 @@ export function makeTempDir(prefix: string): string {
 	return realpathSync(mkdtempSync(join(tmpdir(), prefix)));
 }
 
-export function makeProject(prefix: string, remote: string): string {
+export function makeProject(
+	prefix: string,
+	remote: string,
+	env: Record<string, string> = {},
+): string {
 	const dir = makeTempDir(prefix);
-	run(dir, "git", "init", "-b", "main");
-	run(dir, "git", "remote", "add", "origin", remote);
-	run(dir, "bun", CLI_PATH, "init", "--yes");
+	runWithEnv(dir, env, "git", "init", "-b", "main");
+	runWithEnv(dir, env, "git", "remote", "add", "origin", remote);
+	runWithEnv(dir, env, "bun", CLI_PATH, "init", "--yes");
 	return dir;
+}
+
+// The server's own descriptors, so a test can assert that resolving many
+// projects does not cost one open store each. Linux only.
+export function serverDescriptors(client: Client): number {
+	const pid = (client.transport as { pid?: number | null } | undefined)?.pid;
+	if (typeof pid !== "number")
+		throw new Error("no server pid on the transport");
+	return readdirSync(`/proc/${pid}/fd`).length;
 }
 
 export async function connect(

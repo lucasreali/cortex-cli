@@ -1,17 +1,13 @@
-import type { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { seedDecision } from "@tests/support/seed";
-import type { CortexRuntime } from "@/app/runtime";
-import { searchAllProjects } from "@/app/search-all-projects";
-import { SemanticSearch } from "@/embedding/semantic-search";
+import { ProjectReader } from "@/app/project-reader";
+import { type SweepTarget, searchAllProjects } from "@/app/search-all-projects";
 import { openDecisionsDb } from "@/storage/connection";
-import { EmbeddingRepository } from "@/storage/embedding-repository";
 import { migrate } from "@/storage/migrations";
-import { NodeRepository, type SaveContext } from "@/storage/node-repository";
-import { SearchRepository } from "@/storage/search-repository";
+import type { SaveContext } from "@/storage/node-repository";
 
 const context: SaveContext = {
 	projectId: "project-1",
@@ -20,29 +16,22 @@ const context: SaveContext = {
 	commitDirty: false,
 };
 
-interface FakeProject {
-	root: string;
-	db: Database;
-	runtime: CortexRuntime;
-}
-
 let dirs: string[];
-let projects: Map<string, FakeProject>;
 
 beforeEach(() => {
 	dirs = [];
-	projects = new Map();
 });
 
 afterEach(() => {
-	for (const project of projects.values()) project.db.close();
 	for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
 });
 
-function makeProject(canonicalId: string, title: string): FakeProject {
-	const dir = mkdtempSync(join(tmpdir(), "cortex-all-projects-"));
-	dirs.push(dir);
-	const db = openDecisionsDb(dir);
+function makeProject(canonicalId: string, title: string): SweepTarget {
+	const root = mkdtempSync(join(tmpdir(), "cortex-all-projects-"));
+	dirs.push(root);
+	const cortexDir = join(root, ".cortex");
+	mkdirSync(cortexDir, { recursive: true });
+	const db = openDecisionsDb(cortexDir);
 	migrate(db);
 	db.query(
 		"INSERT INTO nodes (id, kind) VALUES ('project-1', 'project')",
@@ -50,16 +39,8 @@ function makeProject(canonicalId: string, title: string): FakeProject {
 	db.query(
 		"INSERT INTO nodes (id, kind) VALUES ('session-1', 'session')",
 	).run();
-	const nodes = new NodeRepository(db);
-	const fts = new SearchRepository(db);
-	const semanticSearch = new SemanticSearch({
-		nodes,
-		embeddings: new EmbeddingRepository(db),
-		fts,
-		provider: null,
-	});
 	seedDecision(
-		dir,
+		cortexDir,
 		db,
 		{
 			title,
@@ -68,21 +49,18 @@ function makeProject(canonicalId: string, title: string): FakeProject {
 		},
 		context,
 	);
-	const runtime = {
-		projectCanonicalId: canonicalId,
-		nodes,
-		fts,
-		semanticSearch,
-	} as CortexRuntime;
-	const project = { root: dir, db, runtime };
-	projects.set(dir, project);
-	return project;
+	db.close();
+	return { root, canonicalId };
 }
 
-async function open(root: string): Promise<CortexRuntime> {
-	const project = projects.get(root);
-	if (!project) throw new Error(`store unreadable at ${root}`);
-	return project.runtime;
+function sweepOver(targets: SweepTarget[], terms: string[]) {
+	return searchAllProjects({
+		targets,
+		open: (root) => ProjectReader.open(root),
+		terms,
+		exact: true,
+		vector: null,
+	});
 }
 
 describe("searchAllProjects", () => {
@@ -90,12 +68,7 @@ describe("searchAllProjects", () => {
 		const alpha = makeProject("github.com/acme/alpha", "JWT no projeto alpha");
 		const beta = makeProject("github.com/acme/beta", "JWT no projeto beta");
 
-		const outcome = await searchAllProjects(
-			[alpha.root, beta.root],
-			open,
-			["jwt"],
-			true,
-		);
+		const outcome = await sweepOver([alpha, beta], ["jwt"]);
 
 		expect(outcome.skipped).toEqual([]);
 		expect(outcome.projects).toHaveLength(2);
@@ -112,34 +85,126 @@ describe("searchAllProjects", () => {
 	test("a project that fails to open is skipped with its reason", async () => {
 		const alpha = makeProject("github.com/acme/alpha", "JWT no projeto alpha");
 
-		const outcome = await searchAllProjects(
-			[alpha.root, "/nowhere/broken"],
-			open,
+		const outcome = await sweepOver(
+			[alpha, { root: "/nowhere/broken", canonicalId: "broken" }],
 			["jwt"],
-			true,
 		);
 
 		expect(outcome.projects).toHaveLength(1);
-		expect(outcome.skipped).toEqual([
-			{
-				root: "/nowhere/broken",
-				reason: "store unreadable at /nowhere/broken",
-			},
-		]);
+		expect(outcome.skipped).toHaveLength(1);
+		expect(outcome.skipped[0]?.root).toBe("/nowhere/broken");
+		expect(outcome.skipped[0]?.reason).not.toBe("");
 	});
 
 	test("a project without matches still appears, empty", async () => {
 		const alpha = makeProject("github.com/acme/alpha", "JWT no projeto alpha");
 
-		const outcome = await searchAllProjects(
-			[alpha.root],
-			open,
-			["kubernetes"],
-			true,
-		);
+		const outcome = await sweepOver([alpha], ["kubernetes"]);
 
 		expect(outcome.projects).toEqual([
 			{ project: "github.com/acme/alpha", root: alpha.root, results: [] },
 		]);
 	});
+
+	test("a foreign project is read, never migrated, reconciled or written to", async () => {
+		const alpha = makeProject("github.com/acme/alpha", "JWT no projeto alpha");
+		const cortexDir = join(alpha.root, ".cortex");
+		const before = readdirSync(cortexDir).sort();
+		const decisionsBefore = readdirSync(join(cortexDir, "decisions")).sort();
+
+		await sweepOver([alpha], ["jwt"]);
+
+		expect(readdirSync(cortexDir).sort()).toEqual(before);
+		expect(readdirSync(join(cortexDir, "decisions")).sort()).toEqual(
+			decisionsBefore,
+		);
+	});
+
+	test("a store behind the current schema is skipped, not upgraded", async () => {
+		const root = mkdtempSync(join(tmpdir(), "cortex-all-projects-old-"));
+		dirs.push(root);
+		const cortexDir = join(root, ".cortex");
+		mkdirSync(cortexDir, { recursive: true });
+		const db = openDecisionsDb(cortexDir);
+		migrate(db);
+		db.query(
+			"DELETE FROM _migrations WHERE id = (SELECT MAX(id) FROM _migrations)",
+		).run();
+		db.close();
+
+		const outcome = await sweepOver(
+			[{ root, canonicalId: "github.com/acme/old" }],
+			["jwt"],
+		);
+
+		expect(outcome.projects).toEqual([]);
+		expect(outcome.skipped[0]?.reason).toContain("schema");
+	});
+
+	test("every store handle is closed, so a sweep leaves no descriptor behind", async () => {
+		const targets = Array.from({ length: 8 }, (_, index) =>
+			makeProject(`github.com/acme/p${index}`, `JWT no projeto ${index}`),
+		);
+		const baseline = openDescriptors();
+
+		await sweepOver(targets, ["jwt"]);
+		await sweepOver(targets, ["jwt"]);
+
+		expect(openDescriptors()).toBeLessThanOrEqual(baseline);
+	});
+
+	test("projects beyond the cap are reported as unsearched, not dropped", async () => {
+		const targets = [
+			makeProject("github.com/acme/alpha", "JWT no projeto alpha"),
+			makeProject("github.com/acme/beta", "JWT no projeto beta"),
+			makeProject("github.com/acme/gamma", "JWT no projeto gamma"),
+		];
+
+		const outcome = await searchAllProjects(
+			{
+				targets,
+				open: (root) => ProjectReader.open(root),
+				terms: ["jwt"],
+				exact: true,
+				vector: null,
+			},
+			{ maxProjects: 1 },
+		);
+
+		expect(outcome.projects).toHaveLength(1);
+		expect(outcome.skipped.map((entry) => entry.root)).toEqual(
+			targets.slice(1).map((target) => target.root),
+		);
+		for (const entry of outcome.skipped) {
+			expect(entry.reason).toContain("capped at 1 projects");
+		}
+	});
+
+	test("a deadline that has passed leaves every remaining project unsearched", async () => {
+		const targets = [
+			makeProject("github.com/acme/alpha", "JWT no projeto alpha"),
+			makeProject("github.com/acme/beta", "JWT no projeto beta"),
+		];
+
+		const outcome = await searchAllProjects(
+			{
+				targets,
+				open: (root) => ProjectReader.open(root),
+				terms: ["jwt"],
+				exact: true,
+				vector: null,
+			},
+			{ deadlineMs: 0 },
+		);
+
+		expect(outcome.projects).toEqual([]);
+		expect(outcome.skipped).toHaveLength(2);
+		for (const entry of outcome.skipped) {
+			expect(entry.reason).toContain("deadline");
+		}
+	});
 });
+
+function openDescriptors(): number {
+	return readdirSync("/dev/fd").length;
+}

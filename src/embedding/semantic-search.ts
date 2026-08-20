@@ -34,8 +34,16 @@ export interface FusedRanking {
 	score: number;
 }
 
+// The model id travels with the vector because it is what makes the two
+// comparable: ranking a query embedded by one model against vectors written
+// by another is meaningless, and across projects the pinned model can differ.
+export interface QueryVector {
+	vector: Float32Array;
+	modelId: string;
+}
+
 export class SemanticSearch {
-	private vectorCache: Map<string, Float32Array> | null = null;
+	private cache: VectorCache | null = null;
 
 	constructor(
 		private readonly dependencies: SemanticSearchDependencies,
@@ -43,14 +51,28 @@ export class SemanticSearch {
 	) {}
 
 	invalidate(): void {
-		this.vectorCache = null;
+		this.cache = null;
 	}
 
 	// RRF over both legs (measured in tests/evaluation/): the vector leg keeps
 	// the relevance threshold so unrelated intents still come back empty, and
 	// with no vector available the fusion degrades to plain BM25 top-K.
 	async search(intent: string): Promise<SemanticSearchResult[]> {
-		const vectorLeg = await this.vectorLeg(intent);
+		return this.rank(intent, await this.embedQuery(intent));
+	}
+
+	// Split out of search so a cross-project sweep pays the embedding once and
+	// ranks every store against the same vector, instead of embedding the
+	// identical text once per project behind one serialized worker.
+	async embedQuery(intent: string): Promise<QueryVector | null> {
+		const { provider } = this.dependencies;
+		if (!provider) return null;
+		const vector = await this.embedIntent(provider, intent);
+		return vector ? { vector, modelId: provider.modelId } : null;
+	}
+
+	rank(intent: string, query: QueryVector | null): SemanticSearchResult[] {
+		const vectorLeg = this.vectorLeg(query);
 		const inVector = new Set(vectorLeg);
 		return fuseRankings([vectorLeg, this.bm25Leg(intent)])
 			.slice(0, this.topK())
@@ -63,13 +85,13 @@ export class SemanticSearch {
 			);
 	}
 
-	private async vectorLeg(intent: string): Promise<string[]> {
-		const { provider } = this.dependencies;
-		if (!provider) return [];
-		const queryVector = await this.embedIntent(provider, intent);
-		if (!queryVector) return [];
-		return [...this.loadCache(provider.modelId).entries()]
-			.map(([nodeId, vector]) => ({ nodeId, score: dot(queryVector, vector) }))
+	private vectorLeg(query: QueryVector | null): string[] {
+		if (!query) return [];
+		return [...this.loadCache(query.modelId).vectors.entries()]
+			.map(([nodeId, vector]) => ({
+				nodeId,
+				score: dot(query.vector, vector),
+			}))
 			.filter((entry) => entry.score >= this.threshold())
 			.sort((a, b) => b.score - a.score)
 			.map((entry) => entry.nodeId);
@@ -97,13 +119,15 @@ export class SemanticSearch {
 		return [{ node, score, source }];
 	}
 
-	private loadCache(modelId: string): Map<string, Float32Array> {
-		this.vectorCache ??= new Map(
-			this.dependencies.embeddings
-				.listActiveVectors(modelId)
-				.map((entry) => [entry.nodeId, entry.vector]),
-		);
-		return this.vectorCache;
+	// The cache is keyed by model now that the query vector can come from
+	// outside: a sweep may rank this store against a model it holds no vectors
+	// for, and serving the previous model's cache would score across two
+	// embedding spaces.
+	private loadCache(modelId: string): VectorCache {
+		if (!this.cache?.holds(modelId)) {
+			this.cache = VectorCache.load(this.dependencies.embeddings, modelId);
+		}
+		return this.cache;
 	}
 
 	// The vector path must never block a query: a cold worker (model still
@@ -127,6 +151,28 @@ export class SemanticSearch {
 
 	private threshold(): number {
 		return this.options.threshold ?? DEFAULT_THRESHOLD;
+	}
+}
+
+class VectorCache {
+	private constructor(
+		private readonly modelId: string,
+		readonly vectors: Map<string, Float32Array>,
+	) {}
+
+	static load(embeddings: EmbeddingRepository, modelId: string): VectorCache {
+		return new VectorCache(
+			modelId,
+			new Map(
+				embeddings
+					.listActiveVectors(modelId)
+					.map((entry) => [entry.nodeId, entry.vector]),
+			),
+		);
+	}
+
+	holds(modelId: string): boolean {
+		return this.modelId === modelId;
 	}
 }
 

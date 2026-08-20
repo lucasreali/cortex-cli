@@ -3,9 +3,11 @@ import { z } from "zod";
 import {
 	type AllProjectsSearch,
 	type ProjectSearchResults,
+	type SweepTarget,
 	searchAllProjects,
 } from "@/app/search-all-projects";
 import type { SemanticSearchResult } from "@/embedding/semantic-search";
+import { getCanonicalProjectId } from "@/git";
 import type { RuntimeRegistry } from "@/mcp/runtime-registry";
 import { readRegisteredProjects } from "@/storage/project-registry";
 import { READ_ONLY_ANNOTATIONS } from "./annotations";
@@ -15,7 +17,7 @@ const DESCRIPTION = `Search decisions across every Cortex project on this machin
 
 Call this for questions that reach beyond the current project — "how did I solve rate limiting in my other projects?", "have I picked an auth library before?". It fans out over all registered projects (a project registers when it is initialized or first used) and returns results grouped per project, each labeled with its project identity. Scores are not comparable across projects, so groups are never merged into one ranking.
 
-Questions about the current project belong to search or get_context — this tool is deliberately separate so scoped reads stay scoped. Terms behave exactly like search: pass PT/EN variants, exact=true for literal matching only. Projects that fail to open are listed under "skipped" with a reason.`;
+Questions about the current project belong to search or get_context — this tool is deliberately separate so scoped reads stay scoped. Terms behave exactly like search: pass PT/EN variants, exact=true for literal matching only. Projects that fail to open are listed under "skipped" with a reason; so are projects the sweep did not reach, once it hits its project cap or its deadline.`;
 
 const NO_PROJECTS_GUIDANCE =
 	"No Cortex projects registered on this machine yet. A project registers " +
@@ -60,24 +62,36 @@ async function searchEverywhere(
 	registry: RuntimeRegistry,
 	args: { terms: string[]; exact?: boolean },
 ) {
-	const roots = knownRoots(registry);
-	if (roots.length === 0) {
+	const targets = knownTargets(registry);
+	if (targets.length === 0) {
 		return guidanceResult("no_projects", NO_PROJECTS_GUIDANCE);
 	}
-	const outcome = await searchAllProjects(
-		roots,
-		(root) => registry.openRoot(root),
-		args.terms,
-		args.exact === true,
-	);
+	const exact = args.exact === true;
+	const outcome = await searchAllProjects({
+		targets,
+		open: (root) => registry.openReader(root),
+		terms: args.terms,
+		exact,
+		vector: exact ? null : await registry.embedSweepQuery(args.terms.join(" ")),
+	});
 	return jsonResult(toPayload(outcome));
 }
 
-function knownRoots(registry: RuntimeRegistry): string[] {
-	const roots = readRegisteredProjects().map((project) => project.root);
+// The canonical id comes from the registry rather than from `git` in each
+// project: labelling 200 projects must not cost 600 blocking subprocesses.
+function knownTargets(registry: RuntimeRegistry): SweepTarget[] {
+	const targets = readRegisteredProjects().map((project) => ({
+		root: project.root,
+		canonicalId: project.canonicalId,
+	}));
 	const current = registry.defaultRoot;
-	if (current && !roots.includes(current)) roots.push(current);
-	return roots;
+	if (current && !targets.some((target) => target.root === current)) {
+		targets.push({
+			root: current,
+			canonicalId: getCanonicalProjectId(current) ?? current,
+		});
+	}
+	return targets;
 }
 
 function toPayload(outcome: AllProjectsSearch) {
