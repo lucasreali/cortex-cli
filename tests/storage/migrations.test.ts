@@ -95,6 +95,7 @@ describe("migrations", () => {
 			{ id: 2, name: "decisions-present" },
 			{ id: 3, name: "decisions-graph-vocabulary" },
 			{ id: 4, name: "decisions-project-identity" },
+			{ id: 5, name: "decisions-no-self-edges" },
 		]);
 	});
 
@@ -103,7 +104,7 @@ describe("migrations", () => {
 		db = openDecisionsDb(dir);
 		expect(migrate(db)).toEqual([]);
 		expect(db.query("SELECT count(*) AS n FROM _migrations").get()).toEqual({
-			n: 4,
+			n: 5,
 		});
 	});
 
@@ -115,6 +116,7 @@ describe("migrations", () => {
 				"decisions-present",
 				"decisions-graph-vocabulary",
 				"decisions-project-identity",
+				"decisions-no-self-edges",
 			]);
 		} finally {
 			fresh.close();
@@ -244,6 +246,7 @@ describe("migrations", () => {
 			expect(migrate(pre)).toEqual([
 				"decisions-graph-vocabulary",
 				"decisions-project-identity",
+				"decisions-no-self-edges",
 			]);
 			expect(
 				pre.query("SELECT status, present FROM nodes WHERE id = 'n1'").get(),
@@ -295,6 +298,70 @@ describe("migrations", () => {
 		}
 	});
 
+	// The reconciler drops a self-edge before it is offered, and this is what
+	// makes it unrepresentable for anything else that writes.
+	test("an edge from a decision to itself is refused", () => {
+		db.query(
+			"INSERT INTO nodes (id, kind, title) VALUES ('n1', 'decision', 'Alone')",
+		).run();
+
+		expect(() =>
+			db
+				.query(
+					"INSERT INTO edges (from_id, to_id, kind) VALUES ('n1', 'n1', 'REPLACED_BY')",
+				)
+				.run(),
+		).toThrow(/CHECK constraint failed/);
+	});
+
+	test("self-edges an older binary wrote are dropped by the upgrade", () => {
+		const preDir = mkdtempSync(join(tmpdir(), "cortex-pre008-"));
+		const pre = openDecisionsDb(preDir);
+		try {
+			pre.run(migrationsTable);
+			pre.run(decisionsSchema);
+			pre.run(decisionsPresent);
+			for (const [id, name] of [
+				[1, "decisions-schema"],
+				[2, "decisions-present"],
+			] as const) {
+				pre
+					.query("INSERT INTO _migrations (id, name) VALUES (?, ?)")
+					.run(id, name);
+			}
+			pre
+				.query(
+					"INSERT INTO nodes (id, kind, title) VALUES ('n1', 'decision', 'Kept')",
+				)
+				.run();
+			pre
+				.query(
+					"INSERT INTO nodes (id, kind, title) VALUES ('n2', 'decision', 'Other')",
+				)
+				.run();
+			pre
+				.query(
+					"INSERT INTO edges (from_id, to_id, kind) VALUES ('n1', 'n1', 'REPLACED_BY')",
+				)
+				.run();
+			pre
+				.query(
+					"INSERT INTO edges (from_id, to_id, kind) VALUES ('n1', 'n2', 'DEPENDS_ON')",
+				)
+				.run();
+
+			migrate(pre);
+
+			expect(pre.query("SELECT from_id, to_id, kind FROM edges").all()).toEqual(
+				[{ from_id: "n1", to_id: "n2", kind: "DEPENDS_ON" }],
+			);
+			expect(pre.query("PRAGMA foreign_key_check").all()).toEqual([]);
+		} finally {
+			pre.close();
+			rmSync(preDir, { recursive: true, force: true });
+		}
+	});
+
 	test("split project identities are merged onto the oldest row", () => {
 		const preDir = mkdtempSync(join(tmpdir(), "cortex-pre006-"));
 		const pre = openDecisionsDb(preDir);
@@ -331,7 +398,10 @@ describe("migrations", () => {
 				)
 				.run();
 
-			expect(migrate(pre)).toEqual(["decisions-project-identity"]);
+			expect(migrate(pre)).toEqual([
+				"decisions-project-identity",
+				"decisions-no-self-edges",
+			]);
 			expect(
 				pre.query("SELECT id FROM nodes WHERE kind = 'project'").all(),
 			).toEqual([{ id: "p1" }]);

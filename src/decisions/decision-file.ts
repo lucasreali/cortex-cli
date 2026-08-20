@@ -36,16 +36,56 @@ export function parseDecisionFile(
 	id: string,
 	source: string,
 ): DecisionFileParse {
-	const split = splitFence(source.replaceAll("\r\n", "\n"));
+	const split = splitFence(normalizeSource(source));
 	if (!split.ok) return split;
+	const duplicate = duplicateKey(split.frontmatter);
+	if (duplicate) {
+		return { ok: false, reason: `duplicate frontmatter key: ${duplicate}` };
+	}
 	const data = parseYaml(split.frontmatter);
 	if (!data.ok) return data;
-	const problem = frontmatterProblem(data.value, split.body);
+	const body = normalizeBody(split.body);
+	const problem = frontmatterProblem(data.value, body);
 	if (problem) return { ok: false, reason: problem };
 	return {
 		ok: true,
-		file: toDecisionFile(id, data.value as unknown as Frontmatter, split.body),
+		file: toDecisionFile(id, data.value as unknown as Frontmatter, body),
 	};
+}
+
+// A byte-order mark is invisible to the editor that wrote it and fatal to the
+// fence, which has to be the first thing in the file: cortex never emits one,
+// but a Windows editor or a PowerShell redirection during a merge fix does,
+// and the file is immutable once committed.
+function normalizeSource(source: string): string {
+	return source.replace(/^\uFEFF/, "").replaceAll("\r\n", "\n");
+}
+
+// The body is normalized where it enters, not only where it is read back: the
+// row and the file have to agree, and a save that skipped this would store a
+// body no rebuild from the same file could reproduce.
+export function normalizeBody(body: string): string {
+	return body.replaceAll("\r\n", "\n").trim();
+}
+
+// Bun.YAML.parse resolves a repeated key to the last one, which is exactly the
+// shape a badly resolved merge conflict leaves behind: two `title:` lines, one
+// of them silently winning. Reported instead of picked, because the file is on
+// the branch either way and guessing is how the wrong decision gets indexed.
+// Only column-zero keys are considered, which is every key this format has.
+function duplicateKey(frontmatter: string): string | null {
+	const seen = new Set<string>();
+	for (const key of topLevelKeys(frontmatter)) {
+		if (seen.has(key)) return key;
+		seen.add(key);
+	}
+	return null;
+}
+
+function topLevelKeys(frontmatter: string): string[] {
+	return frontmatter
+		.split("\n")
+		.flatMap((line) => line.match(/^([A-Za-z_][\w-]*):(?: |$)/)?.[1] ?? []);
 }
 
 function frontmatterOf(file: DecisionFile): string[] {
@@ -124,7 +164,7 @@ function splitFence(source: string): FenceSplit {
 	return {
 		ok: true,
 		frontmatter: source.slice(FENCE.length, close + 1),
-		body: source.slice(close + 1 + FENCE.length).trim(),
+		body: source.slice(close + 1 + FENCE.length),
 	};
 }
 

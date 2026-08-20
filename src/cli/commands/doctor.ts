@@ -151,6 +151,13 @@ function checkDecisionFiles(
 				"this store has seen",
 		);
 	}
+	for (const edge of reconciled.cyclic) {
+		report.warn(
+			`${edge.kind} link dropped, it closes a cycle: ${edge.from} → ` +
+				`${edge.to} — neither decision is retired by it; write a new ` +
+				"decision to settle which one stands",
+		);
+	}
 	for (const entry of reconciled.multiplyReplaced) {
 		report.warn(
 			`superseded ${entry.by.length} times: ${entry.target} — by ${entry.by.join(", ")}`,
@@ -165,6 +172,7 @@ function checkDecisionFiles(
 	if (
 		reconciled.malformed.length +
 			reconciled.dangling.length +
+			reconciled.cyclic.length +
 			reconciled.fenceBreaking.length ===
 		0
 	) {

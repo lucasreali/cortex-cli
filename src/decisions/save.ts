@@ -6,6 +6,7 @@ import type {
 } from "@/domain";
 import type { SaveContext } from "@/storage/node-repository";
 import { uniqueAnchors } from "./anchors";
+import { normalizeBody } from "./decision-file";
 import {
 	type ReconcileDependencies,
 	type ReconcileReport,
@@ -48,7 +49,7 @@ function toDecisionFile(
 	return {
 		id: Bun.randomUUIDv7(),
 		title: input.title,
-		body: input.body,
+		body: normalizeBody(input.body),
 		keywords: input.keywords,
 		module: input.module ?? null,
 		replaces: input.replaces ?? null,

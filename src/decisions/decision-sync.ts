@@ -94,6 +94,7 @@ function merged(
 		absent: union(earlier.absent, fresh.absent),
 		restored: union(earlier.restored, fresh.restored),
 		dangling: fresh.dangling,
+		cyclic: fresh.cyclic,
 		multiplyReplaced: fresh.multiplyReplaced,
 		malformed: fresh.malformed,
 		fenceBreaking: fresh.fenceBreaking,

@@ -11,7 +11,9 @@ const store = DecisionStore.at(
 );
 
 function readAll(): DecisionFile[] {
-	return store.listIds().flatMap((id) => {
+	const listing = store.list();
+	if (!listing.ok) throw new Error(`.cortex/decisions: ${listing.reason}`);
+	return listing.ids.flatMap((id) => {
 		const parse = store.read(id);
 		if (!parse.ok) throw new Error(`${id}.md: ${parse.reason}`);
 		return [parse.file];

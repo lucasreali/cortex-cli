@@ -40,6 +40,13 @@ function render(report: ReconcileReport): void {
 			warning(`link dropped, target unknown: ${edge.kind} → ${edge.to}`),
 		);
 	}
+	for (const edge of report.cyclic) {
+		console.log(
+			warning(
+				`link dropped, it closes a cycle: ${edge.kind} ${edge.from} → ${edge.to}`,
+			),
+		);
+	}
 }
 
 function changes(report: ReconcileReport): string[] {
