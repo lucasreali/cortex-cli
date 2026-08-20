@@ -134,10 +134,59 @@ describe("release addresses", () => {
 		);
 	});
 
-	test("the origin defaults to the project repository and honors the override", () => {
+	test("rejects a version that is not one a release could be named", () => {
+		expect(() => normalizeTag("../../etc/passwd")).toThrow(
+			"not a release version",
+		);
+		expect(() => normalizeTag("0.2.0/../..")).toThrow("not a release version");
+		expect(() => normalizeTag("")).toThrow("not a release version");
+		expect(normalizeTag("1.0.0-rc.1+build.2")).toBe("v1.0.0-rc.1+build.2");
+	});
+});
+
+describe("releaseOrigin", () => {
+	test("defaults to the project repository", () => {
 		delete process.env.CORTEX_RELEASE_BASE_URL;
 		expect(releaseOrigin()).toBe("https://github.com/lucasreali/cortex-cli");
+		expect(releaseOrigin(true)).toBe(
+			"https://github.com/lucasreali/cortex-cli",
+		);
+	});
+
+	// A source checkout cannot install anything — runUpgrade refuses — which is
+	// what lets the tests point the whole flow at a local server.
+	test("a source checkout honors the override", () => {
 		process.env.CORTEX_RELEASE_BASE_URL = "http://localhost:1234";
-		expect(releaseOrigin()).toBe("http://localhost:1234");
+		expect(releaseOrigin(false)).toBe("http://localhost:1234");
+	});
+
+	// Whatever this names is downloaded, run once for a version probe and then
+	// renamed over the running binary. An installed cortex takes it only for an
+	// address GitHub itself serves.
+	test("an installed binary refuses an origin GitHub does not serve", () => {
+		for (const override of [
+			"http://localhost:1234",
+			"http://github.com",
+			"https://github.com.attacker.tld",
+			"https://raw.githubusercontent.com",
+			"https://github.com:8443",
+			"file:///tmp/payload",
+			"not a url at all",
+		]) {
+			process.env.CORTEX_RELEASE_BASE_URL = override;
+			expect(() => releaseOrigin(true)).toThrow("refusing to upgrade from");
+		}
+	});
+
+	test("an installed binary takes an https github.com origin", () => {
+		process.env.CORTEX_RELEASE_BASE_URL = "https://github.com/someone/fork";
+		expect(releaseOrigin(true)).toBe("https://github.com/someone/fork");
+	});
+
+	test("an empty override is no override", () => {
+		process.env.CORTEX_RELEASE_BASE_URL = "";
+		expect(releaseOrigin(true)).toBe(
+			"https://github.com/lucasreali/cortex-cli",
+		);
 	});
 });

@@ -1,7 +1,20 @@
 import { existsSync, readFileSync } from "node:fs";
 
 const DEFAULT_ORIGIN = "https://github.com/lucasreali/cortex-cli";
+const TRUSTED_ORIGIN_HOST = "github.com";
 const CPUINFO_PATH = "/proc/cpuinfo";
+
+// A tag reaches a download URL, so it may only be what a release is actually
+// named: no path segment of its own, no scheme, nothing to escape the address
+// the origin allowlist just pinned.
+const TAG_PATTERN = /^v[0-9A-Za-z][0-9A-Za-z.+-]*$/;
+
+// Every module inside a compiled binary is served from Bun's embedded
+// filesystem. release/ derives this the way embedding/subprocess-command.ts
+// does rather than importing it — the upgrade path must not drag the rest of
+// the program in behind it — and it is the one fact about this process that an
+// environment variable cannot forge.
+const RUNS_FROM_COMPILED_BINARY = import.meta.url.includes("$bunfs");
 
 // Every asset the release workflow publishes. scripts/package-release.ts
 // compiles one binary per entry (Bun's target is this prefixed with "bun-"),
@@ -24,8 +37,35 @@ export interface Host {
 	baseline: boolean;
 }
 
-export function releaseOrigin(): string {
-	return process.env.CORTEX_RELEASE_BASE_URL ?? DEFAULT_ORIGIN;
+// CORTEX_RELEASE_BASE_URL is a test seam, not a setting. Whatever it names is
+// downloaded, executed once for a version probe and then renamed over the
+// running binary, so anything able to set an environment variable — a cloned
+// repo's .envrc, an MCP server's env block, a CI job — would own every later
+// cortex and every agent session that spawns it. An installed binary therefore
+// takes the override only for an address GitHub itself serves; a source
+// checkout, which runUpgrade refuses to install from at all, is where the tests
+// point it at a local server.
+export function releaseOrigin(
+	compiled: boolean = RUNS_FROM_COMPILED_BINARY,
+): string {
+	const override = process.env.CORTEX_RELEASE_BASE_URL;
+	if (!override) return DEFAULT_ORIGIN;
+	if (!compiled) return override;
+	return trustedOrigin(override);
+}
+
+function trustedOrigin(override: string): string {
+	if (isTrusted(override)) return override;
+	throw new Error(
+		`refusing to upgrade from ${override}: CORTEX_RELEASE_BASE_URL must ` +
+			`address https://${TRUSTED_ORIGIN_HOST}`,
+	);
+}
+
+function isTrusted(override: string): boolean {
+	const url = URL.parse(override);
+	if (!url) return false;
+	return url.protocol === "https:" && url.host === TRUSTED_ORIGIN_HOST;
 }
 
 // scripts/compile.ts bakes this in per cross-compiled target: a binary cannot
@@ -59,7 +99,9 @@ export function targetForHost(host: Host): string {
 }
 
 export function normalizeTag(version: string): string {
-	return version.startsWith("v") ? version : `v${version}`;
+	const tag = version.startsWith("v") ? version : `v${version}`;
+	if (TAG_PATTERN.test(tag)) return tag;
+	throw new Error(`not a release version: ${version}`);
 }
 
 export function versionFromTag(tag: string): string {
