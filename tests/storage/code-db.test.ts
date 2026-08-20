@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { FileIndexEntry } from "@/domain";
-import { CodeRepository } from "@/storage/code-repository";
+import { CodeRepository, IMPORTERS_ROW_LIMIT } from "@/storage/code-repository";
 import { openCodeDb } from "@/storage/connection";
 import { migrateCode } from "@/storage/migrations";
 
@@ -210,22 +210,26 @@ describe("CodeRepository.transitiveImporters", () => {
 	});
 
 	test("walks importers transitively, chaining provenance pessimistically", () => {
-		expect(repository.transitiveImporters(["src/core.ts"], 5)).toEqual([
-			{ path: "src/mid.ts", depth: 1, provenance: "exact" },
-			{ path: "src/top.ts", depth: 2, provenance: "heuristic" },
-			{ path: "src/loop.ts", depth: 3, provenance: "heuristic" },
-		]);
+		expect(repository.transitiveImporters(["src/core.ts"], 5)).toEqual({
+			importers: [
+				{ path: "src/mid.ts", depth: 1, provenance: "exact" },
+				{ path: "src/top.ts", depth: 2, provenance: "heuristic" },
+				{ path: "src/loop.ts", depth: 3, provenance: "heuristic" },
+			],
+			truncated: false,
+		});
 	});
 
 	test("respects maxDepth", () => {
-		expect(repository.transitiveImporters(["src/core.ts"], 1)).toEqual([
-			{ path: "src/mid.ts", depth: 1, provenance: "exact" },
-		]);
+		expect(repository.transitiveImporters(["src/core.ts"], 1)).toEqual({
+			importers: [{ path: "src/mid.ts", depth: 1, provenance: "exact" }],
+			truncated: false,
+		});
 	});
 
 	test("cycles terminate and seeds never appear in the result", () => {
-		const importers = repository.transitiveImporters(["src/core.ts"], 10);
-		expect(importers.map((importer) => importer.path)).not.toContain(
+		const walk = repository.transitiveImporters(["src/core.ts"], 10);
+		expect(walk.importers.map((importer) => importer.path)).not.toContain(
 			"src/core.ts",
 		);
 	});
@@ -233,10 +237,70 @@ describe("CodeRepository.transitiveImporters", () => {
 	test("multiple seeds merge at the shortest depth", () => {
 		expect(
 			repository.transitiveImporters(["src/core.ts", "src/mid.ts"], 5),
-		).toEqual([
-			{ path: "src/top.ts", depth: 1, provenance: "heuristic" },
-			{ path: "src/loop.ts", depth: 2, provenance: "heuristic" },
+		).toEqual({
+			importers: [
+				{ path: "src/top.ts", depth: 1, provenance: "heuristic" },
+				{ path: "src/loop.ts", depth: 2, provenance: "heuristic" },
+			],
+			truncated: false,
+		});
+	});
+
+	// L13: MIN(depth) and MIN(provenance) taken independently would report
+	// depth 1 with the exact provenance of the two-hop chain.
+	test("depth and provenance come from the same chain", () => {
+		repository.wipeAndRebuild([
+			chainEntry("src/hub.ts", []),
+			chainEntry("src/near.ts", [
+				{ specifier: "./hub", toPath: "src/hub.ts", provenance: "heuristic" },
+			]),
+			chainEntry("src/far.ts", [
+				{ specifier: "./hub", toPath: "src/hub.ts", provenance: "exact" },
+			]),
+			chainEntry("src/both.ts", [
+				{ specifier: "./near", toPath: "src/near.ts", provenance: "exact" },
+				{ specifier: "./far", toPath: "src/far.ts", provenance: "exact" },
+			]),
 		]);
+
+		const walk = repository.transitiveImporters(["src/hub.ts"], 5);
+
+		expect(walk.importers).toContainEqual({
+			path: "src/both.ts",
+			depth: 2,
+			provenance: "exact",
+		});
+	});
+});
+
+describe("CodeRepository.transitiveImporters row cap", () => {
+	test("reports the walk as truncated once the cap is reached", () => {
+		repository.wipeAndRebuild([
+			chainEntry("src/hub.ts", []),
+			...Array.from({ length: IMPORTERS_ROW_LIMIT + 1 }, (_, index) =>
+				chainEntry(`src/importer-${index}.ts`, [
+					{ specifier: "./hub", toPath: "src/hub.ts", provenance: "exact" },
+				]),
+			),
+		]);
+
+		const walk = repository.transitiveImporters(["src/hub.ts"], 5);
+
+		expect(walk.truncated).toBe(true);
+		expect(walk.importers).toHaveLength(IMPORTERS_ROW_LIMIT);
+	});
+
+	test("a walk that fits under the cap is not reported as truncated", () => {
+		repository.wipeAndRebuild([
+			chainEntry("src/hub.ts", []),
+			chainEntry("src/only.ts", [
+				{ specifier: "./hub", toPath: "src/hub.ts", provenance: "exact" },
+			]),
+		]);
+
+		expect(repository.transitiveImporters(["src/hub.ts"], 5).truncated).toBe(
+			false,
+		);
 	});
 });
 

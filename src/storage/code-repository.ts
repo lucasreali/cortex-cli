@@ -6,6 +6,7 @@ import type {
 	ImportProvenance,
 	IndexedFile,
 } from "@/domain";
+import { likeLiteral } from "./like-pattern";
 import matchSymbolsSql from "./queries/match-symbols.sql" with { type: "text" };
 import transitiveImportersSql from "./queries/transitive-importers.sql" with {
 	type: "text",
@@ -17,13 +18,18 @@ export interface TransitiveImporter {
 	provenance: ImportProvenance;
 }
 
+export interface ImporterWalk {
+	importers: TransitiveImporter[];
+	truncated: boolean;
+}
+
 export interface SymbolLocation {
 	filePath: string;
 	kind: string;
 	line: number;
 }
 
-const IMPORTERS_ROW_LIMIT = 5000;
+export const IMPORTERS_ROW_LIMIT = 5000;
 
 interface FileRow {
 	path: string;
@@ -43,6 +49,10 @@ interface ImportRow {
 	specifier: string;
 	to_path: string | null;
 	provenance: ImportProvenance;
+}
+
+interface ImporterRow extends TransitiveImporter {
+	scanned: number;
 }
 
 export class CodeRepository {
@@ -121,13 +131,10 @@ export class CodeRepository {
 			.all(filePath);
 	}
 
-	transitiveImporters(
-		seedPaths: string[],
-		maxDepth: number,
-	): TransitiveImporter[] {
-		return this.db
+	transitiveImporters(seedPaths: string[], maxDepth: number): ImporterWalk {
+		const rows = this.db
 			.query<
-				{ path: string; depth: number; provenance: ImportProvenance },
+				ImporterRow,
 				{ $seeds: string; $maxDepth: number; $limit: number }
 			>(transitiveImportersSql)
 			.all({
@@ -135,6 +142,14 @@ export class CodeRepository {
 				$maxDepth: maxDepth,
 				$limit: IMPORTERS_ROW_LIMIT,
 			});
+		return {
+			importers: rows.map(({ path, depth, provenance }) => ({
+				path,
+				depth,
+				provenance,
+			})),
+			truncated: (rows[0]?.scanned ?? 0) >= IMPORTERS_ROW_LIMIT,
+		};
 	}
 
 	hasSymbol(filePath: string, name: string): boolean {
@@ -186,9 +201,9 @@ export class CodeRepository {
 			>(matchSymbolsSql)
 			.all({
 				$file: filePath,
-				$full: name,
-				$last: lastSegment,
-				$owner: owner,
+				$full: likeLiteral(name),
+				$last: likeLiteral(lastSegment),
+				$owner: likeLiteral(owner),
 				$limit: limit,
 			})
 			.map((row) => row.name);

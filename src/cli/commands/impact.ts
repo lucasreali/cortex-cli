@@ -67,6 +67,11 @@ function printCodeImpact(impact: DecisionImpact): void {
 		console.log(`\n${warning(impact.codeWarning)}`);
 		return;
 	}
+	if (impact.codeTruncated) {
+		console.log(
+			`\n${warning("import walk truncated: showing the shallowest hops only; lower --depth for a complete answer")}`,
+		);
+	}
 	if (impact.codeImpacted.length === 0) return;
 	console.log(`\n${style.bold("Via code (imports):")}`);
 	for (const entry of impact.codeImpacted) {

@@ -12,6 +12,7 @@ export interface DecisionImpact {
 	root: Decision;
 	impacted: ImpactedDecision[];
 	codeImpacted: CodeImpactedDecision[];
+	codeTruncated: boolean;
 	codeWarning: string | null;
 }
 
@@ -57,21 +58,34 @@ function presentDecision(
 	return decision;
 }
 
+type CodeSide = Pick<
+	DecisionImpact,
+	"codeImpacted" | "codeTruncated" | "codeWarning"
+>;
+
+const NO_CODE_IMPACT: CodeSide = {
+	codeImpacted: [],
+	codeTruncated: false,
+	codeWarning: null,
+};
+
 async function codeImpact(
 	runtime: ImpactDependencies,
 	root: Decision,
 	depth: number,
-): Promise<Pick<DecisionImpact, "codeImpacted" | "codeWarning">> {
-	if (root.anchors.length === 0) {
-		return { codeImpacted: [], codeWarning: null };
-	}
+): Promise<CodeSide> {
+	if (root.anchors.length === 0) return NO_CODE_IMPACT;
 	const access = await accessCodeIndex(runtime.codeIndex);
 	if (!access.ok) {
-		return { codeImpacted: [], codeWarning: access.warning };
+		return { ...NO_CODE_IMPACT, codeWarning: access.warning };
 	}
-	const analysis = new CodeImpactAnalysis(runtime.nodes, access.code);
+	const impact = new CodeImpactAnalysis(runtime.nodes, access.code).forDecision(
+		root,
+		depth,
+	);
 	return {
-		codeImpacted: analysis.forDecision(root, depth),
+		codeImpacted: impact.decisions,
+		codeTruncated: impact.truncated,
 		codeWarning: null,
 	};
 }

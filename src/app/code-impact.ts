@@ -12,26 +12,34 @@ export interface CodeImpactedDecision {
 	provenance: ImportProvenance;
 }
 
+export interface CodeImpact {
+	decisions: CodeImpactedDecision[];
+	truncated: boolean;
+}
+
 export class CodeImpactAnalysis {
 	constructor(
 		private readonly nodes: NodeRepository,
 		private readonly code: CodeRepository,
 	) {}
 
-	forDecision(decision: Decision, maxDepth: number): CodeImpactedDecision[] {
+	forDecision(decision: Decision, maxDepth: number): CodeImpact {
 		const anchoredFiles = [
 			...new Set(decision.anchors.map((anchor) => anchor.filePath)),
 		];
-		if (anchoredFiles.length === 0) return [];
-		const importers = this.code.transitiveImporters(anchoredFiles, maxDepth);
-		if (importers.length === 0) return [];
-		return this.decisionsAnchoredTo(importers, decision.id);
+		if (anchoredFiles.length === 0) return { decisions: [], truncated: false };
+		const walk = this.code.transitiveImporters(anchoredFiles, maxDepth);
+		return {
+			decisions: this.decisionsAnchoredTo(walk.importers, decision.id),
+			truncated: walk.truncated,
+		};
 	}
 
 	private decisionsAnchoredTo(
 		importers: TransitiveImporter[],
 		originId: string,
 	): CodeImpactedDecision[] {
+		if (importers.length === 0) return [];
 		const byPath = new Map(
 			importers.map((importer) => [importer.path, importer]),
 		);

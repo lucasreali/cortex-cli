@@ -104,14 +104,17 @@ describe("CodeImpactAnalysis", () => {
 			{ file_path: "src/api/login.ts" },
 		]);
 
-		expect(analysis.forDecision(origin, 3)).toEqual([
-			{
-				decision: expect.objectContaining({ id: dependent.id }),
-				filePath: "src/api/login.ts",
-				depth: 1,
-				provenance: "heuristic",
-			},
-		]);
+		expect(analysis.forDecision(origin, 3)).toEqual({
+			decisions: [
+				{
+					decision: expect.objectContaining({ id: dependent.id }),
+					filePath: "src/api/login.ts",
+					depth: 1,
+					provenance: "heuristic",
+				},
+			],
+			truncated: false,
+		});
 	});
 
 	test("never reports the origin decision itself", () => {
@@ -120,18 +123,21 @@ describe("CodeImpactAnalysis", () => {
 			{ file_path: "src/api/login.ts" },
 		]);
 
-		expect(analysis.forDecision(origin, 3)).toEqual([]);
+		expect(analysis.forDecision(origin, 3).decisions).toEqual([]);
 	});
 
 	test("a decision without anchors has no code impact", () => {
 		const origin = saveDecision("Decisão sem âncora nenhuma", undefined);
-		expect(analysis.forDecision(origin, 3)).toEqual([]);
+		expect(analysis.forDecision(origin, 3)).toEqual({
+			decisions: [],
+			truncated: false,
+		});
 	});
 
 	test("a decision anchored to a file nobody imports has no code impact", () => {
 		const origin = saveDecision("Decisão na ponta do grafo", [
 			{ file_path: "src/api/login.ts" },
 		]);
-		expect(analysis.forDecision(origin, 3)).toEqual([]);
+		expect(analysis.forDecision(origin, 3).decisions).toEqual([]);
 	});
 });
