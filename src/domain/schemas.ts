@@ -2,10 +2,26 @@ import { z } from "zod";
 
 export const MINIMUM_KEYWORDS = 5;
 
+// An anchor is written into a file that is immutable once committed, so a path
+// that escapes the repository is not a mistake anyone can edit away: it stays
+// there, and every resolver that reads it — anchor grading, doctor's orphan
+// check, the code index — probes for a file outside the project on every run.
+// Repo-relative is what the format has always meant; this is where it is said.
+const REPO_RELATIVE =
+	"file_path must be repo-relative: no leading '/' or '~', no drive letter, " +
+	"no '..' segment";
+
+function isRepoRelative(path: string): boolean {
+	if (path.startsWith("/") || path.startsWith("~")) return false;
+	if (/^[A-Za-z]:[\\/]/.test(path)) return false;
+	return !path.split(/[\\/]/).includes("..");
+}
+
 export const anchorInputSchema = z.strictObject({
 	file_path: z
 		.string()
 		.min(1)
+		.refine(isRepoRelative, REPO_RELATIVE)
 		.describe("Repo-relative path of a file this decision governs."),
 	symbol: z
 		.string()
