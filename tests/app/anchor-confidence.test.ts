@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -183,6 +183,31 @@ describe("labelAnchors", () => {
 			[decision([[INDEXED_FILE, "AuthService.login"]])],
 		);
 		expect(labelled[0]?.anchors[0]?.confidence).toBe("unknown");
+	});
+
+	// The whole table has to be read to answer "where else does this name live?",
+	// so reading it once per anchor is what turns ten decisions into seconds of
+	// CPU inside one MCP call.
+	test("the symbol table is read once per request, not once per anchor", async () => {
+		const scan = spyOn(code, "symbolTable");
+		await labelAnchors({ repoRoot: dir, codeIndex: workingCodeIndex() }, [
+			decision([
+				[INDEXED_FILE, "rotateRefreshToken"],
+				[INDEXED_FILE, "AuthService.logout"],
+			]),
+			decision([[OTHER_INDEXED_FILE, "AuthService.login"]]),
+		]);
+		expect(scan).toHaveBeenCalledTimes(1);
+		scan.mockRestore();
+	});
+
+	test("anchors that all resolve exactly never read the symbol table", async () => {
+		const scan = spyOn(code, "symbolTable");
+		await labelAnchors({ repoRoot: dir, codeIndex: workingCodeIndex() }, [
+			decision([[INDEXED_FILE, "AuthService.login"]]),
+		]);
+		expect(scan).not.toHaveBeenCalled();
+		scan.mockRestore();
 	});
 
 	test("anchorsByDecision keys the resolved anchors by decision id", async () => {

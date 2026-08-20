@@ -164,6 +164,13 @@ revisit a `content_sha` column that day, and not before.
   write — which `prompt-hook` cannot be. `labelAnchors` skips the code index
   entirely when nothing on the payload is anchored, and degrades to `unknown`
   rather than to a wrong downgrade when the index is unavailable.
+- The resolver reads the symbol table once, not once per anchor.
+  `CodeRepository.symbolTable()` is a scan and a `symbolKey` per row — the
+  price of a normalizer SQLite cannot run — so `IndexedAnchors` holds the
+  `SymbolTable` it built and answers every later anchor from memory, and builds
+  it only on the first anchor that is not already `exact`. `findSymbol` is the
+  same read for callers with a single name. Per resolver, never cached across
+  requests: the table is a copy of a store that reconciles underneath it.
 - Nothing is deleted, ever. Switching branches flips `present`; a decision
   that comes back keeps its embedding and its row.
 - Versioned in the file: the decision, its anchors, `DEPENDS_ON`,
@@ -284,8 +291,8 @@ with two truths. `canonicalSymbolName` stops before the case fold and is what
 `insertSymbols` stores, because that name is handed back as a suggestion and an
 LLM copies it into a decision file, which is immutable once written — the index
 is the only place the human spelling survives, so it keeps it. `symbolKey` runs
-the fold too and is what every comparison uses: `hasSymbol`, `findSymbol`, the
-parameters `suggestSymbols` feeds to
+the fold too and is what every comparison uses: `hasSymbol`, `SymbolTable`
+(which `findSymbol` reads through), the parameters `suggestSymbols` feeds to
 `src/storage/queries/match-symbols.sql`, and `listByFileAnchorOrSymbol` — the
 fourth site, and the one inside `decisions.db`, where no normalized key is
 stored and none should be. SQLite cannot run the recipe, so that query keeps

@@ -259,6 +259,14 @@ describe("CodeRepository symbol lookups", () => {
 		expect(repository.findSymbol("Ghost.method")).toEqual([]);
 	});
 
+	// findSymbol is the single-name shorthand for the same read: one table, one
+	// recipe, so a caller with many names to look up cannot disagree with one.
+	test("the symbol table answers the same lookup findSymbol does", () => {
+		expect(
+			repository.symbolTable().locationsOf("AuthService.validateToken"),
+		).toEqual(repository.findSymbol("AuthService.validateToken"));
+	});
+
 	test("suggestSymbols prefers same-file matches via the owner prefix", () => {
 		expect(
 			repository.suggestSymbols("src/auth/service.ts", "AuthService.login", 3),

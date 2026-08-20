@@ -15,17 +15,16 @@ import matchSymbolsSql from "./queries/match-symbols.sql" with { type: "text" };
 import transitiveImportersSql from "./queries/transitive-importers.sql" with {
 	type: "text",
 };
+import {
+	type LocatedSymbolRow,
+	type SymbolLocation,
+	SymbolTable,
+} from "./symbol-table";
 
 export interface TransitiveImporter {
 	path: string;
 	depth: number;
 	provenance: ImportProvenance;
-}
-
-export interface SymbolLocation {
-	filePath: string;
-	kind: string;
-	line: number;
 }
 
 const IMPORTERS_ROW_LIMIT = 5000;
@@ -157,22 +156,20 @@ export class CodeRepository {
 			.some((row) => symbolKey(row.name) === wanted);
 	}
 
+	// One scan answers every name, so a caller with more than one to look up
+	// reads the table once and keeps it.
+	symbolTable(): SymbolTable {
+		return new SymbolTable(
+			this.db
+				.query<LocatedSymbolRow, []>(
+					"SELECT file_path, kind, line, name FROM symbols ORDER BY file_path, line",
+				)
+				.all(),
+		);
+	}
+
 	findSymbol(name: string): SymbolLocation[] {
-		const wanted = symbolKey(name);
-		return this.db
-			.query<
-				{ file_path: string; kind: string; line: number; name: string },
-				[]
-			>(
-				"SELECT file_path, kind, line, name FROM symbols ORDER BY file_path, line",
-			)
-			.all()
-			.filter((row) => symbolKey(row.name) === wanted)
-			.map((row) => ({
-				filePath: row.file_path,
-				kind: row.kind,
-				line: row.line,
-			}));
+		return this.symbolTable().locationsOf(name);
 	}
 
 	suggestSymbols(filePath: string, name: string, limit: number): string[] {

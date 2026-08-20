@@ -7,6 +7,7 @@ import {
 	type Decision,
 } from "@/domain";
 import type { CodeRepository } from "@/storage/code-repository";
+import type { SymbolTable } from "@/storage/symbol-table";
 import { accessCodeIndex } from "./code-index-access";
 import type { CortexRuntime } from "./runtime";
 
@@ -97,6 +98,8 @@ async function resolverFor(
 }
 
 class IndexedAnchors implements AnchorResolver {
+	private symbols: SymbolTable | null = null;
+
 	constructor(
 		private readonly repoRoot: string,
 		private readonly code: CodeRepository,
@@ -125,9 +128,14 @@ class IndexedAnchors implements AnchorResolver {
 		return this.code.hasSymbol(anchor.filePath, anchor.symbol);
 	}
 
+	// One read of the symbol table serves every anchor this resolver grades,
+	// where a lookup per anchor rescans and re-normalizes the whole table each
+	// time. Read on the first anchor that needs it, so a payload whose anchors
+	// all resolve exactly never pays for it.
 	private symbolLivesElsewhere(anchor: Anchor): boolean {
 		if (anchor.symbol === "") return false;
-		return this.code.findSymbol(anchor.symbol).length > 0;
+		this.symbols ??= this.code.symbolTable();
+		return this.symbols.locationsOf(anchor.symbol).length > 0;
 	}
 
 	private fileInWorkingTree(anchor: Anchor): boolean {
