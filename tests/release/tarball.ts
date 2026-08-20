@@ -5,6 +5,13 @@ const CHECKSUM_LENGTH = 8;
 export interface TarMember {
 	name: string;
 	bytes: Uint8Array;
+	// ustar's own vocabulary: "0" is a plain file, "5" a directory, "x" a pax
+	// extension header. Overridable so the reader can be shown one it must
+	// refuse.
+	typeflag?: string;
+	// The raw twelve-byte size field, when a test needs the header to declare
+	// something other than the bytes that follow it.
+	declaredSize?: Uint8Array;
 }
 
 // Mirrors what `tar --format=ustar` produces in scripts/package-release.ts, so
@@ -22,13 +29,23 @@ function header(member: TarMember): Uint8Array {
 	const block = new Uint8Array(BLOCK_SIZE).fill(0);
 	writeText(block, member.name, 0);
 	writeText(block, "000755\0 ", 100);
-	writeText(block, octal(member.bytes.length, 11), 124);
+	writeSize(block, member);
 	writeText(block, octal(0, 11), 136);
 	writeText(block, " ".repeat(CHECKSUM_LENGTH), CHECKSUM_OFFSET);
-	writeText(block, "0", 156);
+	writeText(block, member.typeflag ?? "0", 156);
 	writeText(block, "ustar\0" + "00", 257);
-	writeText(block, `${octal(checksum(block), 6)}\0 `, CHECKSUM_OFFSET);
+	// Six octal digits, a NUL and a space fill the field exactly; a byte more
+	// would land on the typeflag that follows it.
+	writeText(block, `${octal(checksum(block), 6)} `, CHECKSUM_OFFSET);
 	return block;
+}
+
+function writeSize(block: Uint8Array, member: TarMember): void {
+	if (member.declaredSize) {
+		block.set(member.declaredSize, 124);
+		return;
+	}
+	writeText(block, octal(member.bytes.length, 11), 124);
 }
 
 function checksum(block: Uint8Array): number {

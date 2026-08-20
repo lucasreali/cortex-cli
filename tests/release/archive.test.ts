@@ -69,6 +69,67 @@ describe("readCortexBinary", () => {
 		);
 	});
 
+	// A size field that is not octal parses to NaN, which sliced to nothing and
+	// installed a zero-byte cortex over the working one.
+	test("rejects a member whose size is not a number", () => {
+		const tarball = makeTarball([
+			{
+				name: "cortex",
+				bytes: BINARY,
+				declaredSize: new TextEncoder().encode("not-octal\0  "),
+			},
+		]);
+		expect(() => readCortexBinary(tarball)).toThrow(
+			"declares a member size it cannot have",
+		);
+	});
+
+	// GNU writes sizes past 8 GB as base 256, marked by the high bit of the
+	// first byte, and parseInt reads that field as a small octal number.
+	test("rejects a size this reader cannot decode", () => {
+		const declaredSize = new Uint8Array(12);
+		declaredSize[0] = 0x80;
+		declaredSize[11] = 0x01;
+		const tarball = makeTarball([
+			{ name: "cortex", bytes: BINARY, declaredSize },
+		]);
+		expect(() => readCortexBinary(tarball)).toThrow(
+			"declares a member size it cannot have",
+		);
+	});
+
+	test("rejects an archive that ends inside the member it declares", () => {
+		const tarball = makeTarball([
+			{
+				name: "cortex",
+				bytes: BINARY,
+				declaredSize: new TextEncoder().encode("00000200000\0"),
+			},
+		]);
+		expect(() => readCortexBinary(tarball)).toThrow(
+			"ends inside one of its members",
+		);
+	});
+
+	// A pax or GNU extension header carries the name and size of the block
+	// after it. This reader honors neither, so it must refuse the header rather
+	// than unpack the block the header was there to correct.
+	test("rejects a cortex member that is not a plain file", () => {
+		for (const typeflag of ["5", "2", "x", "L"]) {
+			const tarball = makeTarball([
+				{ name: "cortex", bytes: BINARY, typeflag },
+			]);
+			expect(() => readCortexBinary(tarball)).toThrow("is not a file");
+		}
+	});
+
+	test("reads the member the original tar format leaves unflagged", () => {
+		const tarball = makeTarball([
+			{ name: "cortex", bytes: BINARY, typeflag: "\0" },
+		]);
+		expect(readCortexBinary(tarball)).toEqual(BINARY);
+	});
+
 	test("rejects a download that is not a gzip stream at all", () => {
 		const html = new TextEncoder().encode("<html>404</html>");
 		expect(() => readCortexBinary(html)).toThrow(
