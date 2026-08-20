@@ -28,7 +28,8 @@ Dependency direction, no cycles:
   invariants (e.g. `MINIMUM_KEYWORDS`) are defined here, nowhere else.
 - `support/` — dependency-free leaf helpers (`errorMessage`, `errnoCode`,
   `parseJsonOrNull`, `sha256Hex`, `symbolKey`, `truncate`, `fenceSafe`,
-  `writeAtomically`, `userCortexDir`). Anything may import it, including
+  `withTimeout`, `writeAtomically`, `userCortexDir`). Anything may import it,
+  including
   `release/`; it imports nothing. Put a helper here only once a third call site wants it — `symbolKey`
   arrived with exactly three. `prompt-fence.ts` is the exception that earned its
   place on two: `prompt-hook` renders the fence and the reconcile reports it,

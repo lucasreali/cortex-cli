@@ -2,9 +2,9 @@ import type { Decision } from "@/domain";
 import type { EmbeddingRepository } from "@/storage/embedding-repository";
 import type { NodeRepository } from "@/storage/node-repository";
 import type { SearchRepository } from "@/storage/search-repository";
+import { withTimeout } from "@/support/with-timeout";
 import type { UsefulnessRanking } from "@/usefulness/score";
 import type { EmbeddingProvider } from "./provider";
-import { withTimeout } from "./with-timeout";
 
 export interface SemanticSearchResult {
 	node: Decision;

@@ -10,8 +10,9 @@ import {
 	type WorkerResponse,
 } from "@/embedding/protocol";
 import { SerialLane } from "@/embedding/serial-lane";
-import { disposingOnTimeout, withTimeout } from "@/embedding/with-timeout";
+import { disposingOnTimeout } from "@/embedding/with-timeout";
 import { errorMessage } from "@/support/errors";
+import { withTimeout } from "@/support/with-timeout";
 import { DAEMON_PROTOCOL, encodeDaemonHello } from "./hello";
 
 export interface EmbeddingDaemonOptions {
