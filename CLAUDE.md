@@ -55,12 +55,26 @@ Dependency direction, no cycles:
 - `cli/` — hand-rolled dispatch table in `main.ts` (deliberate, no CLI
   framework); one file per command in `cli/commands/`.
 - `mcp/` — server with 6 tools; `RuntimeRegistry` caches one runtime per
-  resolved project root. Recoverable states return `guidanceResult`, never
-  `isError`. `search_all_projects` is deliberately unscoped (no
-  `projectPath`): it fans out over `~/.cortex/projects.json` — a rebuildable
-  per-user registry filled by `cortex init` and first use, pruned on read —
-  and returns results grouped per project, never merged into one ranking.
-  Scoped reads stay scoped; never fold cross-project search into them.
+  resolved project root, as an LRU capped at 8 that disposes what it evicts.
+  A runtime is leased for the length of the handler (`withRuntime`), so the
+  cache never closes one a call is still using. Recoverable states return
+  `guidanceResult`, never `isError`. `search_all_projects` is deliberately
+  unscoped (no `projectPath`): it fans out over `~/.cortex/projects.json` — a
+  rebuildable per-user registry filled by `cortex init` and first use, pruned
+  when it is written — and returns results grouped per project, never merged
+  into one ranking. Scoped reads stay scoped; never fold cross-project search
+  into them.
+
+**The fan-out opens foreign projects read-only.** `search_all_projects` and
+`cortex search --all-projects` are annotated `readOnlyHint`, and clients run
+them without prompting: a project the user only asked about goes through
+`app/project-reader.ts` (a `query_only` connection and the three read
+repositories), never `buildRuntimeAt`. No mkdir, no migrate, no bootstrap
+export, no reconcile, no registration, and no entry in the runtime cache; a
+store behind `SCHEMA_VERSION` is `skipped` with a reason, not upgraded. The
+query is embedded once and the vector passed to every store, the label comes
+from the registry instead of a `git` call per project, and the sweep is capped
+by count and by deadline, with the remainder reported as `skipped`.
 
 ## Decisions are files, the database is a cache
 
