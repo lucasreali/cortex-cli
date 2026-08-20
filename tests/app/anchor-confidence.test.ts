@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	ANCHOR_INDEX_TIMEOUT_MS,
 	anchorsByDecision,
 	indexedAnchorResolver,
 	labelAnchors,
@@ -104,6 +105,18 @@ function brokenCodeIndex(): CodeIndex {
 	};
 }
 
+// A cold or freshly upgraded repo reconciles the whole tree before repository()
+// settles; this is that wait, small enough for a test to sit through.
+function slowCodeIndex(delayMs: number): CodeIndex {
+	return {
+		repository: async () => {
+			await Bun.sleep(delayMs);
+			return code;
+		},
+		dispose() {},
+	};
+}
+
 describe("anchor confidence", () => {
 	test("a symbol the anchored file declares resolves exactly", () => {
 		expect(confidences([[INDEXED_FILE, "AuthService.login"]])).toEqual([
@@ -183,6 +196,24 @@ describe("labelAnchors", () => {
 			[decision([[INDEXED_FILE, "AuthService.login"]])],
 		);
 		expect(labelled[0]?.anchors[0]?.confidence).toBe("unknown");
+	});
+
+	test("a code index too slow to answer degrades to unknown, not to a hang", async () => {
+		const labelled = await labelAnchors(
+			{ repoRoot: dir, codeIndex: slowCodeIndex(200) },
+			[decision([[INDEXED_FILE, "AuthService.login"]])],
+			5,
+		);
+		expect(labelled[0]?.anchors[0]?.confidence).toBe("unknown");
+	});
+
+	test("the deadline only bounds the wait: a fast index is still graded", async () => {
+		const labelled = await labelAnchors(
+			{ repoRoot: dir, codeIndex: slowCodeIndex(0) },
+			[decision([[INDEXED_FILE, "AuthService.login"]])],
+			ANCHOR_INDEX_TIMEOUT_MS,
+		);
+		expect(labelled[0]?.anchors[0]?.confidence).toBe("exact");
 	});
 
 	// The whole table has to be read to answer "where else does this name live?",

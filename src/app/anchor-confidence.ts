@@ -8,8 +8,18 @@ import {
 } from "@/domain";
 import type { CodeRepository } from "@/storage/code-repository";
 import type { SymbolTable } from "@/storage/symbol-table";
-import { accessCodeIndex } from "./code-index-access";
+import { errorMessage } from "@/support/errors";
+import { withTimeout } from "@/support/with-timeout";
+import { accessCodeIndex, type CodeIndexAccess } from "./code-index-access";
 import type { CortexRuntime } from "./runtime";
+
+// Reading the index means reconciling it, and a cold or freshly upgraded repo
+// reconciles the whole tree — long enough for an MCP client to give up on a
+// request FTS had already answered. Grading is the one code-index read with an
+// honest degraded form, so it is the one that gets a deadline: `unknown` says
+// exactly what happened. Nothing is cancelled, so the pass stays in flight and
+// the next request is graded rather than starting over.
+export const ANCHOR_INDEX_TIMEOUT_MS = 2000;
 
 export interface ResolvedAnchor extends Anchor {
 	confidence: AnchorConfidence;
@@ -55,16 +65,18 @@ export function unjudgedAnchorResolver(): AnchorResolver {
 export async function labelAnchors(
 	dependencies: AnchorResolutionDependencies,
 	decisions: Decision[],
+	timeoutMs: number = ANCHOR_INDEX_TIMEOUT_MS,
 ): Promise<AnchoredDecision[]> {
-	const resolver = await resolverFor(dependencies, decisions);
+	const resolver = await resolverFor(dependencies, decisions, timeoutMs);
 	return decisions.map((decision) => resolver.label(decision));
 }
 
 export async function anchorsByDecision(
 	dependencies: AnchorResolutionDependencies,
 	decisions: Decision[],
+	timeoutMs: number = ANCHOR_INDEX_TIMEOUT_MS,
 ): Promise<Map<string, ResolvedAnchor[]>> {
-	const labelled = await labelAnchors(dependencies, decisions);
+	const labelled = await labelAnchors(dependencies, decisions, timeoutMs);
 	return new Map(
 		labelled.map((decision) => [decision.id, decision.anchors] as const),
 	);
@@ -88,13 +100,28 @@ function rankOf(confidence: AnchorConfidence): number {
 async function resolverFor(
 	dependencies: AnchorResolutionDependencies,
 	decisions: Decision[],
+	timeoutMs: number,
 ): Promise<AnchorResolver> {
 	if (decisions.every((decision) => decision.anchors.length === 0)) {
 		return unjudgedAnchorResolver();
 	}
-	const access = await accessCodeIndex(dependencies.codeIndex);
+	const access = await accessWithin(dependencies.codeIndex, timeoutMs);
 	if (!access.ok) return unjudgedAnchorResolver();
 	return new IndexedAnchors(dependencies.repoRoot, access.code);
+}
+
+async function accessWithin(
+	index: AnchorResolutionDependencies["codeIndex"],
+	timeoutMs: number,
+): Promise<CodeIndexAccess> {
+	try {
+		return await withTimeout(accessCodeIndex(index), timeoutMs);
+	} catch (error) {
+		return {
+			ok: false,
+			warning: `code index unavailable: ${errorMessage(error)}`,
+		};
+	}
 }
 
 class IndexedAnchors implements AnchorResolver {

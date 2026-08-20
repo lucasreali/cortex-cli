@@ -163,7 +163,15 @@ revisit a `content_sha` column that day, and not before.
   would give one derived cache a stale copy of another, and would make a read a
   write — which `prompt-hook` cannot be. `labelAnchors` skips the code index
   entirely when nothing on the payload is anchored, and degrades to `unknown`
-  rather than to a wrong downgrade when the index is unavailable.
+  rather than to a wrong downgrade when the index is unavailable — *or* when it
+  cannot answer inside `ANCHOR_INDEX_TIMEOUT_MS`. Grading is the only
+  code-index read with an honest degraded form, so it is the only one on a
+  deadline: reading the index reconciles it, and a cold repo reconciles the
+  whole tree while an MCP client waits for decisions FTS already found.
+  Nothing is cancelled, so the pass stays in flight and the next request is
+  graded rather than starting over. `get_impact`, `save_decision` and
+  `cortex why --symbol` keep waiting: without the index they have no answer to
+  degrade to.
 - The resolver reads the symbol table once, not once per anchor.
   `CodeRepository.symbolTable()` is a scan and a `symbolKey` per row — the
   price of a normalizer SQLite cannot run — so `IndexedAnchors` holds the
