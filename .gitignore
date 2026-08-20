@@ -37,3 +37,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 /.cortex/*
 !/.cortex/config
 !/.cortex/decisions/
+
+# local worktrees created by agent sessions
+/.claude/
