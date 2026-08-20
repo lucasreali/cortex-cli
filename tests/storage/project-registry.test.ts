@@ -1,10 +1,17 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+	chmodSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	corruptRegistryBackups,
 	projectsRegistryPath,
-	readRegisteredProjects,
+	readProjectRegistry,
 	registerProject,
 } from "@/storage/project-registry";
 
@@ -19,6 +26,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	process.env.CORTEX_PROJECTS_FILE = previousOverride;
+	chmodSync(dir, 0o755);
 	rmSync(dir, { recursive: true, force: true });
 });
 
@@ -28,19 +36,29 @@ function makeInitializedProject(name: string): string {
 	return root;
 }
 
+function registeredRoots(): string[] {
+	const read = readProjectRegistry();
+	return read.state === "ok"
+		? read.projects.map((project) => project.root)
+		: [];
+}
+
 describe("project registry", () => {
 	test("the env override names the file, and registration lands there", () => {
 		const root = makeInitializedProject("alpha");
 		registerProject(root, "github.com/acme/alpha");
 
 		expect(projectsRegistryPath()).toBe(join(dir, "projects.json"));
-		expect(readRegisteredProjects()).toEqual([
-			{
-				root,
-				canonicalId: "github.com/acme/alpha",
-				registeredAt: expect.any(String),
-			},
-		]);
+		expect(readProjectRegistry()).toEqual({
+			state: "ok",
+			projects: [
+				{
+					root,
+					canonicalId: "github.com/acme/alpha",
+					registeredAt: expect.any(String),
+				},
+			],
+		});
 	});
 
 	test("registering the same root twice keeps one entry", () => {
@@ -51,36 +69,95 @@ describe("project registry", () => {
 		registerProject(root, "github.com/acme/alpha");
 
 		expect(readFileSync(join(dir, "projects.json"), "utf8")).toBe(written);
-		expect(readRegisteredProjects()).toHaveLength(1);
+		expect(registeredRoots()).toHaveLength(1);
 	});
 
-	test("an entry whose store disappeared is pruned on read", () => {
+	test("an entry whose store disappeared is filtered out, without a write", () => {
 		const kept = makeInitializedProject("alpha");
 		const doomed = makeInitializedProject("beta");
 		registerProject(kept, "github.com/acme/alpha");
 		registerProject(doomed, "github.com/acme/beta");
+		const written = readFileSync(join(dir, "projects.json"), "utf8");
 
 		rmSync(join(doomed, ".cortex"), { recursive: true, force: true });
 
-		expect(readRegisteredProjects().map((project) => project.root)).toEqual([
-			kept,
-		]);
+		expect(registeredRoots()).toEqual([kept]);
+		expect(readFileSync(join(dir, "projects.json"), "utf8")).toBe(written);
+	});
+
+	test("a vanished entry is dropped by the next registration", () => {
+		const kept = makeInitializedProject("alpha");
+		const doomed = makeInitializedProject("beta");
+		registerProject(kept, "github.com/acme/alpha");
+		registerProject(doomed, "github.com/acme/beta");
+		rmSync(join(doomed, ".cortex"), { recursive: true, force: true });
+
+		registerProject(makeInitializedProject("gamma"), "github.com/acme/gamma");
+
 		expect(readFileSync(join(dir, "projects.json"), "utf8")).not.toContain(
 			"beta",
 		);
 	});
 
-	test("an absent registry reads as empty", () => {
-		expect(readRegisteredProjects()).toEqual([]);
+	// A store behind an unreadable directory is not a store that is gone: the
+	// read has to come back empty for this call without forgetting the project.
+	test("an unreadable store is skipped on read but never forgotten", () => {
+		const kept = makeInitializedProject("alpha");
+		const blocked = makeInitializedProject("beta");
+		registerProject(kept, "github.com/acme/alpha");
+		registerProject(blocked, "github.com/acme/beta");
+		chmodSync(blocked, 0o000);
+
+		try {
+			expect(registeredRoots()).toEqual([kept]);
+			registerProject(makeInitializedProject("gamma"), "github.com/acme/gamma");
+			expect(readFileSync(join(dir, "projects.json"), "utf8")).toContain(
+				"beta",
+			);
+		} finally {
+			chmodSync(blocked, 0o755);
+		}
 	});
 
-	test("a corrupt registry file reads as empty and is recoverable", async () => {
-		await Bun.write(join(dir, "projects.json"), "{ not json");
-		expect(readRegisteredProjects()).toEqual([]);
+	test("an absent registry reads as missing", () => {
+		expect(readProjectRegistry()).toEqual({ state: "missing" });
+		expect(corruptRegistryBackups()).toEqual([]);
+	});
 
+	test("reading a corrupt registry reports it and changes nothing", async () => {
+		await Bun.write(join(dir, "projects.json"), "{ not json");
+
+		expect(readProjectRegistry()).toEqual({ state: "unreadable" });
+
+		expect(readFileSync(join(dir, "projects.json"), "utf8")).toBe("{ not json");
+		expect(corruptRegistryBackups()).toEqual([]);
+	});
+
+	test("registering over a corrupt registry keeps the original aside", async () => {
+		await Bun.write(join(dir, "projects.json"), "{ not json");
 		const root = makeInitializedProject("alpha");
+
 		registerProject(root, "github.com/acme/alpha");
-		expect(readRegisteredProjects()).toHaveLength(1);
+
+		const backups = corruptRegistryBackups();
+		expect(backups).toHaveLength(1);
+		expect(readFileSync(backups[0] as string, "utf8")).toBe("{ not json");
+		expect(registeredRoots()).toEqual([root]);
+
+		registerProject(makeInitializedProject("beta"), "github.com/acme/beta");
+		expect(corruptRegistryBackups()).toEqual(backups);
+	});
+
+	test("a registry whose projects field is not a list is corrupt too", async () => {
+		await Bun.write(
+			join(dir, "projects.json"),
+			JSON.stringify({ version: 1, projects: "nope" }),
+		);
+
+		expect(readProjectRegistry()).toEqual({ state: "unreadable" });
+
+		registerProject(makeInitializedProject("alpha"), "github.com/acme/alpha");
+		expect(corruptRegistryBackups()).toHaveLength(1);
 	});
 
 	test("entries with the wrong shape are ignored", async () => {
@@ -97,9 +174,22 @@ describe("project registry", () => {
 			}),
 		);
 
-		expect(readRegisteredProjects().map((project) => project.root)).toEqual([
-			root,
-		]);
+		expect(registeredRoots()).toEqual([root]);
+		expect(corruptRegistryBackups()).toEqual([]);
+	});
+
+	// Runs as a plain user; under root the read-only directory would not stop
+	// the write and the assertions below would pass vacuously.
+	test("a corrupt registry that cannot be moved aside is left alone", async () => {
+		await Bun.write(join(dir, "projects.json"), "{ not json");
+		chmodSync(dir, 0o555);
+
+		expect(() =>
+			registerProject(join(dir, "alpha"), "github.com/acme/alpha"),
+		).not.toThrow();
+
+		expect(readFileSync(join(dir, "projects.json"), "utf8")).toBe("{ not json");
+		expect(corruptRegistryBackups()).toEqual([]);
 	});
 
 	test("registration failures are swallowed, never thrown", async () => {
@@ -109,5 +199,7 @@ describe("project registry", () => {
 		expect(() =>
 			registerProject(makeInitializedProject("alpha"), "acme/alpha"),
 		).not.toThrow();
+		expect(readProjectRegistry()).toEqual({ state: "missing" });
+		expect(corruptRegistryBackups()).toEqual([]);
 	});
 });

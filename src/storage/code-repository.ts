@@ -6,11 +6,21 @@ import type {
 	ImportProvenance,
 	IndexedFile,
 } from "@/domain";
+import {
+	canonicalSymbolName,
+	symbolKey,
+	symbolKeyParts,
+} from "@/support/symbol-key";
 import { likeLiteral } from "./like-pattern";
 import matchSymbolsSql from "./queries/match-symbols.sql" with { type: "text" };
 import transitiveImportersSql from "./queries/transitive-importers.sql" with {
 	type: "text",
 };
+import {
+	type LocatedSymbolRow,
+	type SymbolLocation,
+	SymbolTable,
+} from "./symbol-table";
 
 export interface TransitiveImporter {
 	path: string;
@@ -23,12 +33,6 @@ export interface ImporterWalk {
 	truncated: boolean;
 }
 
-export interface SymbolLocation {
-	filePath: string;
-	kind: string;
-	line: number;
-}
-
 export const IMPORTERS_ROW_LIMIT = 5000;
 
 interface FileRow {
@@ -36,7 +40,9 @@ interface FileRow {
 	lang: string;
 	hash: string;
 	mtime: number;
+	ctime: number;
 	size: number;
+	has_error: number;
 }
 
 interface SymbolRow {
@@ -53,6 +59,13 @@ interface ImportRow {
 
 interface ImporterRow extends TransitiveImporter {
 	scanned: number;
+}
+
+export interface CodeEdge {
+	fromPath: string;
+	specifier: string;
+	toPath: string | null;
+	provenance: ImportProvenance;
 }
 
 export class CodeRepository {
@@ -103,9 +116,18 @@ export class CodeRepository {
 	touchFile(file: IndexedFile): void {
 		this.db
 			.query(
-				"UPDATE files SET lang = ?, hash = ?, mtime = ?, size = ? WHERE path = ?",
+				`UPDATE files SET lang = ?, hash = ?, mtime = ?, ctime = ?, size = ?,
+				 has_error = ? WHERE path = ?`,
 			)
-			.run(file.lang, file.hash, file.mtime, file.size, file.path);
+			.run(
+				file.lang,
+				file.hash,
+				file.mtime,
+				file.ctime,
+				file.size,
+				Number(file.hasError),
+				file.path,
+			);
 	}
 
 	getFile(path: string): IndexedFile | null {
@@ -113,13 +135,14 @@ export class CodeRepository {
 			.query<FileRow, [string]>("SELECT * FROM files WHERE path = ?")
 			.get(path);
 		if (!row) return null;
-		return row;
+		return indexedFileOf(row);
 	}
 
 	listFiles(): IndexedFile[] {
 		return this.db
 			.query<FileRow, []>("SELECT * FROM files ORDER BY path")
-			.all();
+			.all()
+			.map(indexedFileOf);
 	}
 
 	symbolsIn(filePath: string): CodeSymbol[] {
@@ -152,25 +175,35 @@ export class CodeRepository {
 		};
 	}
 
+	// SQLite cannot run the normalizer, so the comparison happens here rather
+	// than in a WHERE clause: file_path is indexed, which keeps the row set one
+	// file wide, and the alternative — a second stored column holding the key —
+	// buys speed this store does not need at the cost of a schema that can
+	// disagree with the recipe.
 	hasSymbol(filePath: string, name: string): boolean {
-		return (
+		const wanted = symbolKey(name);
+		return this.db
+			.query<{ name: string }, [string]>(
+				"SELECT name FROM symbols WHERE file_path = ?",
+			)
+			.all(filePath)
+			.some((row) => symbolKey(row.name) === wanted);
+	}
+
+	// One scan answers every name, so a caller with more than one to look up
+	// reads the table once and keeps it.
+	symbolTable(): SymbolTable {
+		return new SymbolTable(
 			this.db
-				.query("SELECT 1 FROM symbols WHERE file_path = ? AND name = ?")
-				.get(filePath, name) !== null
+				.query<LocatedSymbolRow, []>(
+					"SELECT file_path, kind, line, name FROM symbols ORDER BY file_path, line",
+				)
+				.all(),
 		);
 	}
 
 	findSymbol(name: string): SymbolLocation[] {
-		return this.db
-			.query<{ file_path: string; kind: string; line: number }, [string]>(
-				"SELECT file_path, kind, line FROM symbols WHERE name = ? ORDER BY file_path, line",
-			)
-			.all(name)
-			.map((row) => ({
-				filePath: row.file_path,
-				kind: row.kind,
-				line: row.line,
-			}));
+		return this.symbolTable().locationsOf(name);
 	}
 
 	suggestSymbols(filePath: string, name: string, limit: number): string[] {
@@ -184,10 +217,7 @@ export class CodeRepository {
 		limit: number,
 		filePath: string | null,
 	): string[] {
-		const lastSegment = name.split(".").at(-1) ?? name;
-		const owner = name.includes(".")
-			? name.slice(0, name.lastIndexOf("."))
-			: "";
+		const parts = symbolKeyParts(name);
 		return this.db
 			.query<
 				{ name: string },
@@ -201,32 +231,55 @@ export class CodeRepository {
 			>(matchSymbolsSql)
 			.all({
 				$file: filePath,
-				$full: likeLiteral(name),
-				$last: likeLiteral(lastSegment),
-				$owner: likeLiteral(owner),
+				$full: likeLiteral(parts.key),
+				$last: likeLiteral(parts.lastSegment),
+				$owner: likeLiteral(parts.owner),
 				$limit: limit,
 			})
 			.map((row) => row.name);
 	}
 
-	listImports(): Array<{
-		fromPath: string;
-		specifier: string;
-		toPath: string | null;
-	}> {
+	listImports(): CodeEdge[] {
 		return this.db
 			.query<
-				{ from_path: string; specifier: string; to_path: string | null },
+				{
+					from_path: string;
+					specifier: string;
+					to_path: string | null;
+					provenance: ImportProvenance;
+				},
 				[]
 			>(
-				"SELECT from_path, specifier, to_path FROM imports ORDER BY from_path, specifier",
+				`SELECT from_path, specifier, to_path, provenance FROM imports
+				 ORDER BY from_path, specifier`,
 			)
 			.all()
 			.map((row) => ({
 				fromPath: row.from_path,
 				specifier: row.specifier,
 				toPath: row.to_path,
+				provenance: row.provenance,
 			}));
+	}
+
+	// The target of an edge is a fact about the whole file set, so it outlives
+	// the pass that read the importer: re-pointing edges is a write the indexer
+	// makes without touching the file rows they belong to.
+	retargetImports(edges: CodeEdge[]): void {
+		const statement = this.db.query(
+			`UPDATE imports SET to_path = ?, provenance = ?
+			 WHERE from_path = ? AND specifier = ?`,
+		);
+		this.db.transaction(() => {
+			for (const edge of edges) {
+				statement.run(
+					edge.toPath,
+					edge.provenance,
+					edge.fromPath,
+					edge.specifier,
+				);
+			}
+		})();
 	}
 
 	importsFrom(path: string): CodeImport[] {
@@ -252,9 +305,18 @@ export class CodeRepository {
 	private insertFile(file: IndexedFile): void {
 		this.db
 			.query(
-				"INSERT INTO files (path, lang, hash, mtime, size) VALUES (?, ?, ?, ?, ?)",
+				`INSERT INTO files (path, lang, hash, mtime, ctime, size, has_error)
+				 VALUES (?, ?, ?, ?, ?, ?, ?)`,
 			)
-			.run(file.path, file.lang, file.hash, file.mtime, file.size);
+			.run(
+				file.path,
+				file.lang,
+				file.hash,
+				file.mtime,
+				file.ctime,
+				file.size,
+				Number(file.hasError),
+			);
 	}
 
 	private insertSymbols(filePath: string, symbols: CodeSymbol[]): void {
@@ -262,7 +324,12 @@ export class CodeRepository {
 			"INSERT INTO symbols (file_path, name, kind, line) VALUES (?, ?, ?, ?)",
 		);
 		for (const symbol of symbols) {
-			statement.run(filePath, symbol.name, symbol.kind, symbol.line);
+			statement.run(
+				filePath,
+				canonicalSymbolName(symbol.name),
+				symbol.kind,
+				symbol.line,
+			);
 		}
 	}
 
@@ -280,4 +347,16 @@ export class CodeRepository {
 		this.db.query("DELETE FROM imports WHERE from_path = ?").run(path);
 		this.db.query("DELETE FROM files WHERE path = ?").run(path);
 	}
+}
+
+function indexedFileOf(row: FileRow): IndexedFile {
+	return {
+		path: row.path,
+		lang: row.lang,
+		hash: row.hash,
+		mtime: row.mtime,
+		ctime: row.ctime,
+		size: row.size,
+		hasError: row.has_error !== 0,
+	};
 }

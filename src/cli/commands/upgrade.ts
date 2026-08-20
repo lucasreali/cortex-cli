@@ -84,7 +84,10 @@ function isNewer(tag: string): boolean {
 
 async function install(origin: string, tag: string): Promise<void> {
 	const target = buildTarget();
-	console.log(`Downloading ${assetName(tag, target)}`);
+	// The origin is named before anything is fetched: this command replaces the
+	// binary that runs on every prompt, so where the replacement came from is
+	// not a detail to keep to itself.
+	console.log(`Downloading ${assetName(tag, target)} from ${origin}`);
 	const tarball = await downloadRelease(origin, tag, target);
 	const targetPath = currentBinaryPath();
 	await installBinary({

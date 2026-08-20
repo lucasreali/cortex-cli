@@ -1,8 +1,14 @@
+import { MarkedBlock } from "./marked-block";
+
 export const CORTEX_BLOCK_BEGIN = "<!-- cortex:begin -->";
 export const CORTEX_BLOCK_END = "<!-- cortex:end -->";
 
-export const CORTEX_INSTRUCTIONS_BLOCK = `${CORTEX_BLOCK_BEGIN}
-## Cortex — decision memory
+export const INSTRUCTIONS_BLOCK = new MarkedBlock(
+	CORTEX_BLOCK_BEGIN,
+	CORTEX_BLOCK_END,
+);
+
+export const CORTEX_INSTRUCTIONS_BODY = `## Cortex — decision memory
 
 This project records its technical decisions with cortex (MCP server
 \`cortex\`, tools: \`save_decision\`, \`save_session_summary\`,
@@ -23,33 +29,8 @@ This project records its technical decisions with cortex (MCP server
 - If semantic search returns nothing useful, embeddings may be missing —
   suggest running \`cortex embed --missing\`.
 
-More: https://github.com/lucasreali/cortex-cli#how-it-works
-${CORTEX_BLOCK_END}`;
+More: https://github.com/lucasreali/cortex-cli#how-it-works`;
 
-export type BlockUpsert =
-	| {
-			content: string;
-			action: "created" | "appended" | "updated" | "unchanged";
-	  }
-	| { action: "skipped-malformed" };
-
-export function upsertMarkedBlock(
-	existing: string | null,
-	block: string,
-): BlockUpsert {
-	if (existing === null) return { content: `${block}\n`, action: "created" };
-	const begin = existing.indexOf(CORTEX_BLOCK_BEGIN);
-	if (begin === -1) return appendBlock(existing, block);
-	const endMarker = existing.indexOf(CORTEX_BLOCK_END, begin);
-	if (endMarker === -1) return { action: "skipped-malformed" };
-	const end = endMarker + CORTEX_BLOCK_END.length;
-	const content = existing.slice(0, begin) + block + existing.slice(end);
-	if (content === existing) return { content, action: "unchanged" };
-	return { content, action: "updated" };
-}
-
-function appendBlock(existing: string, block: string): BlockUpsert {
-	const body = existing.trimEnd();
-	if (body === "") return { content: `${block}\n`, action: "created" };
-	return { content: `${body}\n\n${block}\n`, action: "appended" };
-}
+export const CORTEX_INSTRUCTIONS_BLOCK = INSTRUCTIONS_BLOCK.fence(
+	CORTEX_INSTRUCTIONS_BODY,
+);

@@ -7,6 +7,7 @@ import { seedDecision } from "@tests/support/seed";
 import type { CreateDecisionInput, Decision } from "@/domain";
 import { openDecisionsDb } from "@/storage/connection";
 import { EdgeRepository } from "@/storage/edge-repository";
+import { EmbeddingRepository } from "@/storage/embedding-repository";
 import { migrate } from "@/storage/migrations";
 import { NodeRepository, type SaveContext } from "@/storage/node-repository";
 import { SearchRepository } from "@/storage/search-repository";
@@ -258,6 +259,18 @@ describe("NodeRepository project and session nodes", () => {
 		expect(other).not.toBe(first);
 	});
 
+	// The transaction ensureProject holds is what makes the race lose; this is
+	// the backstop under it, so a second identity cannot be written by any path.
+	test("the store refuses a second project node for one canonical id", () => {
+		nodes.ensureProject("github.com/acme/app");
+
+		expect(() =>
+			db
+				.query("INSERT INTO nodes (id, kind, title) VALUES (?, 'project', ?)")
+				.run("second-identity", "github.com/acme/app"),
+		).toThrow(/UNIQUE constraint failed/);
+	});
+
 	test("createSession links the session to the project", () => {
 		const sessionId = nodes.createSession(PROJECT_ID);
 		expect(edgeRows("BELONGS_TO")).toContainEqual({
@@ -499,6 +512,212 @@ describe("NodeRepository.listByFileAnchorOrSymbol", () => {
 			fileLevel.id,
 			exactSymbol.id,
 		]);
+	});
+
+	// The class of bug item 9 closed on the extractor and the matcher was still
+	// open here: an anchor is stored verbatim, so the only spelling that used to
+	// match was the one the LLM happened to write.
+	test("matches anchor spellings the shared recipe unifies", () => {
+		const upperCase = create(
+			decisionInput({
+				title: "Decisão ancorada com outra caixa no símbolo",
+				anchors: [
+					{
+						file_path: "src/auth/service.ts",
+						symbol: "AuthService.VALIDATETOKEN",
+					},
+				],
+			}),
+			context,
+		);
+		const turkishCapital = create(
+			decisionInput({
+				title: "Decisão ancorada com I maiúsculo turco",
+				anchors: [
+					{ file_path: "src/auth/service.ts", symbol: "AuthService.VALİDATE" },
+				],
+			}),
+			context,
+		);
+		const ligature = create(
+			decisionInput({
+				title: "Decisão ancorada com ligadura tipográfica",
+				anchors: [
+					{ file_path: "src/auth/service.ts", symbol: "AuthService.conﬁrm" },
+				],
+			}),
+			context,
+		);
+
+		const matched = (symbol: string) =>
+			nodes
+				.listByFileAnchorOrSymbol("src/auth/service.ts", symbol)
+				.map((decision) => decision.id);
+
+		expect(matched("AuthService.validateToken")).toEqual([upperCase.id]);
+		expect(matched("AuthService.validate")).toEqual([turkishCapital.id]);
+		expect(matched("AuthService.confirm")).toEqual([ligature.id]);
+	});
+
+	test("keeps the anchor verbatim in what it returns", () => {
+		create(
+			decisionInput({
+				anchors: [
+					{
+						file_path: "src/auth/service.ts",
+						symbol: "AuthService.VALIDATETOKEN",
+					},
+				],
+			}),
+			context,
+		);
+
+		const [decision] = nodes.listByFileAnchorOrSymbol(
+			"src/auth/service.ts",
+			"authservice.validatetoken",
+		);
+
+		expect(decision?.anchors).toEqual([
+			{ filePath: "src/auth/service.ts", symbol: "AuthService.VALIDATETOKEN" },
+		]);
+	});
+
+	test("leaves out symbols no normalization makes equal", () => {
+		create(
+			decisionInput({
+				anchors: [
+					{
+						file_path: "src/auth/service.ts",
+						symbol: "AuthService.validateTokens",
+					},
+				],
+			}),
+			context,
+		);
+		create(
+			decisionInput({
+				title: "Decisão ancorada no mesmo símbolo em outro arquivo",
+				anchors: [
+					{
+						file_path: "src/auth/other.ts",
+						symbol: "AuthService.validateToken",
+					},
+				],
+			}),
+			context,
+		);
+
+		expect(
+			nodes.listByFileAnchorOrSymbol(
+				"src/auth/service.ts",
+				"AuthService.validateToken",
+			),
+		).toEqual([]);
+	});
+
+	test("names a decision once however many of its anchors match", () => {
+		const twiceAnchored = create(
+			decisionInput({
+				anchors: [
+					{ file_path: "src/auth/service.ts" },
+					{
+						file_path: "src/auth/service.ts",
+						symbol: "AuthService.validateToken",
+					},
+				],
+			}),
+			context,
+		);
+
+		const decisions = nodes.listByFileAnchorOrSymbol(
+			"src/auth/service.ts",
+			"AuthService.validateToken",
+		);
+
+		expect(decisions.map((decision) => decision.id)).toEqual([
+			twiceAnchored.id,
+		]);
+	});
+
+	// Superseded is still an answer to "why is this symbol like this"; off this
+	// branch is not.
+	test("keeps replaced decisions and drops the ones absent from the branch", () => {
+		const replaced = create(
+			decisionInput({
+				anchors: [
+					{
+						file_path: "src/auth/service.ts",
+						symbol: "AuthService.validateToken",
+					},
+				],
+			}),
+			context,
+		);
+		create(
+			decisionInput({
+				title: "Substituta sem âncoras de arquivo",
+				replaces: replaced.id,
+			}),
+			context,
+		);
+		const offBranch = create(
+			decisionInput({
+				title: "Decisão ancorada numa branch que não é esta",
+				anchors: [
+					{
+						file_path: "src/auth/service.ts",
+						symbol: "AuthService.validateToken",
+					},
+				],
+			}),
+			context,
+		);
+		db.query("UPDATE nodes SET present = 0 WHERE id = ?").run(offBranch.id);
+
+		const decisions = nodes.listByFileAnchorOrSymbol(
+			"src/auth/service.ts",
+			"AuthService.validateToken",
+		);
+
+		expect(decisions.map((decision) => decision.id)).toEqual([replaced.id]);
+	});
+});
+
+describe("EmbeddingRepository.countsByModel", () => {
+	const vector = new Float32Array([0.1, 0.2]);
+
+	test("names every vintage the live set holds", () => {
+		const embeddings = new EmbeddingRepository(db);
+		const current = create(decisionInput(), context);
+		const stale = create(
+			decisionInput({ title: "Paginação por cursor nas listagens" }),
+			context,
+		);
+		embeddings.upsert(current.id, "gemma@256", vector);
+		embeddings.upsert(stale.id, "older@128", vector);
+
+		expect(embeddings.countsByModel()).toEqual([
+			{ modelId: "gemma@256", count: 1 },
+			{ modelId: "older@128", count: 1 },
+		]);
+	});
+
+	// The doctor turns this count into "run: cortex embed --missing", and that
+	// command only fills the live set — so history keeping an old vector must
+	// not reach the report, or the warning could never be closed.
+	test("leaves out vectors kept by superseded and off-branch decisions", () => {
+		const embeddings = new EmbeddingRepository(db);
+		const superseded = create(decisionInput(), context);
+		const offBranch = create(
+			decisionInput({ title: "Paginação por cursor nas listagens" }),
+			context,
+		);
+		embeddings.upsert(superseded.id, "older@128", vector);
+		embeddings.upsert(offBranch.id, "older@128", vector);
+		create(decisionInput({ replaces: superseded.id }), context);
+		db.query("UPDATE nodes SET present = 0 WHERE id = ?").run(offBranch.id);
+
+		expect(embeddings.countsByModel()).toEqual([]);
 	});
 });
 

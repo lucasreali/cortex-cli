@@ -8,7 +8,12 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getCanonicalProjectId, getHead, getRepoRoot } from "@/git";
+import {
+	getCanonicalProjectId,
+	getHead,
+	getHooksPath,
+	getRepoRoot,
+} from "@/git";
 
 let dir: string;
 
@@ -59,6 +64,34 @@ describe("getRepoRoot", () => {
 		const outside = mkdtempSync(join(tmpdir(), "cortex-no-git-"));
 		try {
 			expect(getRepoRoot(outside)).toBeNull();
+		} finally {
+			rmSync(outside, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("getHooksPath", () => {
+	test("is absolute, and the same from a nested directory", () => {
+		const nested = join(dir, "src", "auth");
+		mkdirSync(nested, { recursive: true });
+		expect(getHooksPath(dir)).toBe(join(dir, ".git", "hooks"));
+		expect(getHooksPath(nested)).toBe(join(dir, ".git", "hooks"));
+	});
+
+	test("follows a relative core.hooksPath", () => {
+		run("git", "config", "core.hooksPath", ".husky");
+		expect(getHooksPath(dir)).toBe(join(dir, ".husky"));
+	});
+
+	test("follows an absolute core.hooksPath", () => {
+		run("git", "config", "core.hooksPath", "/opt/shared-hooks");
+		expect(getHooksPath(dir)).toBe("/opt/shared-hooks");
+	});
+
+	test("returns null outside a repository", () => {
+		const outside = mkdtempSync(join(tmpdir(), "cortex-no-git-"));
+		try {
+			expect(getHooksPath(outside)).toBeNull();
 		} finally {
 			rmSync(outside, { recursive: true, force: true });
 		}

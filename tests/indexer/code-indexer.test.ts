@@ -4,14 +4,20 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	rmSync,
+	statSync,
+	symlinkSync,
 	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CodeIndexer, computeDrift } from "@/indexer/code-indexer";
+import {
+	CodeIndexer,
+	computeDrift,
+	danglingTargets,
+} from "@/indexer/code-indexer";
 import { EXTRACTION_VERSION } from "@/indexer/extraction-version";
-import { listSourceFiles } from "@/indexer/source-walker";
+import { listSources } from "@/indexer/source-walker";
 import { CodeRepository } from "@/storage/code-repository";
 import { openCodeDb } from "@/storage/connection";
 import { migrateCode } from "@/storage/migrations";
@@ -54,6 +60,10 @@ function fileContent(position: number): string {
 	);
 }
 
+function oversizedSource(): Buffer {
+	return Buffer.alloc(1024 * 1024 + 1, 0x20);
+}
+
 function bumpMtime(path: string): void {
 	const future = new Date(Date.now() + 5000);
 	utimesSync(join(dir, path), future, future);
@@ -68,6 +78,8 @@ describe("CodeIndexer", () => {
 			indexed: FILE_COUNT,
 			unchanged: 0,
 			removed: 0,
+			repaired: 0,
+			skipped: [],
 		});
 		expect(repository.listFiles()).toHaveLength(FILE_COUNT);
 		expect(repository.symbolsIn("src/file07.ts")).toEqual([
@@ -91,6 +103,8 @@ describe("CodeIndexer", () => {
 			indexed: 0,
 			unchanged: FILE_COUNT,
 			removed: 0,
+			repaired: 0,
+			skipped: [],
 		});
 	});
 
@@ -109,6 +123,8 @@ describe("CodeIndexer", () => {
 			indexed: 1,
 			unchanged: FILE_COUNT - 1,
 			removed: 0,
+			repaired: 0,
+			skipped: [],
 		});
 		expect(repository.symbolsIn("src/file10.ts").map((s) => s.name)).toEqual([
 			"value10",
@@ -183,6 +199,94 @@ describe("CodeIndexer", () => {
 		expect(report.indexed).toBe(FILE_COUNT);
 	});
 
+	// The listing is taken synchronously at the top of run(), so deleting a file
+	// after the call and before the await is the ordinary race against a
+	// checkout or an editor save — one file, not a failed index.
+	test("a file that vanishes mid-run is skipped, not fatal", async () => {
+		const running = indexer.run();
+		rmSync(join(dir, "src/file25.ts"));
+
+		const report = await running;
+
+		expect(report.indexed).toBe(FILE_COUNT - 1);
+		expect(report.skipped.map((entry) => entry.path)).toEqual([
+			"src/file25.ts",
+		]);
+		expect(repository.listFiles()).toHaveLength(FILE_COUNT - 1);
+	});
+
+	test("a symlink cycle is skipped and the rest of the tree is indexed", async () => {
+		symlinkSync("cycle.ts", join(dir, "src/cycle.ts"));
+
+		const report = await indexer.run();
+
+		expect(report.indexed).toBe(FILE_COUNT);
+		expect(report.skipped.map((entry) => entry.path)).toEqual(["src/cycle.ts"]);
+	});
+
+	// A file the pass could not read is not a file that left the tree, so
+	// pruning its rows would drop symbols over a transient permission error.
+	test("an unreadable file keeps the rows it already had", async () => {
+		await indexer.run();
+		rmSync(join(dir, "src/file15.ts"));
+		symlinkSync("file15.ts", join(dir, "src/file15.ts"));
+
+		const report = await indexer.run();
+
+		expect(report.removed).toBe(0);
+		expect(repository.getFile("src/file15.ts")).not.toBeNull();
+		expect(report.skipped.map((entry) => entry.path)).toEqual([
+			"src/file15.ts",
+		]);
+	});
+
+	test("an oversized file resolves as an import target without being parsed", async () => {
+		writeFileSync(join(dir, "src/schema.ts"), oversizedSource());
+		writeFileSync(
+			join(dir, "src/uses-schema.ts"),
+			'import { Schema } from "./schema";\nexport const use = () => Schema;\n',
+		);
+
+		const report = await indexer.run();
+
+		expect(repository.importsFrom("src/uses-schema.ts")).toEqual([
+			{
+				specifier: "./schema",
+				toPath: "src/schema.ts",
+				provenance: "heuristic",
+			},
+		]);
+		expect(repository.getFile("src/schema.ts")).toBeNull();
+		expect(report.skipped.map((entry) => entry.path)).toEqual([
+			"src/schema.ts",
+		]);
+	});
+
+	test("a binary blob with a source extension is recorded but never parsed", async () => {
+		writeFileSync(join(dir, "src/blob.ts"), Buffer.from([0x01, 0x00, 0x02]));
+
+		const report = await indexer.run();
+
+		expect(report.skipped).toEqual([
+			{ path: "src/blob.ts", reason: "binary content, not source text" },
+		]);
+		expect(repository.symbolsIn("src/blob.ts")).toEqual([]);
+		expect(repository.getFile("src/blob.ts")).not.toBeNull();
+	});
+
+	// Skipped files are invisible to the index, so counting them as drift would
+	// make doctor demand a reindex that can never settle.
+	test("computeDrift ignores what the pass skipped", async () => {
+		writeFileSync(join(dir, "src/schema.ts"), oversizedSource());
+		await indexer.run();
+		rmSync(join(dir, "src/file35.ts"));
+		symlinkSync("file35.ts", join(dir, "src/file35.ts"));
+
+		const drift = computeDrift(listSources(dir), repository.listFiles());
+
+		expect(drift).toEqual({ added: 0, changed: 0, removed: 0 });
+	});
+
 	test("computeDrift reports added, changed and removed without mutating", async () => {
 		await indexer.run();
 		writeFileSync(join(dir, "src/fresh.ts"), "export const fresh = () => 1;\n");
@@ -193,9 +297,164 @@ describe("CodeIndexer", () => {
 		bumpMtime("src/file05.ts");
 		rmSync(join(dir, "src/file40.ts"));
 
-		const drift = computeDrift(listSourceFiles(dir), repository.listFiles());
+		const drift = computeDrift(listSources(dir), repository.listFiles());
 
 		expect(drift).toEqual({ added: 1, changed: 1, removed: 1 });
 		expect(repository.listFiles()).toHaveLength(FILE_COUNT);
+	});
+});
+
+// H8: an incremental pass rewrote rows only for files whose own bytes changed,
+// but an import's target is a function of the whole file set. An edge resolved
+// — or left NULL — at index time stayed frozen until its importer happened to
+// change, so the common workflow (add a module, then move it) silently made
+// get_impact answer "no code impact" with confidence, and doctor called the
+// tree in sync because the importer really was unchanged.
+describe("CodeIndexer edge repair", () => {
+	function targetOf(
+		from: string,
+		specifier: string,
+	): string | null | undefined {
+		return repository
+			.importsFrom(from)
+			.find((entry) => entry.specifier === specifier)?.toPath;
+	}
+
+	test("an edge left NULL is repaired once its target lands", async () => {
+		writeFileSync(
+			join(dir, "src/c.ts"),
+			'import { d } from "./d";\nexport const c = () => d;\n',
+		);
+		await indexer.run();
+		expect(targetOf("src/c.ts", "./d")).toBeNull();
+
+		writeFileSync(join(dir, "src/d.ts"), "export const d = 1;\n");
+		const report = await indexer.run();
+
+		expect(targetOf("src/c.ts", "./d")).toBe("src/d.ts");
+		expect(report.repaired).toBe(1);
+	});
+
+	test("renaming a module re-points every edge into it", async () => {
+		writeFileSync(join(dir, "src/util.ts"), "export const u = 1;\n");
+		writeFileSync(
+			join(dir, "src/main.ts"),
+			'import { u } from "./util";\nexport const m = () => u;\n',
+		);
+		await indexer.run();
+		expect(targetOf("src/main.ts", "./util")).toBe("src/util.ts");
+
+		rmSync(join(dir, "src/util.ts"));
+		writeFileSync(join(dir, "src/util.tsx"), "export const u = 1;\n");
+		await indexer.run();
+
+		expect(targetOf("src/main.ts", "./util")).toBe("src/util.tsx");
+	});
+
+	test("deleting a module leaves no edge pointing at it", async () => {
+		writeFileSync(join(dir, "src/util.ts"), "export const u = 1;\n");
+		writeFileSync(
+			join(dir, "src/main.ts"),
+			'import { u } from "./util";\nexport const m = () => u;\n',
+		);
+		await indexer.run();
+
+		rmSync(join(dir, "src/util.ts"));
+		await indexer.run();
+
+		expect(targetOf("src/main.ts", "./util")).toBeNull();
+		expect(danglingTargets(listSources(dir), repository.listImports())).toEqual(
+			[],
+		);
+	});
+
+	// The repair reads every edge, so it is paid only when the file set moved —
+	// a re-check on an untouched tree stays a stat per file.
+	test("an untouched tree repairs nothing", async () => {
+		await indexer.run();
+
+		const report = await indexer.run();
+
+		expect(report.repaired).toBe(0);
+	});
+
+	test("danglingTargets names a target the working tree no longer has", async () => {
+		writeFileSync(join(dir, "src/util.ts"), "export const u = 1;\n");
+		writeFileSync(
+			join(dir, "src/main.ts"),
+			'import { u } from "./util";\nexport const m = () => u;\n',
+		);
+		await indexer.run();
+		rmSync(join(dir, "src/util.ts"));
+
+		expect(danglingTargets(listSources(dir), repository.listImports())).toEqual(
+			["src/util.ts"],
+		);
+	});
+
+	// An oversized file is deliberately a real import target with no `files`
+	// row, so checking edges against the indexed set would report it forever.
+	test("an oversized import target is not dangling", async () => {
+		writeFileSync(join(dir, "src/schema.ts"), oversizedSource());
+		writeFileSync(
+			join(dir, "src/uses-schema.ts"),
+			'import { Schema } from "./schema";\nexport const use = () => Schema;\n',
+		);
+		await indexer.run();
+
+		expect(danglingTargets(listSources(dir), repository.listImports())).toEqual(
+			[],
+		);
+	});
+});
+
+// M11: mtime and size are both forgeable by an ordinary restore — `cp -p`,
+// `tar -x`, `rsync -t`, a CI cache restore — after which the index served
+// symbols that no longer existed and doctor reported "in sync". An inode change
+// time is the one half of the triple no userspace call can set.
+describe("CodeIndexer staleness", () => {
+	function rewritePreservingMtime(path: string, content: string): void {
+		const absolute = join(dir, path);
+		const before = statSync(absolute);
+		writeFileSync(absolute, content);
+		utimesSync(absolute, before.atime, before.mtime);
+	}
+
+	const RESTORED =
+		'import { value19 } from "./file19";\nexport const value20 = () => value19() + 2;\n';
+
+	test("content restored under the recorded mtime and size is reindexed", async () => {
+		await indexer.run();
+		const before = repository.getFile("src/file20.ts");
+		expect(RESTORED.length).toBe(fileContent(20).length);
+
+		rewritePreservingMtime("src/file20.ts", RESTORED);
+		const report = await indexer.run();
+
+		const after = repository.getFile("src/file20.ts");
+		expect(after?.mtime).toBe(before?.mtime ?? -1);
+		expect(after?.size).toBe(before?.size ?? -1);
+		expect(after?.hash).not.toBe(before?.hash ?? "");
+		expect(report.indexed).toBe(1);
+	});
+
+	test("doctor sees the same change as drift", async () => {
+		await indexer.run();
+		rewritePreservingMtime("src/file20.ts", RESTORED);
+
+		expect(computeDrift(listSources(dir), repository.listFiles())).toEqual({
+			added: 0,
+			changed: 1,
+			removed: 0,
+		});
+	});
+
+	test("a file the grammar could not read is recorded as such", async () => {
+		writeFileSync(join(dir, "src/broken.ts"), "export function broken( {\n");
+
+		await indexer.run();
+
+		expect(repository.getFile("src/broken.ts")?.hasError).toBe(true);
+		expect(repository.getFile("src/file01.ts")?.hasError).toBe(false);
 	});
 });

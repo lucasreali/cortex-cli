@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { ImportResolver } from "@/indexer/import-resolver";
 
 const FIXTURE_ROOT = join(import.meta.dir, "..", "fixtures", "resolver");
@@ -18,7 +18,7 @@ const FIXTURE_FILES = [
 let resolver: ImportResolver;
 
 beforeAll(async () => {
-	resolver = await ImportResolver.create(FIXTURE_ROOT, FIXTURE_FILES);
+	resolver = ImportResolver.create(FIXTURE_ROOT, FIXTURE_FILES);
 });
 
 describe("relative specifiers", () => {
@@ -119,7 +119,7 @@ describe("robustness", () => {
 
 	test("a repo without tsconfig still resolves relative imports", async () => {
 		const root = mkdtempSync(join(tmpdir(), "cortex-resolver-"));
-		const bare = await ImportResolver.create(root, ["src/a.ts", "src/b.ts"]);
+		const bare = ImportResolver.create(root, ["src/a.ts", "src/b.ts"]);
 		expect(bare.resolve("src/a.ts", "./b").toPath).toBe("src/b.ts");
 		expect(bare.resolve("src/a.ts", "src/b").toPath).toBeNull();
 	});
@@ -127,7 +127,7 @@ describe("robustness", () => {
 	test("a malformed tsconfig degrades to no aliases", async () => {
 		const root = mkdtempSync(join(tmpdir(), "cortex-resolver-"));
 		writeFileSync(join(root, "tsconfig.json"), "{ not even close");
-		const broken = await ImportResolver.create(root, ["src/a.ts"]);
+		const broken = ImportResolver.create(root, ["src/a.ts"]);
 		expect(broken.resolve("src/x.ts", "anything").toPath).toBeNull();
 	});
 
@@ -137,7 +137,7 @@ describe("robustness", () => {
 			join(root, "tsconfig.json"),
 			`{"compilerOptions":{"paths":{"#lib/*":["./lib/*"]}}}`,
 		);
-		const scoped = await ImportResolver.create(root, ["lib/x.ts"]);
+		const scoped = ImportResolver.create(root, ["lib/x.ts"]);
 		expect(scoped.resolve("src/a.ts", "#lib/x").toPath).toBe("lib/x.ts");
 		expect(scoped.resolve("src/a.ts", "lib/x").toPath).toBeNull();
 	});
@@ -148,8 +148,183 @@ describe("robustness", () => {
 			join(root, "tsconfig.json"),
 			`{"compilerOptions":{"baseUrl":42,"paths":{"bad":"not-array","ok/*":[1,"./src/*"]}}}`,
 		);
-		const tolerant = await ImportResolver.create(root, ["src/y.ts"]);
+		const tolerant = ImportResolver.create(root, ["src/y.ts"]);
 		expect(tolerant.resolve("src/a.ts", "ok/y").toPath).toBe("src/y.ts");
 		expect(tolerant.resolve("src/a.ts", "bad").toPath).toBeNull();
+	});
+});
+
+// H7: reading one file and one key made every aliased import in a monorepo
+// resolve to NULL — Nx, Turborepo, Angular and most `@/*` setups keep baseUrl
+// and paths in a shared base config, so `get_impact` returned no code impact at
+// all and doctor could only say "below 85%".
+describe("tsconfig extends", () => {
+	function project(files: Record<string, string>): string {
+		const root = mkdtempSync(join(tmpdir(), "cortex-extends-"));
+		for (const [path, content] of Object.entries(files)) {
+			mkdirSync(dirname(join(root, path)), { recursive: true });
+			writeFileSync(join(root, path), content);
+		}
+		return root;
+	}
+
+	test("aliases declared in an extended base config still resolve", async () => {
+		const root = project({
+			"tsconfig.json": `{"extends": "./tsconfig.base.json"}`,
+			"tsconfig.base.json": `{"compilerOptions":{"baseUrl":".","paths":{"@/*":["src/*"]}}}`,
+		});
+		const resolver = ImportResolver.create(root, ["src/util.ts"]);
+
+		expect(resolver.resolve("src/main.ts", "@/util").toPath).toBe(
+			"src/util.ts",
+		);
+	});
+
+	// A relative target means something different in every file that spells it,
+	// so it is resolved against the directory of the config that declared it.
+	test("a parent's paths are read against the parent's own directory", async () => {
+		const root = project({
+			"tsconfig.json": `{"extends": "./config/base.json"}`,
+			"config/base.json": `{"compilerOptions":{"paths":{"~/*":["../src/*"]}}}`,
+		});
+		const resolver = ImportResolver.create(root, ["src/util.ts"]);
+
+		expect(resolver.resolve("src/main.ts", "~/util").toPath).toBe(
+			"src/util.ts",
+		);
+	});
+
+	test("the chain is followed through more than one level", async () => {
+		const root = project({
+			"tsconfig.json": `{"extends": "./middle.json"}`,
+			"middle.json": `{"extends": "./root-base.json"}`,
+			"root-base.json": `{"compilerOptions":{"paths":{"@/*":["./src/*"]}}}`,
+		});
+		const resolver = ImportResolver.create(root, ["src/util.ts"]);
+
+		expect(resolver.resolve("src/main.ts", "@/util").toPath).toBe(
+			"src/util.ts",
+		);
+	});
+
+	test("the nearest declaration of a key wins over its parent's", async () => {
+		const root = project({
+			"tsconfig.json": `{"extends":"./base.json","compilerOptions":{"paths":{"@/*":["./near/*"]}}}`,
+			"base.json": `{"compilerOptions":{"paths":{"@/*":["./far/*"]}}}`,
+		});
+		const resolver = ImportResolver.create(root, [
+			"near/util.ts",
+			"far/util.ts",
+		]);
+
+		expect(resolver.resolve("src/main.ts", "@/util").toPath).toBe(
+			"near/util.ts",
+		);
+	});
+
+	test("the last entry of an extends array overrides the earlier ones", async () => {
+		const root = project({
+			"tsconfig.json": `{"extends":["./first.json","./second.json"]}`,
+			"first.json": `{"compilerOptions":{"paths":{"@/*":["./first/*"]}}}`,
+			"second.json": `{"compilerOptions":{"paths":{"@/*":["./second/*"]}}}`,
+		});
+		const resolver = ImportResolver.create(root, [
+			"first/util.ts",
+			"second/util.ts",
+		]);
+
+		expect(resolver.resolve("src/main.ts", "@/util").toPath).toBe(
+			"second/util.ts",
+		);
+	});
+
+	// The consumer's baseUrl is what a shared package's paths are read against,
+	// which is the only reading that lets one published config serve every
+	// package that extends it.
+	test("a bare extends is resolved through node_modules", async () => {
+		const root = project({
+			"tsconfig.json": `{"extends":"@acme/tsconfig","compilerOptions":{"baseUrl":"."}}`,
+			"node_modules/@acme/tsconfig/tsconfig.json": `{"compilerOptions":{"paths":{"@/*":["src/*"]}}}`,
+		});
+		const resolver = ImportResolver.create(root, ["src/util.ts"]);
+
+		expect(resolver.resolve("src/main.ts", "@/util").toPath).toBe(
+			"src/util.ts",
+		);
+	});
+
+	test("a bare extends naming a file of its own is honoured", async () => {
+		const root = project({
+			"tsconfig.json": `{"extends":"@acme/configs/strict.json","compilerOptions":{"baseUrl":"."}}`,
+			"node_modules/@acme/configs/strict.json": `{"compilerOptions":{"paths":{"@/*":["src/*"]}}}`,
+		});
+		const resolver = ImportResolver.create(root, ["src/util.ts"]);
+
+		expect(resolver.resolve("src/main.ts", "@/util").toPath).toBe(
+			"src/util.ts",
+		);
+	});
+
+	test("an extends that resolves to nothing degrades to no aliases", async () => {
+		const root = project({
+			"tsconfig.json": `{"extends": ["@absent/tsconfig", "./gone.json", 7]}`,
+		});
+		const resolver = ImportResolver.create(root, ["src/util.ts"]);
+
+		expect(resolver.resolve("src/main.ts", "@/util").toPath).toBeNull();
+	});
+
+	test("a cycle in the chain terminates", async () => {
+		const root = project({
+			"tsconfig.json": `{"extends":"./a.json"}`,
+			"a.json": `{"extends":"./b.json"}`,
+			"b.json": `{"extends":"./a.json","compilerOptions":{"paths":{"@/*":["./src/*"]}}}`,
+		});
+		const resolver = ImportResolver.create(root, ["src/util.ts"]);
+
+		expect(resolver.resolve("src/main.ts", "@/util").toPath).toBe(
+			"src/util.ts",
+		);
+	});
+
+	test("a tsconfig whose root is not an object degrades to no aliases", async () => {
+		const root = project({ "tsconfig.json": "[]" });
+		const resolver = ImportResolver.create(root, ["src/util.ts"]);
+
+		expect(resolver.resolve("src/main.ts", "@/util").toPath).toBeNull();
+	});
+
+	// L23: read through the ESM module cache, an edited tsconfig kept its old
+	// aliases for the life of the process — which for the MCP server means until
+	// someone restarts it.
+	test("an edited tsconfig is seen without restarting the process", async () => {
+		const root = project({
+			"tsconfig.json": `{"compilerOptions":{"paths":{"@/*":["./before/*"]}}}`,
+		});
+		const before = ImportResolver.create(root, ["after/util.ts"]);
+		expect(before.resolve("src/main.ts", "@/util").toPath).toBeNull();
+
+		writeFileSync(
+			join(root, "tsconfig.json"),
+			`{"compilerOptions":{"paths":{"@/*":["./after/*"]}}}`,
+		);
+		const after = ImportResolver.create(root, ["after/util.ts"]);
+
+		expect(after.resolve("src/main.ts", "@/util").toPath).toBe("after/util.ts");
+	});
+
+	test("comments and trailing commas are tolerated in the chain", async () => {
+		const root = project({
+			"tsconfig.json": `{
+				// the base holds the paths
+				"extends": "./base.json",
+			}`,
+			"base.json": `{"compilerOptions":{"paths":{"@/*":["./src/*",],},},}`,
+		});
+		const resolver = ImportResolver.create(root, ["src/util.ts"]);
+
+		expect(resolver.resolve("src/main.ts", "@/util").toPath).toBe(
+			"src/util.ts",
+		);
 	});
 });

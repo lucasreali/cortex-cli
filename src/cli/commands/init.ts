@@ -10,8 +10,8 @@ import { getCanonicalProjectId, getRepoRoot } from "@/git";
 import {
 	CORTEX_BLOCK_BEGIN,
 	CORTEX_BLOCK_END,
-	CORTEX_INSTRUCTIONS_BLOCK,
-	upsertMarkedBlock,
+	CORTEX_INSTRUCTIONS_BODY,
+	INSTRUCTIONS_BLOCK,
 } from "@/install/instructions";
 import { instructionFilesFor } from "@/install/targets";
 import { readConfig, writeConfig } from "@/storage/config";
@@ -155,7 +155,7 @@ async function upsertInstructionFile(
 	const path = join(root, name);
 	const file = Bun.file(path);
 	const existing = (await file.exists()) ? await file.text() : null;
-	const result = upsertMarkedBlock(existing, CORTEX_INSTRUCTIONS_BLOCK);
+	const result = INSTRUCTIONS_BLOCK.upsert(existing, CORTEX_INSTRUCTIONS_BODY);
 	if (result.action === "skipped-malformed") {
 		console.log(
 			warning(

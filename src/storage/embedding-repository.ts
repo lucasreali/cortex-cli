@@ -72,6 +72,30 @@ export class EmbeddingRepository {
 			});
 	}
 
+	countsByModel(): Array<{ modelId: string; count: number }> {
+		return this.db
+			.query<{ model_id: string; count: number }, []>(
+				`SELECT e.model_id, count(*) AS count FROM embeddings e
+				 JOIN nodes n ON n.id = e.node_id
+				 WHERE n.kind = 'decision' AND n.status = 'active' AND n.present = 1
+				 GROUP BY e.model_id
+				 ORDER BY e.model_id`,
+			)
+			.all()
+			.map((row) => ({ modelId: row.model_id, count: row.count }));
+	}
+
+	// SQLite bumps PRAGMA data_version only when *another* connection commits
+	// to this file, which is exactly the case an in-process invalidation hook
+	// cannot see: the git hook spawns `cortex embed --missing` detached, and
+	// the MCP server that asked for those decisions is a different process.
+	externalWriteCounter(): number {
+		return (
+			this.db.query<{ data_version: number }, []>("PRAGMA data_version").get()
+				?.data_version ?? 0
+		);
+	}
+
 	listMissingNodeIds(modelId: string): string[] {
 		return this.db
 			.query<{ id: string }, [string]>(

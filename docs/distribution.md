@@ -71,7 +71,7 @@ const result = await Bun.build({
 });
 ```
 
-Verify the API shape once against your Bun (1.3.14):
+Verify the API shape once against your Bun (1.4.0):
 
 ```sh
 CORTEX_TARGET=bun-darwin-arm64 CORTEX_OUTFILE=/tmp/cortex-darwin bun scripts/build.ts
@@ -242,7 +242,7 @@ Two jobs. The first is a gate; the second only runs if it passes.
 
 **Job `verify`** (ubuntu-latest):
 
-1. `oven-sh/setup-bun@v2`, pinned to the same Bun as local dev (1.3.14).
+1. `oven-sh/setup-bun@v2`, pinned to the same Bun as local dev (1.4.0).
 2. `bun install --frozen-lockfile`
 3. Assert tag and `package.json` agree — this is the check that keeps
    `CORTEX_VERSION` honest:

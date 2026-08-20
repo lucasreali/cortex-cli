@@ -95,6 +95,26 @@ describe("DecisionSync.save", () => {
 		);
 	});
 
+	// A decision file is immutable, so a duplicate anchor must never reach the
+	// disk: nothing would ever rewrite the file, and every command that reads
+	// the store afterwards would die on the anchors primary key.
+	test("an anchor named twice is written once and stored once", () => {
+		const anchor = { file_path: "src/auth/service.ts", symbol: "Auth.login" };
+
+		const saved = sync.save(
+			decisionInput({ anchors: [anchor, anchor] }),
+			context,
+		);
+
+		const parsed = store.read(saved.id);
+		expect(parsed.ok && parsed.file.anchors).toEqual([
+			{ filePath: "src/auth/service.ts", symbol: "Auth.login" },
+		]);
+		expect(nodes.getById(saved.id)?.anchors).toEqual([
+			{ filePath: "src/auth/service.ts", symbol: "Auth.login" },
+		]);
+	});
+
 	test("records where the decision was authored", () => {
 		const saved = sync.save(decisionInput(), context);
 

@@ -5,6 +5,7 @@ import type {
 	DecisionFile,
 } from "@/domain";
 import type { SaveContext } from "@/storage/node-repository";
+import { uniqueAnchors } from "./anchors";
 import {
 	type ReconcileDependencies,
 	type ReconcileReport,
@@ -54,7 +55,7 @@ function toDecisionFile(
 		archives: input.archives ?? null,
 		dependsOn: input.depends_on ?? [],
 		conflictsWith: input.conflicts_with ?? [],
-		anchors: (input.anchors ?? []).map(toAnchor),
+		anchors: uniqueAnchors((input.anchors ?? []).map(toAnchor)),
 		commitSha: context.commitSha,
 		commitDirty: context.commitDirty,
 		provenance: context.provenance ?? "agent",

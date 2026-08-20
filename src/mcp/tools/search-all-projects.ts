@@ -3,11 +3,17 @@ import { z } from "zod";
 import {
 	type AllProjectsSearch,
 	type ProjectSearchResults,
+	type SweepTarget,
 	searchAllProjects,
 } from "@/app/search-all-projects";
 import type { SemanticSearchResult } from "@/embedding/semantic-search";
+import { getCanonicalProjectId } from "@/git";
 import type { RuntimeRegistry } from "@/mcp/runtime-registry";
-import { readRegisteredProjects } from "@/storage/project-registry";
+import {
+	type ProjectRegistryRead,
+	projectsRegistryPath,
+	readProjectRegistry,
+} from "@/storage/project-registry";
 import { READ_ONLY_ANNOTATIONS } from "./annotations";
 import { errorResult, guidanceResult, jsonResult } from "./results";
 
@@ -15,12 +21,21 @@ const DESCRIPTION = `Search decisions across every Cortex project on this machin
 
 Call this for questions that reach beyond the current project — "how did I solve rate limiting in my other projects?", "have I picked an auth library before?". It fans out over all registered projects (a project registers when it is initialized or first used) and returns results grouped per project, each labeled with its project identity. Scores are not comparable across projects, so groups are never merged into one ranking.
 
-Questions about the current project belong to search or get_context — this tool is deliberately separate so scoped reads stay scoped. Terms behave exactly like search: pass PT/EN variants, exact=true for literal matching only. Projects that fail to open are listed under "skipped" with a reason.`;
+Questions about the current project belong to search or get_context — this tool is deliberately separate so scoped reads stay scoped. Terms behave exactly like search: pass PT/EN variants, exact=true for literal matching only. Projects that fail to open are listed under "skipped" with a reason; so are projects the sweep did not reach, once it hits its project cap or its deadline.`;
 
 const NO_PROJECTS_GUIDANCE =
 	"No Cortex projects registered on this machine yet. A project registers " +
 	"when `cortex init` runs there or when a session first touches it; after " +
 	"that, this tool can search it.";
+
+function registryUnreadableGuidance(): string {
+	return (
+		`The project registry at ${projectsRegistryPath()} is not valid JSON, so ` +
+		"no project could be listed. It is kept as a `.corrupt.<timestamp>` " +
+		"sibling the next time a project registers; run `cortex doctor` for the " +
+		"details."
+	);
+}
 
 export function registerSearchAllProjects(
 	server: McpServer,
@@ -60,30 +75,63 @@ async function searchEverywhere(
 	registry: RuntimeRegistry,
 	args: { terms: string[]; exact?: boolean },
 ) {
-	const roots = knownRoots(registry);
-	if (roots.length === 0) {
+	const registered = readProjectRegistry();
+	const targets = knownTargets(registered, registry);
+	if (targets.length === 0) {
+		if (registered.state === "unreadable") {
+			return guidanceResult(
+				"registry_unreadable",
+				registryUnreadableGuidance(),
+			);
+		}
 		return guidanceResult("no_projects", NO_PROJECTS_GUIDANCE);
 	}
-	const outcome = await searchAllProjects(
-		roots,
-		(root) => registry.openRoot(root),
-		args.terms,
-		args.exact === true,
-	);
-	return jsonResult(toPayload(outcome));
+	const exact = args.exact === true;
+	const outcome = await searchAllProjects({
+		targets,
+		open: (root) => registry.openReader(root),
+		terms: args.terms,
+		exact,
+		vector: exact ? null : await registry.embedSweepQuery(args.terms.join(" ")),
+	});
+	return jsonResult(toPayload(outcome, registered));
 }
 
-function knownRoots(registry: RuntimeRegistry): string[] {
-	const roots = readRegisteredProjects().map((project) => project.root);
+// The canonical id comes from the registry rather than from `git` in each
+// project: labelling 200 projects must not cost 600 blocking subprocesses.
+function knownTargets(
+	registered: ProjectRegistryRead,
+	registry: RuntimeRegistry,
+): SweepTarget[] {
+	const targets: SweepTarget[] =
+		registered.state === "ok"
+			? registered.projects.map((entry) => ({
+					root: entry.root,
+					canonicalId: entry.canonicalId,
+				}))
+			: [];
 	const current = registry.defaultRoot;
-	if (current && !roots.includes(current)) roots.push(current);
-	return roots;
+	if (current && !targets.some((target) => target.root === current)) {
+		targets.push({
+			root: current,
+			canonicalId: getCanonicalProjectId(current) ?? current,
+		});
+	}
+	return targets;
 }
 
-function toPayload(outcome: AllProjectsSearch) {
+// An unreadable registry narrows the sweep to whatever root the session already
+// had, so the answer has to say it is partial instead of reading as complete.
+function toPayload(
+	outcome: AllProjectsSearch,
+	registered: ProjectRegistryRead,
+) {
 	return {
 		projects: outcome.projects.map(projectEntry),
 		...(outcome.skipped.length > 0 ? { skipped: outcome.skipped } : {}),
+		...(registered.state === "unreadable"
+			? { registry_unreadable: projectsRegistryPath() }
+			: {}),
 	};
 }
 

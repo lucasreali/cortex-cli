@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+
 export interface HeadState {
 	sha: string;
 	dirty: boolean;
@@ -29,6 +31,17 @@ export function listRepoFiles(cwd: string): string[] | null {
 	]);
 	if (output === null) return null;
 	return output.split("\n").filter((line) => line.length > 0);
+}
+
+// git is the only thing that knows where hooks live: core.hooksPath, husky and
+// linked worktrees all move the directory. Its answer is relative to cwd
+// (`../.git/hooks` from a subdirectory), so it is resolved against cwd rather
+// than asked for with --path-format=absolute, which older git echoes back as a
+// literal argument instead of honoring.
+export function getHooksPath(cwd: string): string | null {
+	const path = runGit(cwd, ["rev-parse", "--git-path", "hooks"]);
+	if (!path) return null;
+	return resolve(cwd, path);
 }
 
 export function getHead(cwd: string): HeadState | null {
