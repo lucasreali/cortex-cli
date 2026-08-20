@@ -259,6 +259,14 @@ describe("CodeRepository symbol lookups", () => {
 		expect(repository.findSymbol("Ghost.method")).toEqual([]);
 	});
 
+	// findSymbol is the single-name shorthand for the same read: one table, one
+	// recipe, so a caller with many names to look up cannot disagree with one.
+	test("the symbol table answers the same lookup findSymbol does", () => {
+		expect(
+			repository.symbolTable().locationsOf("AuthService.validateToken"),
+		).toEqual(repository.findSymbol("AuthService.validateToken"));
+	});
+
 	test("suggestSymbols prefers same-file matches via the owner prefix", () => {
 		expect(
 			repository.suggestSymbols("src/auth/service.ts", "AuthService.login", 3),
@@ -269,6 +277,60 @@ describe("CodeRepository symbol lookups", () => {
 		expect(repository.suggestSymbols("src/ghost.ts", "login", 3)).toEqual([
 			"login",
 		]);
+	});
+
+	test("lookups compare normalized keys, not raw spellings", () => {
+		expect(
+			repository.hasSymbol("src/auth/service.ts", "authservice.validateToken"),
+		).toBe(true);
+		expect(
+			repository.hasSymbol(
+				"src/auth/service.ts",
+				" AuthService . validateToken",
+			),
+		).toBe(true);
+		expect(repository.findSymbol("AUTHSERVICE.VALIDATETOKEN")).toEqual([
+			{ filePath: "src/auth/service.ts", kind: "method", line: 10 },
+		]);
+	});
+});
+
+// The store is what the extractor and an LLM's anchors have to agree on, so the
+// normalizer runs on the way in as well as on every comparison.
+describe("CodeRepository symbol normalization", () => {
+	beforeEach(() => {
+		repository.wipeAndRebuild([
+			entryFixture({
+				symbols: [
+					{ name: "ﬁlterTokens", kind: "function", line: 2 },
+					{ name: "İstanbulService.İşlem", kind: "method", line: 7 },
+				],
+			}),
+		]);
+	});
+
+	test("stores the canonical spelling with its case intact", () => {
+		expect(
+			repository.symbolsIn("src/auth/service.ts").map((symbol) => symbol.name),
+		).toEqual(["filterTokens", "IstanbulService.Islem"]);
+	});
+
+	test("matches an anchor written with the source's own spelling", () => {
+		expect(repository.hasSymbol("src/auth/service.ts", "ﬁlterTokens")).toBe(
+			true,
+		);
+		expect(
+			repository.hasSymbol("src/auth/service.ts", "İstanbulService.İşlem"),
+		).toBe(true);
+		expect(
+			repository.hasSymbol("src/auth/service.ts", "istanbulservice.islem"),
+		).toBe(true);
+	});
+
+	test("suggests the stored spelling back, not the key", () => {
+		expect(
+			repository.suggestSymbols("src/auth/service.ts", "filtertokens", 3),
+		).toEqual(["filterTokens"]);
 	});
 });
 

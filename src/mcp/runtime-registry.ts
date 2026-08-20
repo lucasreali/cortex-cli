@@ -1,17 +1,16 @@
 import { resolve } from "node:path";
 import { ProjectReader } from "@/app/project-reader";
 import { buildRuntimeAt, type CortexRuntime } from "@/app/runtime";
+import { embedSweepQuery, sweepModelId } from "@/app/sweep-query";
 import {
+	createProvider,
 	embeddingsDisabled,
-	embedSweepQuery,
-	sweepModelId,
-} from "@/app/sweep-query";
-import { createProvider } from "@/embedding/create-provider";
+} from "@/embedding/create-provider";
 import type { EmbeddingProvider } from "@/embedding/provider";
 import type { QueryVector } from "@/embedding/semantic-search";
-import { withTimeout } from "@/embedding/with-timeout";
 import { findNearestCortexRoot } from "@/storage/locate-store";
 import { registerProject } from "@/storage/project-registry";
+import { withTimeout } from "@/support/with-timeout";
 
 type DefaultProject = { root: string } | { guidance: string };
 

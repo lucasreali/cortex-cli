@@ -40,7 +40,8 @@ async function saveDecision(
 	runtime: CortexRuntime,
 	input: CreateDecisionInput,
 ) {
-	const missing = missingLinkedDecisions(runtime, input);
+	const linked = linkedDecisions(input);
+	const missing = linked.filter((id) => runtime.nodes.getById(id) === null);
 	if (missing.length > 0) {
 		return guidanceResult(
 			"not_found",
@@ -54,6 +55,9 @@ async function saveDecision(
 		...(await symbolWarnings(runtime, input)),
 	];
 	const candidates = conflictCandidates(runtime, input);
+	// Citing a decision in a link is the least ambiguous evidence there is that
+	// the session acted on it.
+	runtime.usefulness.used(linked);
 	const saved = runtime.decisions.save(input, runtime.saveContext());
 	runtime.queue?.enqueue(saved.id);
 	runtime.semanticSearch.invalidate();
@@ -64,17 +68,13 @@ async function saveDecision(
 	});
 }
 
-function missingLinkedDecisions(
-	runtime: CortexRuntime,
-	input: CreateDecisionInput,
-): string[] {
-	const linked = [
+function linkedDecisions(input: CreateDecisionInput): string[] {
+	return [
 		...(input.depends_on ?? []),
 		...(input.conflicts_with ?? []),
 		...(input.replaces ? [input.replaces] : []),
 		...(input.archives ? [input.archives] : []),
 	];
-	return linked.filter((id) => runtime.nodes.getById(id) === null);
 }
 
 function anchorWarnings(

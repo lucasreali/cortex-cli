@@ -5,11 +5,8 @@ import { join } from "node:path";
 import { seedDecision } from "@tests/support/seed";
 import { ProjectReader } from "@/app/project-reader";
 import { type SweepTarget, searchAllProjects } from "@/app/search-all-projects";
-import {
-	embeddingsDisabled,
-	embedSweepQuery,
-	sweepModelId,
-} from "@/app/sweep-query";
+import { embedSweepQuery, sweepModelId } from "@/app/sweep-query";
+import { embeddingsDisabled } from "@/embedding/create-provider";
 import type { EmbeddingProvider } from "@/embedding/provider";
 import { openDecisionsDb } from "@/storage/connection";
 import { EmbeddingRepository } from "@/storage/embedding-repository";

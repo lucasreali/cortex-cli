@@ -1,11 +1,18 @@
 import { join } from "node:path";
 import type { CodeImport, FileIndexEntry, IndexedFile } from "@/domain";
 import type { CodeRepository } from "@/storage/code-repository";
+import { errorMessage } from "@/support/errors";
 import { sha256Hex } from "@/support/hash";
 import { EXTRACTION_VERSION } from "./extraction-version";
 import { ensureGrammar } from "./grammar";
 import { ImportResolver } from "./import-resolver";
-import { listSourceFiles, type SourceFile } from "./source-walker";
+import {
+	listSources,
+	type SkippedSource,
+	type SourceFile,
+	type SourceListing,
+} from "./source-walker";
+import type { ExtractedSource } from "./tsx-extractor";
 import { TsxExtractor } from "./tsx-extractor";
 
 export interface IndexReport {
@@ -13,6 +20,7 @@ export interface IndexReport {
 	indexed: number;
 	unchanged: number;
 	removed: number;
+	skipped: SkippedSource[];
 }
 
 export interface IndexOptions {
@@ -25,27 +33,50 @@ export interface IndexDrift {
 	removed: number;
 }
 
+interface IndexPass {
+	resolver: ImportResolver;
+	report: IndexReport;
+}
+
+const NOTHING_EXTRACTED: ExtractedSource = { symbols: [], imports: [] };
+
+const NUL_BYTE = "\u0000";
+
+const BINARY_REASON = "binary content, not source text";
+
 // doctor reports drift from computeDrift while index acts on reconcileSource;
 // they have to agree on what "stale" means or doctor calls a stale index clean.
 function isUnchanged(previous: IndexedFile, source: SourceFile): boolean {
 	return previous.size === source.size && previous.mtime === source.mtime;
 }
 
+function skippedPaths(listing: SourceListing): Set<string> {
+	return new Set(listing.skipped.map((entry) => entry.path));
+}
+
+function parsableSources(listing: SourceListing): SourceFile[] {
+	const skipped = skippedPaths(listing);
+	return listing.files.filter((source) => !skipped.has(source.path));
+}
+
 export function computeDrift(
-	sources: SourceFile[],
+	listing: SourceListing,
 	indexed: IndexedFile[],
 ): IndexDrift {
+	const skipped = skippedPaths(listing);
 	const known = new Map(indexed.map((file) => [file.path, file]));
 	const drift: IndexDrift = { added: 0, changed: 0, removed: 0 };
-	for (const source of sources) {
+	for (const source of listing.files) {
 		const previous = known.get(source.path);
 		known.delete(source.path);
+		if (skipped.has(source.path)) continue;
 		if (!previous) {
 			drift.added++;
 			continue;
 		}
 		if (!isUnchanged(previous, source)) drift.changed++;
 	}
+	for (const path of skipped) known.delete(path);
 	drift.removed = known.size;
 	return drift;
 }
@@ -66,15 +97,15 @@ export class CodeIndexer {
 	) {}
 
 	async run(options: IndexOptions = {}): Promise<IndexReport> {
-		const sources = listSourceFiles(this.repoRoot);
+		const listing = listSources(this.repoRoot);
 		const resolver = await ImportResolver.create(
 			this.repoRoot,
-			sources.map((source) => source.path),
+			listing.files.map((source) => source.path),
 		);
 		if (options.force || this.needsFullIndex()) {
-			return this.fullIndex(sources, resolver);
+			return this.fullIndex(listing, resolver);
 		}
-		return this.incrementalIndex(sources, resolver);
+		return this.incrementalIndex(listing, resolver);
 	}
 
 	private needsFullIndex(): boolean {
@@ -83,95 +114,122 @@ export class CodeIndexer {
 	}
 
 	private async fullIndex(
-		sources: SourceFile[],
+		listing: SourceListing,
 		resolver: ImportResolver,
 	): Promise<IndexReport> {
+		const pass = startPass("full", listing, resolver);
 		const entries: FileIndexEntry[] = [];
-		for (const source of sources) {
-			entries.push(await this.toEntry(source, resolver));
+		for (const source of parsableSources(listing)) {
+			const entry = await this.toEntry(source, pass);
+			if (entry) entries.push(entry);
 		}
 		this.repository.wipeAndRebuild(entries);
 		this.repository.stampExtractionVersion(EXTRACTION_VERSION);
-		return { mode: "full", indexed: entries.length, unchanged: 0, removed: 0 };
+		pass.report.indexed = entries.length;
+		return pass.report;
 	}
 
 	private async incrementalIndex(
-		sources: SourceFile[],
+		listing: SourceListing,
 		resolver: ImportResolver,
 	): Promise<IndexReport> {
+		const pass = startPass("incremental", listing, resolver);
 		const known = new Map(
 			this.repository.listFiles().map((file) => [file.path, file]),
 		);
-		const report: IndexReport = {
-			mode: "incremental",
-			indexed: 0,
-			unchanged: 0,
-			removed: 0,
-		};
-		for (const source of sources) {
-			await this.reconcileSource(source, known, resolver, report);
+		for (const path of skippedPaths(listing)) known.delete(path);
+		for (const source of parsableSources(listing)) {
+			await this.reconcileSource(source, known, pass);
 		}
 		for (const path of known.keys()) {
 			this.repository.removeFile(path);
-			report.removed++;
+			pass.report.removed++;
 		}
-		return report;
+		return pass.report;
 	}
 
 	private async reconcileSource(
 		source: SourceFile,
 		known: Map<string, IndexedFile>,
-		resolver: ImportResolver,
-		report: IndexReport,
+		pass: IndexPass,
 	): Promise<void> {
 		const previous = known.get(source.path);
 		known.delete(source.path);
 		if (previous && isUnchanged(previous, source)) {
-			report.unchanged++;
+			pass.report.unchanged++;
 			return;
 		}
-		await this.reindexChanged(source, previous, resolver, report);
+		await this.reindexChanged(source, previous, pass);
 	}
 
 	private async reindexChanged(
 		source: SourceFile,
 		previous: IndexedFile | undefined,
-		resolver: ImportResolver,
-		report: IndexReport,
+		pass: IndexPass,
 	): Promise<void> {
-		const content = await Bun.file(join(this.repoRoot, source.path)).text();
+		const content = await this.readSource(source, pass.report);
+		if (content === null) return;
 		const hash = sha256Hex(content);
 		if (previous?.hash === hash) {
 			this.repository.touchFile({ ...source, hash });
-			report.unchanged++;
+			pass.report.unchanged++;
 			return;
 		}
-		this.repository.upsertFile(this.toEntryOf(source, hash, content, resolver));
-		report.indexed++;
+		this.repository.upsertFile(this.toEntryOf(source, hash, content, pass));
+		pass.report.indexed++;
 	}
 
 	private async toEntry(
 		source: SourceFile,
-		resolver: ImportResolver,
-	): Promise<FileIndexEntry> {
-		const content = await Bun.file(join(this.repoRoot, source.path)).text();
-		return this.toEntryOf(source, sha256Hex(content), content, resolver);
+		pass: IndexPass,
+	): Promise<FileIndexEntry | null> {
+		const content = await this.readSource(source, pass.report);
+		if (content === null) return null;
+		return this.toEntryOf(source, sha256Hex(content), content, pass);
+	}
+
+	// A file that vanished between the listing and the read is the ordinary race
+	// against a checkout or an editor save, and an unreadable one is still just
+	// one file: either way the pass keeps its remaining files.
+	private async readSource(
+		source: SourceFile,
+		report: IndexReport,
+	): Promise<string | null> {
+		try {
+			return await Bun.file(join(this.repoRoot, source.path)).text();
+		} catch (error) {
+			report.skipped.push({ path: source.path, reason: errorMessage(error) });
+			return null;
+		}
 	}
 
 	private toEntryOf(
 		source: SourceFile,
 		hash: string,
 		content: string,
-		resolver: ImportResolver,
+		pass: IndexPass,
 	): FileIndexEntry {
-		const extracted = this.extractor.extract(content);
+		const extracted = this.extractionOf(source, content, pass.report);
 		return {
 			file: { ...source, hash },
 			symbols: extracted.symbols,
 			imports: extracted.imports.map((specifier) =>
-				this.toImport(source.path, specifier, resolver),
+				this.toImport(source.path, specifier, pass.resolver),
 			),
 		};
+	}
+
+	// A blob that happens to carry a source extension parses for a second and
+	// yields nothing; the row is still worth keeping so the file stops looking
+	// like drift on every later pass.
+	private extractionOf(
+		source: SourceFile,
+		content: string,
+		report: IndexReport,
+	): ExtractedSource {
+		if (!content.includes(NUL_BYTE)) return this.extractor.extract(content);
+		report.skipped.push({ path: source.path, reason: BINARY_REASON });
+		return NOTHING_EXTRACTED;
 	}
 
 	private toImport(
@@ -186,4 +244,21 @@ export class CodeIndexer {
 			provenance: resolved.provenance,
 		};
 	}
+}
+
+function startPass(
+	mode: IndexReport["mode"],
+	listing: SourceListing,
+	resolver: ImportResolver,
+): IndexPass {
+	return {
+		resolver,
+		report: {
+			mode,
+			indexed: 0,
+			unchanged: 0,
+			removed: 0,
+			skipped: [...listing.skipped],
+		},
+	};
 }

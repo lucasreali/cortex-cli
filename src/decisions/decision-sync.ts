@@ -96,6 +96,7 @@ function merged(
 		dangling: fresh.dangling,
 		multiplyReplaced: fresh.multiplyReplaced,
 		malformed: fresh.malformed,
+		fenceBreaking: fresh.fenceBreaking,
 	};
 }
 

@@ -4,13 +4,19 @@ import { resolve } from "node:path";
 import { exportDecisionsIfNeeded } from "@/decisions/bootstrap";
 import { type DecisionSync, openDecisionSync } from "@/decisions/decision-sync";
 import type { ReconcileReport } from "@/decisions/reconcile";
-import { createProvider } from "@/embedding/create-provider";
+import {
+	createProvider,
+	embeddingsDisabled,
+} from "@/embedding/create-provider";
 import { GEMMA_MODEL } from "@/embedding/model";
 import type { EmbeddingProvider } from "@/embedding/provider";
 import { EmbedQueue } from "@/embedding/queue";
 import { SemanticSearch } from "@/embedding/semantic-search";
 import { getCanonicalProjectId, getHead, getRepoRoot } from "@/git";
 import { type CodeIndex, LazyCodeIndex } from "@/indexer/lazy-code-index";
+import { QueryLog } from "@/querylog/query-log";
+import { QueryRecorder } from "@/querylog/recorder";
+import { QueryLogSettings } from "@/querylog/settings";
 import { readConfig, writeConfig } from "@/storage/config";
 import { openDecisionsDb } from "@/storage/connection";
 import { EdgeRepository } from "@/storage/edge-repository";
@@ -19,6 +25,8 @@ import { migrate, SCHEMA_VERSION } from "@/storage/migrations";
 import { NodeRepository, type SaveContext } from "@/storage/node-repository";
 import { ProjectRoot } from "@/storage/project-root";
 import { SearchRepository } from "@/storage/search-repository";
+import { UsefulnessEventLog } from "@/usefulness/event-log";
+import { UsefulnessRecorder } from "@/usefulness/recorder";
 
 export interface CortexRuntime {
 	repoRoot: string;
@@ -35,6 +43,8 @@ export interface CortexRuntime {
 	semanticSearch: SemanticSearch;
 	codeIndex: CodeIndex;
 	decisions: DecisionSync;
+	usefulness: UsefulnessRecorder;
+	queries: QueryRecorder;
 	ensureSession(): string;
 	saveContext(): SaveContext;
 	dispose(): void;
@@ -57,13 +67,14 @@ export async function buildRuntimeAt(
 	repoRoot: string,
 	options: RuntimeOptions = {},
 ): Promise<CortexRuntime> {
-	const cortexDir = ProjectRoot.at(repoRoot).cortexDir;
+	const project = ProjectRoot.at(repoRoot);
+	const cortexDir = project.cortexDir;
 	mkdirSync(cortexDir, { recursive: true });
 	const db = openDecisionsDb(cortexDir, {
 		busyTimeoutMs: options.busyTimeoutMs,
 	});
 	try {
-		return await assembleRuntime(repoRoot, cortexDir, db, options);
+		return await assembleRuntime(repoRoot, project, db, options);
 	} catch (error) {
 		db.close();
 		throw error;
@@ -72,10 +83,11 @@ export async function buildRuntimeAt(
 
 async function assembleRuntime(
 	repoRoot: string,
-	cortexDir: string,
+	project: ProjectRoot,
 	db: Database,
 	options: RuntimeOptions,
 ): Promise<CortexRuntime> {
+	const cortexDir = project.cortexDir;
 	exportDecisionsIfNeeded(cortexDir, db, migrate(db));
 
 	const nodes = new NodeRepository(db);
@@ -102,17 +114,23 @@ async function assembleRuntime(
 	// resource a failed build has to release is the connection its caller
 	// closes — a worker subprocess spawned here would outlive the throw.
 	const projectNodeId = nodes.ensureProject(projectCanonicalId);
+	// Minted here, inserted only when a write path needs the row: the local
+	// usefulness log keys its events by this id from the first read, and a
+	// read-only tool must not leave a session node behind to be recorded.
+	const sessionId = Bun.randomUUIDv7();
 	const pinnedModelId = config?.model_id ?? GEMMA_MODEL.modelId;
 	const provider = embeddingsDisabled()
 		? null
 		: createProvider(pinnedModelId, {
 				shared: options.sharedEmbedding === true,
 			});
+	const usefulnessLog = new UsefulnessEventLog(project.usefulnessLogPath);
 	const semanticSearch = new SemanticSearch({
 		nodes,
 		embeddings,
 		fts,
 		provider,
+		usefulness: usefulnessLog,
 	});
 	const queue = provider
 		? new EmbedQueue({
@@ -136,7 +154,7 @@ async function assembleRuntime(
 	});
 	let sessionNodeId: string | null = null;
 	const ensureSession = (): string => {
-		sessionNodeId ??= nodes.createSession(projectNodeId);
+		sessionNodeId ??= nodes.createSession(projectNodeId, sessionId);
 		return sessionNodeId;
 	};
 
@@ -155,6 +173,11 @@ async function assembleRuntime(
 		semanticSearch,
 		codeIndex,
 		decisions,
+		usefulness: new UsefulnessRecorder(usefulnessLog, sessionId),
+		queries: new QueryRecorder(
+			new QueryLog(QueryLogSettings.from(cortexDir)),
+			sessionId,
+		),
 		ensureSession,
 		saveContext() {
 			const head = getHead(repoRoot);
@@ -180,8 +203,4 @@ function touched(report: ReconcileReport): boolean {
 	return (
 		report.imported.length + report.absent.length + report.restored.length > 0
 	);
-}
-
-function embeddingsDisabled(): boolean {
-	return process.env.CORTEX_DISABLE_EMBEDDINGS === "1";
 }

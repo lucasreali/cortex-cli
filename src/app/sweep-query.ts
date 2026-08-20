@@ -1,15 +1,11 @@
 import { GEMMA_MODEL } from "@/embedding/model";
 import type { EmbeddingProvider } from "@/embedding/provider";
 import type { QueryVector } from "@/embedding/semantic-search";
-import { withTimeout } from "@/embedding/with-timeout";
 import { readConfig } from "@/storage/config";
 import { ProjectRoot } from "@/storage/project-root";
+import { withTimeout } from "@/support/with-timeout";
 
 const QUERY_EMBED_TIMEOUT_MS = 2000;
-
-export function embeddingsDisabled(): boolean {
-	return process.env.CORTEX_DISABLE_EMBEDDINGS === "1";
-}
 
 // A sweep embeds its query once and ranks every store against that vector, so
 // it needs one model for the whole fan-out: the current project's pinned one,

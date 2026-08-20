@@ -2,8 +2,9 @@ import type { Decision } from "@/domain";
 import type { EmbeddingRepository } from "@/storage/embedding-repository";
 import type { NodeRepository } from "@/storage/node-repository";
 import type { SearchRepository } from "@/storage/search-repository";
+import { withTimeout } from "@/support/with-timeout";
+import type { UsefulnessRanking } from "@/usefulness/score";
 import type { EmbeddingProvider } from "./provider";
-import { withTimeout } from "./with-timeout";
 
 export interface SemanticSearchResult {
 	node: Decision;
@@ -16,6 +17,7 @@ export interface SemanticSearchDependencies {
 	embeddings: EmbeddingRepository;
 	fts: SearchRepository;
 	provider: EmbeddingProvider | null;
+	usefulness?: UsefulnessRanking | null;
 }
 
 export interface SemanticSearchOptions {
@@ -28,6 +30,16 @@ const DEFAULT_TOP_K = 5;
 const DEFAULT_THRESHOLD = 0.3;
 const DEFAULT_QUERY_TIMEOUT_MS = 2000;
 const RRF_K = 60;
+
+// Every surface rounds a score to this before showing it, and the usefulness
+// tiebreaker orders exactly the results that round to the same number — so the
+// rule it follows is one a reader can check: results the printed score cannot
+// tell apart are ordered by what proved useful on this machine.
+export const SCORE_PRECISION = 3;
+
+export function displayScore(score: number): number {
+	return Number(score.toFixed(SCORE_PRECISION));
+}
 
 export interface FusedRanking {
 	nodeId: string;
@@ -74,7 +86,7 @@ export class SemanticSearch {
 	rank(intent: string, query: QueryVector | null): SemanticSearchResult[] {
 		const vectorLeg = this.vectorLeg(query);
 		const inVector = new Set(vectorLeg);
-		return fuseRankings([vectorLeg, this.bm25Leg(intent)])
+		const selected = fuseRankings([vectorLeg, this.bm25Leg(intent)])
 			.slice(0, this.topK())
 			.flatMap((entry) =>
 				this.toResult(
@@ -83,6 +95,27 @@ export class SemanticSearch {
 					inVector.has(entry.nodeId) ? "vector" : "fts",
 				),
 			);
+		return this.preferUseful(selected);
+	}
+
+	// Runs on the already-selected top-K, never on the selection: deleting the
+	// sidecar changes the order the agent reads, never which decisions come
+	// back. The sort is stable, so results with no signal keep their fused
+	// order.
+	private preferUseful(
+		results: SemanticSearchResult[],
+	): SemanticSearchResult[] {
+		const usefulness = this.dependencies.usefulness;
+		if (!usefulness) return results;
+		const scores = usefulness.scores();
+		if (scores.size === 0) return results;
+		const usefulnessOf = (result: SemanticSearchResult): number =>
+			scores.get(result.node.id) ?? 0;
+		return [...results].sort(
+			(left, right) =>
+				displayScore(right.score) - displayScore(left.score) ||
+				usefulnessOf(right) - usefulnessOf(left),
+		);
 	}
 
 	private vectorLeg(query: QueryVector | null): string[] {
@@ -119,13 +152,21 @@ export class SemanticSearch {
 		return [{ node, score, source }];
 	}
 
-	// The cache is keyed by model now that the query vector can come from
-	// outside: a sweep may rank this store against a model it holds no vectors
-	// for, and serving the previous model's cache would score across two
-	// embedding spaces.
+	// Two things make a loaded cache wrong, and neither is visible from inside
+	// this process alone. Embedding is deliberately pushed out of process — the
+	// git hook spawns `cortex embed --missing`, and the docs tell people to run
+	// it by hand — so a cache held by a long-lived MCP server would answer from
+	// FTS for the rest of the session and tell the agent those decisions do not
+	// match; the store says when another connection wrote, and that is cheaper
+	// than re-reading. And the model can change under it now that the query
+	// vector may come from outside: a sweep can rank this store against a model
+	// it holds no vectors for, and serving the previous model's cache would
+	// score across two embedding spaces.
 	private loadCache(modelId: string): VectorCache {
-		if (!this.cache?.holds(modelId)) {
-			this.cache = VectorCache.load(this.dependencies.embeddings, modelId);
+		const { embeddings } = this.dependencies;
+		const written = embeddings.externalWriteCounter();
+		if (!this.cache?.answersFor(modelId, written)) {
+			this.cache = VectorCache.load(embeddings, modelId, written);
 		}
 		return this.cache;
 	}
@@ -154,15 +195,24 @@ export class SemanticSearch {
 	}
 }
 
+interface CacheKey {
+	modelId: string;
+	writeCounter: number;
+}
+
 class VectorCache {
 	private constructor(
-		private readonly modelId: string,
+		private readonly key: CacheKey,
 		readonly vectors: Map<string, Float32Array>,
 	) {}
 
-	static load(embeddings: EmbeddingRepository, modelId: string): VectorCache {
+	static load(
+		embeddings: EmbeddingRepository,
+		modelId: string,
+		writeCounter: number,
+	): VectorCache {
 		return new VectorCache(
-			modelId,
+			{ modelId, writeCounter },
 			new Map(
 				embeddings
 					.listActiveVectors(modelId)
@@ -171,8 +221,10 @@ class VectorCache {
 		);
 	}
 
-	holds(modelId: string): boolean {
-		return this.modelId === modelId;
+	answersFor(modelId: string, writeCounter: number): boolean {
+		return (
+			this.key.modelId === modelId && this.key.writeCounter === writeCounter
+		);
 	}
 }
 

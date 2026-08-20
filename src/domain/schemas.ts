@@ -22,8 +22,13 @@ export const createDecisionSchema = z.strictObject({
 		.string()
 		.min(8)
 		.describe("Self-contained one-line summary, readable months from now."),
+	// Trimmed before it is measured, and stored trimmed: the file format trims
+	// the body back out on the way in, so a body that is only whitespace would
+	// otherwise save, return an id, and parse as malformed forever — and vanish
+	// entirely from a fresh clone, where the store rebuilds from the files.
 	body: z
 		.string()
+		.trim()
 		.min(30)
 		.describe(
 			"What was decided and why: the choice, the rationale, what was " +

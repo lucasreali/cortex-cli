@@ -3,14 +3,14 @@ import { join } from "node:path";
 import { getRepoRoot } from "@/git";
 import { ensureGrammar } from "@/indexer/grammar";
 import { ImportResolver } from "@/indexer/import-resolver";
-import { listSourceFiles } from "@/indexer/source-walker";
+import { listSources } from "@/indexer/source-walker";
 import { TsconfigAliases } from "@/indexer/tsconfig-aliases";
 import { TsxExtractor } from "@/indexer/tsx-extractor";
 
 describe("resolution rate on this repository", () => {
 	test("resolvable-intent imports resolve at ≥ 85%", async () => {
 		const root = getRepoRoot(process.cwd()) as string;
-		const files = listSourceFiles(root);
+		const { files } = listSources(root);
 		const extractor = await TsxExtractor.create(await ensureGrammar());
 		const resolver = await ImportResolver.create(
 			root,

@@ -5,6 +5,7 @@ import {
 	type NodeProvenance,
 } from "@/domain";
 import { errorMessage } from "@/support/errors";
+import { uniqueAnchors } from "./anchors";
 
 export type DecisionFileParse =
 	| { ok: true; file: DecisionFile }
@@ -190,7 +191,7 @@ function toDecisionFile(
 		archives: data.archives ?? null,
 		dependsOn: data.depends_on ?? [],
 		conflictsWith: data.conflicts_with ?? [],
-		anchors: (data.anchors ?? []).map(toAnchor),
+		anchors: uniqueAnchors((data.anchors ?? []).map(toAnchor)),
 		commitSha: data.commit ?? null,
 		commitDirty: data.dirty === true,
 		provenance: data.provenance,

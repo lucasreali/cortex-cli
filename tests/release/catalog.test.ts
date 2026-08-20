@@ -30,7 +30,7 @@ function missing(): Response {
 
 beforeEach(() => {
 	release = {
-		location: `https://host/releases/tag/${TAG}`,
+		location: `/releases/tag/${TAG}`,
 		checksums: `${sha256Hex(TARBALL)}  ${ASSET}\n`,
 		tarball: TARBALL,
 	};
@@ -66,8 +66,26 @@ describe("latestTag", () => {
 	});
 
 	test("fails when the redirect does not point at a tag", async () => {
-		release.location = "https://host/releases";
+		release.location = "/releases";
 		expect(latestTag(origin())).rejects.toThrow("no published release found");
+	});
+
+	// A repository that was renamed redirects to its new path, so the host is
+	// what has to match — but only the host: the origin allowlist would be worth
+	// nothing if a Location header could send the download somewhere else.
+	test("follows a redirect to another path on the same host", async () => {
+		release.location = `${origin()}/renamed/repo/releases/tag/${TAG}`;
+		expect(await latestTag(origin())).toBe(TAG);
+	});
+
+	test("refuses a redirect that leaves the origin", async () => {
+		release.location = `https://attacker.tld/releases/tag/${TAG}`;
+		expect(latestTag(origin())).rejects.toThrow("no published release found");
+	});
+
+	test("refuses a tag that is not one a release could be named", async () => {
+		release.location = "/releases/tag/..%2F..%2Fetc";
+		expect(latestTag(origin())).rejects.toThrow("not a release version");
 	});
 
 	test("fails when nothing has been released", async () => {
@@ -99,6 +117,16 @@ describe("downloadRelease", () => {
 		release.checksums = null;
 		expect(downloadRelease(origin(), TAG, TARGET)).rejects.toThrow(
 			"download failed: HTTP 404",
+		);
+	});
+
+	// checksums.txt is a line per published asset. A body far past that is a
+	// server that will not stop talking, and reading it to the end is this
+	// process's memory.
+	test("refuses a download larger than a release can be", async () => {
+		release.checksums = "x".repeat(64 * 1024 + 1);
+		expect(downloadRelease(origin(), TAG, TARGET)).rejects.toThrow(
+			"larger than the",
 		);
 	});
 

@@ -156,6 +156,30 @@ Corpo.
 			{ filePath: "src/a.ts", symbol: "" },
 		]);
 	});
+
+	// The pair is the primary key in the store, so two entries that spell the
+	// same pair are one anchor — a merge that duplicated a list entry says
+	// nothing the first entry did not, and must not brick the reconcile.
+	test("entries naming the same file and symbol collapse to one anchor", () => {
+		const parsed = parseDecisionFile(
+			ID,
+			`---
+title: "Uma decisão qualquer"
+keywords: ["a"]
+anchors: ["src/a.ts#Sym", "src/a.ts", "src/a.ts#Sym", "src/a.ts#"]
+provenance: "agent"
+created_at: "2026-07-22T14:03:11.204Z"
+---
+
+Corpo.
+`,
+		);
+
+		expect(parsed.ok && parsed.file.anchors).toEqual([
+			{ filePath: "src/a.ts", symbol: "Sym" },
+			{ filePath: "src/a.ts", symbol: "" },
+		]);
+	});
 });
 
 describe("parseDecisionFile rejects malformed files", () => {

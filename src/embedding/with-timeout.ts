@@ -1,3 +1,5 @@
+import { withTimeout } from "@/support/with-timeout";
+
 // A hung worker must never wedge the caller: on timeout the provider is
 // disposed, which kills the subprocess so the next request respawns it, and
 // the work is reported as failed rather than left hanging.
@@ -11,27 +13,4 @@ export function disposingOnTimeout<T>(
 	timeoutMs: number,
 ): Promise<T> {
 	return withTimeout(work, timeoutMs, () => provider.dispose?.());
-}
-
-export function withTimeout<T>(
-	work: Promise<T>,
-	timeoutMs: number,
-	onTimeout?: () => void,
-): Promise<T> {
-	return new Promise((resolve, reject) => {
-		const timer = setTimeout(() => {
-			onTimeout?.();
-			reject(new Error(`timed out after ${timeoutMs} ms`));
-		}, timeoutMs);
-		work.then(
-			(value) => {
-				clearTimeout(timer);
-				resolve(value);
-			},
-			(error) => {
-				clearTimeout(timer);
-				reject(error);
-			},
-		);
-	});
 }

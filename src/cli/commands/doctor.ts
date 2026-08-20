@@ -4,20 +4,32 @@ import { parseArgs } from "node:util";
 import type { CortexRuntime } from "@/app/runtime";
 import { symbolHint } from "@/app/symbol-hints";
 import { printJson } from "@/cli/json";
+import { boundedMalformedLines } from "@/cli/malformed-files";
 import { withRuntime } from "@/cli/open-runtime";
+import { boundedSkippedLines } from "@/cli/skipped-sources";
 import { success, warning } from "@/cli/style";
 import { MINIMUM_KEYWORDS } from "@/domain";
 import { GEMMA_MODEL } from "@/embedding/model";
-import { modelsDir } from "@/embedding/models-dir";
+import { modelCacheDirectory, modelIsResident } from "@/embedding/model-cache";
 import { computeDrift } from "@/indexer/code-indexer";
 import { EXTRACTION_VERSION } from "@/indexer/extraction-version";
-import { listSourceFiles } from "@/indexer/source-walker";
+import { listSources, type SourceListing } from "@/indexer/source-walker";
 import { TsconfigAliases } from "@/indexer/tsconfig-aliases";
+import { QueryLog } from "@/querylog/query-log";
+import { ENABLE_VARIABLE, QueryLogSettings } from "@/querylog/settings";
+import { type RecentQueries, recentQueries } from "@/querylog/stats";
 import { type OpenCodeRepository, openCodeRepository } from "@/storage/code-db";
 import type { CodeRepository } from "@/storage/code-repository";
 import { readConfigState } from "@/storage/config";
 import { CODE_SCHEMA_VERSION, SCHEMA_VERSION } from "@/storage/migrations";
+import {
+	corruptRegistryBackups,
+	projectsRegistryPath,
+	readProjectRegistry,
+} from "@/storage/project-registry";
+import { ProjectRoot } from "@/storage/project-root";
 import { errorMessage } from "@/support/errors";
+import { UsefulnessEventLog } from "@/usefulness/event-log";
 
 const MINIMUM_RESOLUTION_RATE = 0.85;
 
@@ -32,8 +44,12 @@ export async function runDoctor(args: string[], cwd: string): Promise<number> {
 		checkDecisionFiles(runtime, report);
 		checkAnchors(runtime, report);
 		checkEmbeddings(runtime, report);
+		checkEmbeddingVintages(runtime, report);
 		checkKeywords(runtime, report);
+		checkUsefulness(runtime, report);
+		checkQueryLog(runtime, report);
 		checkModelDownloaded(report);
+		checkProjectRegistry(report);
 		await checkCodeIndex(runtime, report);
 		return values.json ? report.finishJson() : report.finish();
 	});
@@ -123,8 +139,11 @@ function checkDecisionFiles(
 ): void {
 	const reconciled = runtime.decisions.resync();
 	reportAbsent(runtime, report);
-	for (const entry of reconciled.malformed) {
-		report.warn(`decision file unreadable: ${entry.name} — ${entry.reason}`);
+	for (const line of boundedMalformedLines(
+		reconciled.malformed,
+		(entry) => `decision file unreadable: ${entry.name} — ${entry.reason}`,
+	)) {
+		report.warn(line);
 	}
 	for (const edge of reconciled.dangling) {
 		report.warn(
@@ -137,7 +156,18 @@ function checkDecisionFiles(
 			`superseded ${entry.by.length} times: ${entry.target} — by ${entry.by.join(", ")}`,
 		);
 	}
-	if (reconciled.malformed.length + reconciled.dangling.length === 0) {
+	for (const name of reconciled.fenceBreaking) {
+		report.warn(
+			`decision file closes the prompt-hook context fence: ${name} — the ` +
+				"hook escapes it, but read that file before trusting it",
+		);
+	}
+	if (
+		reconciled.malformed.length +
+			reconciled.dangling.length +
+			reconciled.fenceBreaking.length ===
+		0
+	) {
 		report.ok("decision files: all readable, every link resolved");
 	}
 }
@@ -184,6 +214,45 @@ function checkEmbeddings(runtime: CortexRuntime, report: DoctorReport): void {
 	);
 }
 
+// Counted over the live set only, like the pending check: a vector held by a
+// superseded or off-branch decision is retained history, and `embed --missing`
+// cannot reclaim it — reporting it would open an issue the user can never
+// close. It becomes visible again when `present` flips back, which is when it
+// starts to cost recall.
+function checkEmbeddingVintages(
+	runtime: CortexRuntime,
+	report: DoctorReport,
+): void {
+	const vintages = runtime.embeddings.countsByModel();
+	if (vintages.length === 0) return;
+	const foreign = vintages.filter(
+		(vintage) => vintage.modelId !== runtime.pinnedModelId,
+	);
+	if (foreign.length === 0) {
+		report.ok(
+			`embeddings: ${countVectors(vintages)} vector(s), all ${runtime.pinnedModelId}`,
+		);
+		return;
+	}
+	report.warn(
+		`embeddings from another model: ${describeVintages(foreign)} — semantic ` +
+			`search only reads ${runtime.pinnedModelId}, so those decisions answer ` +
+			"through FTS alone — run: cortex embed --missing",
+	);
+}
+
+function countVectors(vintages: Array<{ count: number }>): number {
+	return vintages.reduce((total, vintage) => total + vintage.count, 0);
+}
+
+function describeVintages(
+	vintages: Array<{ modelId: string; count: number }>,
+): string {
+	return vintages
+		.map((vintage) => `${vintage.count} ${vintage.modelId}`)
+		.join(", ");
+}
+
 function checkKeywords(runtime: CortexRuntime, report: DoctorReport): void {
 	const deficient = runtime.nodes.listActiveWithFewKeywords(MINIMUM_KEYWORDS);
 	if (deficient.length === 0) {
@@ -195,6 +264,52 @@ function checkKeywords(runtime: CortexRuntime, report: DoctorReport): void {
 			`fewer than ${MINIMUM_KEYWORDS} keywords: ${entry.title} (${entry.id})`,
 		);
 	}
+}
+
+// A fact, never an issue: an empty sidecar is the normal state of a fresh
+// clone, and the only thing that could go wrong with it — losing it — costs
+// nothing but the tiebreaker it feeds.
+function checkUsefulness(runtime: CortexRuntime, report: DoctorReport): void {
+	const log = new UsefulnessEventLog(
+		ProjectRoot.at(runtime.repoRoot).usefulnessLogPath,
+	);
+	const events = log.events();
+	if (events.length === 0) {
+		report.ok("usefulness signal: nothing recorded yet");
+		return;
+	}
+	report.ok(
+		`usefulness signal: ${events.length} event(s), ${log.scores().size} ` +
+			"decision(s) ranked by it — delete .cortex/local/ to reset",
+	);
+}
+
+// Off is the documented default, so reporting it as an issue would ask the
+// user to fix the posture the project chose. A log an earlier opt-in left
+// behind is named even while recording is off: knowing the file is there is
+// the difference between deleting it and forgetting it exists.
+function checkQueryLog(runtime: CortexRuntime, report: DoctorReport): void {
+	const log = new QueryLog(QueryLogSettings.from(runtime.cortexDir));
+	const recent = recentQueries(log.entries());
+	if (!log.enabled) {
+		report.ok(`query log: off — ${offDetail(recent, log.path)}`);
+		return;
+	}
+	if (recent.recorded === 0) {
+		report.ok(`query log: on, nothing recorded yet — ${log.path}`);
+		return;
+	}
+	report.ok(
+		`query log: ${recent.empty} of your last ${recent.considered} queries ` +
+			`returned nothing (${recent.recorded} recorded) — ${log.path}`,
+	);
+}
+
+function offDetail(recent: RecentQueries, path: string): string {
+	if (recent.recorded === 0) {
+		return `no query text is recorded (set ${ENABLE_VARIABLE}=1 to record locally)`;
+	}
+	return `${recent.recorded} query(ies) recorded earlier are still at ${path} — delete the file to discard them`;
 }
 
 async function checkCodeIndex(
@@ -260,7 +375,9 @@ function checkCodeDrift(
 	report: DoctorReport,
 ): void {
 	const indexed = repository.listFiles();
-	const drift = computeDrift(listSourceFiles(runtime.repoRoot), indexed);
+	const listing = listSources(runtime.repoRoot);
+	reportSkippedSources(listing, report);
+	const drift = computeDrift(listing, indexed);
 	if (drift.added === 0 && drift.changed === 0 && drift.removed === 0) {
 		report.ok(
 			`code index: in sync with the working tree (${indexed.length} files)`,
@@ -271,6 +388,17 @@ function checkCodeDrift(
 		`code index outdated: ${drift.added} new, ${drift.changed} changed, ` +
 			`${drift.removed} deleted — run: cortex index`,
 	);
+}
+
+// A skipped file contributes no symbols and never shows up as drift, so this is
+// the only place it can be seen: without it, get_impact loses a file silently.
+function reportSkippedSources(
+	listing: SourceListing,
+	report: DoctorReport,
+): void {
+	for (const line of boundedSkippedLines(listing.skipped)) {
+		report.warn(line);
+	}
 }
 
 async function checkImportResolution(
@@ -334,12 +462,50 @@ function hasResolvableIntent(
 	return aliases.expand(specifier).length > 0;
 }
 
+// Every command registers its project before the checks run, so an unreadable
+// registry that reaches here is one whose backup failed too — the file needs
+// hands. A backup that is merely lying around is reported as a fact, not as an
+// issue, the way off-branch decisions are.
+function checkProjectRegistry(report: DoctorReport): void {
+	const registered = readProjectRegistry();
+	if (registered.state === "unreadable") {
+		report.warn(
+			`project registry at ${projectsRegistryPath()} is not valid JSON and ` +
+				"could not be moved aside — fix or delete it, or cross-project " +
+				"search only sees this project",
+		);
+		return;
+	}
+	reportRegistryBackups(report);
+	const count = registered.state === "ok" ? registered.projects.length : 0;
+	report.ok(`project registry: ${count} project(s) registered`);
+}
+
+function reportRegistryBackups(report: DoctorReport): void {
+	const backups = corruptRegistryBackups();
+	if (backups.length === 0) return;
+	report.ok(
+		`${backups.length} unreadable project registry(ies) kept aside: ` +
+			`${backups.join(", ")} — restore or delete them`,
+	);
+}
+
+// Three states, not two: a cache directory exists from the first byte of the
+// download, so "present" and "confirmed to load" are different facts and only
+// the second one earns the deadline an inference gets.
 function checkModelDownloaded(report: DoctorReport): void {
-	if (existsSync(join(modelsDir(), GEMMA_MODEL.huggingFaceId))) {
+	if (modelIsResident()) {
 		report.ok(`model downloaded: ${GEMMA_MODEL.huggingFaceId}`);
 		return;
 	}
+	if (existsSync(modelCacheDirectory())) {
+		report.ok(
+			`model cache present (${GEMMA_MODEL.huggingFaceId}) — the next embed confirms it loads`,
+		);
+		return;
+	}
 	report.warn(
-		`model not downloaded (${GEMMA_MODEL.huggingFaceId}) — first embed will fetch it`,
+		`model not downloaded (${GEMMA_MODEL.huggingFaceId}, about 300 MB) — ` +
+			"run `cortex embed --fetch-model`, or the first embed pays for it",
 	);
 }

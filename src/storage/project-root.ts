@@ -4,6 +4,7 @@ import { errnoCode } from "@/support/errors";
 
 export const CORTEX_DIRECTORY = ".cortex";
 export const DECISIONS_DIRECTORY = "decisions";
+export const LOCAL_DIRECTORY = "local";
 
 // The project a store belongs to, so a repo root and a .cortex directory stop
 // being two interchangeable strings: buildRuntime takes one and buildRuntimeAt
@@ -33,6 +34,12 @@ export class ProjectRoot {
 
 	get decisionsPath(): string {
 		return join(this.cortexDir, DECISIONS_DIRECTORY);
+	}
+
+	// Derived, per-machine and never versioned: what proved useful here says
+	// nothing about the decisions themselves, so it cannot live beside them.
+	get usefulnessLogPath(): string {
+		return join(this.cortexDir, LOCAL_DIRECTORY, "usefulness.jsonl");
 	}
 
 	// A fresh clone carries the decision files and none of the derived caches,

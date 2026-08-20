@@ -3,6 +3,7 @@ import runtimeWasm from "web-tree-sitter/web-tree-sitter.wasm" with {
 	type: "file",
 };
 import type { CodeSymbol } from "@/domain";
+import { QUALIFIED_SEPARATOR } from "@/support/symbol-key";
 
 export interface ExtractedSource {
 	symbols: CodeSymbol[];
@@ -69,11 +70,22 @@ export class TsxExtractor {
 		};
 	}
 
+	// web-tree-sitter frees a tree only through delete(); it registers no
+	// FinalizationRegistry, so a tree left to the GC keeps its emscripten
+	// allocation — around 30x the parsed bytes — for the life of the process.
+	// Both halves materialize plain objects, so nothing outlives the tree.
 	extract(sourceText: string): ExtractedSource {
 		// parse() only returns null without a language set or on cancellation;
 		// neither happens here, so the cast encodes that invariant.
-		const root = (this.parser.parse(sourceText) as Tree).rootNode;
-		return { symbols: this.symbolsOf(root), imports: this.importsOf(root) };
+		const tree = this.parser.parse(sourceText) as Tree;
+		try {
+			return {
+				symbols: this.symbolsOf(tree.rootNode),
+				imports: this.importsOf(tree.rootNode),
+			};
+		} finally {
+			tree.delete();
+		}
 	}
 
 	private symbolsOf(root: Node): CodeSymbol[] {
@@ -104,7 +116,7 @@ export class TsxExtractor {
 			const owner = named.get("owner") as Node;
 			const name = named.get("name") as Node;
 			return {
-				name: `${owner.text}.${name.text}`,
+				name: `${owner.text}${QUALIFIED_SEPARATOR}${name.text}`,
 				kind: "method",
 				line: name.startPosition.row + 1,
 			};

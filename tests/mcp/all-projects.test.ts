@@ -146,6 +146,46 @@ describe("search_all_projects", () => {
 		rmSync(foreign, { recursive: true, force: true });
 	});
 
+	test("a corrupt registry answers with its own guidance", async () => {
+		const outside = makeTempDir("cortex-xp-corrupt-outside-");
+		await Bun.write(join(registryDir, "corrupt-empty.json"), "{ not json");
+		const bare = await connect(outside, registryEnv("corrupt-empty.json"));
+		try {
+			const { isError, payload } = await callTool(bare, "search_all_projects", {
+				terms: ["rate"],
+			});
+			expect(isError).toBe(false);
+			expect(payload.status).toBe("registry_unreadable");
+			expect(payload.guidance).toContain("corrupt-empty.json");
+		} finally {
+			await bare.close();
+			rmSync(outside, { recursive: true, force: true });
+		}
+	});
+
+	// The sweep never moves the corrupt file aside: only registerProject does
+	// that, and the fan-out registers nothing. It reports the narrowing instead.
+	test("a corrupt registry marks the sweep it narrowed as partial", async () => {
+		await Bun.write(join(registryDir, "corrupt.json"), "{ not json");
+		const narrowed = await connect(alpha, registryEnv("corrupt.json"));
+		try {
+			const { isError, payload } = await callTool(
+				narrowed,
+				"search_all_projects",
+				{ terms: ["rate"], exact: true },
+			);
+			expect(isError).toBe(false);
+			expect(payload.registry_unreadable).toBe(
+				join(registryDir, "corrupt.json"),
+			);
+			expect(
+				payload.projects.map((entry: { project: string }) => entry.project),
+			).toEqual(["github.com/acme/alpha"]);
+		} finally {
+			await narrowed.close();
+		}
+	});
+
 	test("a registered project whose store vanished is pruned, not fatal", async () => {
 		const doomed = makeProject(
 			"cortex-xp-doomed-",

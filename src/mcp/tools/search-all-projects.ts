@@ -9,7 +9,11 @@ import {
 import type { SemanticSearchResult } from "@/embedding/semantic-search";
 import { getCanonicalProjectId } from "@/git";
 import type { RuntimeRegistry } from "@/mcp/runtime-registry";
-import { readRegisteredProjects } from "@/storage/project-registry";
+import {
+	type ProjectRegistryRead,
+	projectsRegistryPath,
+	readProjectRegistry,
+} from "@/storage/project-registry";
 import { READ_ONLY_ANNOTATIONS } from "./annotations";
 import { errorResult, guidanceResult, jsonResult } from "./results";
 
@@ -23,6 +27,15 @@ const NO_PROJECTS_GUIDANCE =
 	"No Cortex projects registered on this machine yet. A project registers " +
 	"when `cortex init` runs there or when a session first touches it; after " +
 	"that, this tool can search it.";
+
+function registryUnreadableGuidance(): string {
+	return (
+		`The project registry at ${projectsRegistryPath()} is not valid JSON, so ` +
+		"no project could be listed. It is kept as a `.corrupt.<timestamp>` " +
+		"sibling the next time a project registers; run `cortex doctor` for the " +
+		"details."
+	);
+}
 
 export function registerSearchAllProjects(
 	server: McpServer,
@@ -62,8 +75,15 @@ async function searchEverywhere(
 	registry: RuntimeRegistry,
 	args: { terms: string[]; exact?: boolean },
 ) {
-	const targets = knownTargets(registry);
+	const registered = readProjectRegistry();
+	const targets = knownTargets(registered, registry);
 	if (targets.length === 0) {
+		if (registered.state === "unreadable") {
+			return guidanceResult(
+				"registry_unreadable",
+				registryUnreadableGuidance(),
+			);
+		}
 		return guidanceResult("no_projects", NO_PROJECTS_GUIDANCE);
 	}
 	const exact = args.exact === true;
@@ -74,16 +94,22 @@ async function searchEverywhere(
 		exact,
 		vector: exact ? null : await registry.embedSweepQuery(args.terms.join(" ")),
 	});
-	return jsonResult(toPayload(outcome));
+	return jsonResult(toPayload(outcome, registered));
 }
 
 // The canonical id comes from the registry rather than from `git` in each
 // project: labelling 200 projects must not cost 600 blocking subprocesses.
-function knownTargets(registry: RuntimeRegistry): SweepTarget[] {
-	const targets = readRegisteredProjects().map((project) => ({
-		root: project.root,
-		canonicalId: project.canonicalId,
-	}));
+function knownTargets(
+	registered: ProjectRegistryRead,
+	registry: RuntimeRegistry,
+): SweepTarget[] {
+	const targets: SweepTarget[] =
+		registered.state === "ok"
+			? registered.projects.map((entry) => ({
+					root: entry.root,
+					canonicalId: entry.canonicalId,
+				}))
+			: [];
 	const current = registry.defaultRoot;
 	if (current && !targets.some((target) => target.root === current)) {
 		targets.push({
@@ -94,10 +120,18 @@ function knownTargets(registry: RuntimeRegistry): SweepTarget[] {
 	return targets;
 }
 
-function toPayload(outcome: AllProjectsSearch) {
+// An unreadable registry narrows the sweep to whatever root the session already
+// had, so the answer has to say it is partial instead of reading as complete.
+function toPayload(
+	outcome: AllProjectsSearch,
+	registered: ProjectRegistryRead,
+) {
 	return {
 		projects: outcome.projects.map(projectEntry),
 		...(outcome.skipped.length > 0 ? { skipped: outcome.skipped } : {}),
+		...(registered.state === "unreadable"
+			? { registry_unreadable: projectsRegistryPath() }
+			: {}),
 	};
 }
 

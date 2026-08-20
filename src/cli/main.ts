@@ -1,11 +1,13 @@
 #!/usr/bin/env bun
 import { errorMessage } from "@/support/errors";
 import { CORTEX_VERSION } from "@/version";
+import { runBenchmark } from "./commands/benchmark";
 import { runIndex } from "./commands/code-index";
 import { runDoctor } from "./commands/doctor";
 import { runEmbed } from "./commands/embed";
 import { runEmbedDaemonCommand } from "./commands/embed-daemon";
 import { runEmbedWorkerCommand } from "./commands/embed-worker";
+import { runGitHook } from "./commands/git-hook";
 import { runImpact } from "./commands/impact";
 import { runInit } from "./commands/init";
 import { runInstall } from "./commands/install";
@@ -82,6 +84,11 @@ const COMMANDS: Record<string, Command> = {
 		usage: USAGE.doctor,
 		description: "check store and index health",
 	},
+	benchmark: {
+		run: runBenchmark,
+		usage: USAGE.benchmark,
+		description: "measure the context economy of answering from decisions",
+	},
 	upgrade: {
 		run: runUpgrade,
 		usage: USAGE.upgrade,
@@ -91,6 +98,12 @@ const COMMANDS: Record<string, Command> = {
 		run: runPromptHook,
 		usage: USAGE["prompt-hook"],
 		description: "Claude Code UserPromptSubmit hook (JSON on stdin)",
+		hidden: true,
+	},
+	"git-hook": {
+		run: runGitHook,
+		usage: USAGE["git-hook"],
+		description: "post-commit/post-checkout/post-merge git hook",
 		hidden: true,
 	},
 	"embed-worker": {

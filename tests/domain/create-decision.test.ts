@@ -55,6 +55,23 @@ describe("createDecisionSchema", () => {
 		test("accepts exactly 30 characters", () => {
 			expect(parse({ body: "a".repeat(30) }).success).toBe(true);
 		});
+
+		// The file format trims the body back out, and its parser rejects an
+		// empty one — so a body that only counts because of its whitespace would
+		// save, return an id, and be malformed on disk from that moment on.
+		test("rejects a body that is only whitespace", () => {
+			expect(parse({ body: " ".repeat(40) }).success).toBe(false);
+		});
+
+		test("counts the trimmed body, and stores it trimmed", () => {
+			const result = parse({ body: `  ${"a".repeat(29)}  ` });
+
+			expect(result.success).toBe(false);
+			expect(parse({ body: `  ${"a".repeat(30)}  ` })).toMatchObject({
+				success: true,
+				data: { body: "a".repeat(30) },
+			});
+		});
 	});
 
 	describe("keywords", () => {

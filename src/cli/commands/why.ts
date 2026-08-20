@@ -1,22 +1,31 @@
 import { parseArgs } from "node:util";
+import {
+	type AnchoredDecision,
+	indexedAnchorResolver,
+	labelAnchors,
+	type ResolvedAnchor,
+	strongestConfidence,
+} from "@/app/anchor-confidence";
 import { accessCodeIndex } from "@/app/code-index-access";
 import type { CortexRuntime } from "@/app/runtime";
+import { confidenceTag } from "@/cli/anchor-tag";
 import { printJson } from "@/cli/json";
 import { withRuntime } from "@/cli/open-runtime";
 import { style, warning } from "@/cli/style";
 import { usageError } from "@/cli/usage";
-import type { Decision } from "@/domain";
 
 interface SymbolMatch {
 	filePath: string;
 	line: number;
-	decisions: Decision[];
+	decisions: AnchoredDecision[];
 }
 
 type WhyReport =
-	| { target: string; matchedBy: "path"; decisions: Decision[] }
+	| { target: string; matchedBy: "path"; decisions: AnchoredDecision[] }
 	| { target: string; matchedBy: "symbol"; locations: SymbolMatch[] }
 	| { target: string; matchedBy: null; codeWarning?: string };
+
+type AnchorFilter = (anchor: ResolvedAnchor) => boolean;
 
 export async function runWhy(args: string[], cwd: string): Promise<number> {
 	const { values, positionals } = parseArgs({
@@ -43,7 +52,11 @@ async function buildReport(
 ): Promise<WhyReport> {
 	const byPath = runtime.nodes.listByAnchorPath(target);
 	if (byPath.length > 0) {
-		return { target, matchedBy: "path", decisions: byPath };
+		return {
+			target,
+			matchedBy: "path",
+			decisions: await labelAnchors(runtime, byPath),
+		};
 	}
 	if (target.includes("/")) {
 		return { target, matchedBy: null };
@@ -59,13 +72,13 @@ async function symbolReport(
 	if (!access.ok) {
 		return { target: symbol, matchedBy: null, codeWarning: access.warning };
 	}
+	const resolver = indexedAnchorResolver(runtime.repoRoot, access.code);
 	const locations = access.code.findSymbol(symbol).map((location) => ({
 		filePath: location.filePath,
 		line: location.line,
-		decisions: runtime.nodes.listByFileAnchorOrSymbol(
-			location.filePath,
-			symbol,
-		),
+		decisions: runtime.nodes
+			.listByFileAnchorOrSymbol(location.filePath, symbol)
+			.map((decision) => resolver.label(decision)),
 	}));
 	if (locations.length === 0) return null;
 	return { target: symbol, matchedBy: "symbol", locations };
@@ -74,7 +87,7 @@ async function symbolReport(
 function render(report: WhyReport): void {
 	if (report.matchedBy === "path") {
 		console.log(style.cyan(report.target));
-		printDecisions(report.decisions, "  ");
+		printDecisions(report.decisions, under(report.target), "  ");
 		return;
 	}
 	if (report.matchedBy === "symbol") {
@@ -97,17 +110,40 @@ function renderSymbolMatches(symbol: string, locations: SymbolMatch[]): void {
 			console.log(style.dim("  no decisions anchored here"));
 			continue;
 		}
-		printDecisions(location.decisions, "  ");
+		printDecisions(location.decisions, inFile(location.filePath), "  ");
 	}
 }
 
-function printDecisions(decisions: Decision[], indent = ""): void {
+// The label a reader wants is the one on the anchor that produced the match,
+// not on every anchor the decision happens to carry.
+function under(target: string): AnchorFilter {
+	const prefix = target.replace(/\/+$/, "");
+	return (anchor) =>
+		anchor.filePath === prefix || anchor.filePath.startsWith(`${prefix}/`);
+}
+
+function inFile(filePath: string): AnchorFilter {
+	return (anchor) => anchor.filePath === filePath;
+}
+
+function printDecisions(
+	decisions: AnchoredDecision[],
+	matches: AnchorFilter,
+	indent = "",
+): void {
 	for (const decision of decisions) {
 		const marker =
 			decision.status === "replaced" ? ` ${style.yellow("[replaced]")}` : "";
 		const date = style.dim(decision.createdAt.slice(0, 10));
+		const tag = matchedTag(decision, matches);
 		console.log(
-			`${indent}${date}  ${decision.title}${marker}  ${style.dim(decision.id)}`,
+			`${indent}${date}  ${decision.title}${marker}${tag}  ${style.dim(decision.id)}`,
 		);
 	}
+}
+
+function matchedTag(decision: AnchoredDecision, matches: AnchorFilter): string {
+	const confidence = strongestConfidence(decision.anchors.filter(matches));
+	if (confidence === null) return "";
+	return ` ${confidenceTag(confidence)}`;
 }

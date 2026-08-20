@@ -6,22 +6,27 @@ import {
 	searchAllProjects,
 } from "@/app/search-all-projects";
 import { searchDecisions } from "@/app/search-decisions";
-import {
-	embeddingsDisabled,
-	embedSweepQuery,
-	sweepModelId,
-} from "@/app/sweep-query";
+import { embedSweepQuery, sweepModelId } from "@/app/sweep-query";
 import { printJson } from "@/cli/json";
 import { projectRootFor, withRuntime } from "@/cli/open-runtime";
 import { style, warning } from "@/cli/style";
 import { usageError } from "@/cli/usage";
-import { createProvider } from "@/embedding/create-provider";
-import type {
-	QueryVector,
-	SemanticSearchResult,
+import {
+	createProvider,
+	embeddingsDisabled,
+} from "@/embedding/create-provider";
+import {
+	type QueryVector,
+	SCORE_PRECISION,
+	type SemanticSearchResult,
 } from "@/embedding/semantic-search";
 import { getCanonicalProjectId } from "@/git";
-import { readRegisteredProjects } from "@/storage/project-registry";
+import { searchQuery } from "@/querylog/entry";
+import {
+	type ProjectRegistryRead,
+	projectsRegistryPath,
+	readProjectRegistry,
+} from "@/storage/project-registry";
 
 export async function runSearch(args: string[], cwd: string): Promise<number> {
 	const { values, positionals } = parseArgs({
@@ -39,6 +44,10 @@ export async function runSearch(args: string[], cwd: string): Promise<number> {
 	}
 	return withRuntime(cwd, async (runtime) => {
 		const results = await searchDecisions(runtime, positionals, values.exact);
+		runtime.queries.record(
+			searchQuery(positionals, values.exact),
+			results.map((result) => result.node.id),
+		);
 		if (values.json) {
 			printJson(results);
 			return 0;
@@ -65,7 +74,9 @@ async function searchEverywhere(
 	exact: boolean,
 	json: boolean,
 ): Promise<number> {
-	const targets = knownTargets(cwd);
+	const registry = readProjectRegistry();
+	reportUnreadableRegistry(registry);
+	const targets = knownTargets(registry, cwd);
 	const outcome = await searchAllProjects({
 		targets,
 		open: (root) => ProjectReader.open(root),
@@ -95,11 +106,17 @@ async function queryVector(
 	}
 }
 
-function knownTargets(cwd: string): SweepTarget[] {
-	const targets: SweepTarget[] = readRegisteredProjects().map((project) => ({
-		root: project.root,
-		canonicalId: project.canonicalId,
-	}));
+function knownTargets(
+	registry: ProjectRegistryRead,
+	cwd: string,
+): SweepTarget[] {
+	const targets: SweepTarget[] =
+		registry.state === "ok"
+			? registry.projects.map((project) => ({
+					root: project.root,
+					canonicalId: project.canonicalId,
+				}))
+			: [];
 	const current = projectRootFor(cwd);
 	const alreadyKnown = targets.some(
 		(target) => target.root === current.directory,
@@ -113,6 +130,18 @@ function knownTargets(cwd: string): SweepTarget[] {
 				getCanonicalProjectId(current.directory) ?? current.directory,
 		},
 	];
+}
+
+// An unreadable registry narrows the sweep to the current project, so saying
+// nothing would pass a partial answer off as a complete one.
+function reportUnreadableRegistry(registry: ProjectRegistryRead): void {
+	if (registry.state !== "unreadable") return;
+	console.error(
+		warning(
+			`project registry at ${projectsRegistryPath()} is not valid JSON — ` +
+				"only the current project was searched",
+		),
+	);
 }
 
 function printEverywhere(outcome: AllProjectsSearch, json: boolean): void {
@@ -139,7 +168,7 @@ function printEverywhere(outcome: AllProjectsSearch, json: boolean): void {
 }
 
 function formatLine(result: SemanticSearchResult): string {
-	const score = style.dim(result.score.toFixed(3));
+	const score = style.dim(result.score.toFixed(SCORE_PRECISION));
 	const id = style.dim(result.node.id);
 	return `${score}  ${paintSource(result.source)}  ${result.node.title}  ${id}`;
 }

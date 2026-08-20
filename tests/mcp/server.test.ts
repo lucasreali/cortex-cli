@@ -170,8 +170,16 @@ describe("cortex MCP server e2e", () => {
 			decision_id: decisionA,
 		});
 		expect(payload.decision.anchors).toEqual([
-			{ filePath: "src/auth/missing.ts", symbol: "" },
-			{ filePath: "src/auth/service.ts", symbol: "AuthService.login" },
+			{
+				filePath: "src/auth/missing.ts",
+				symbol: "",
+				confidence: "unresolved",
+			},
+			{
+				filePath: "src/auth/service.ts",
+				symbol: "AuthService.login",
+				confidence: "unresolved",
+			},
 		]);
 		expect(payload.impacted).toEqual([
 			{

@@ -42,6 +42,11 @@ export interface Sweep {
 const DEFAULT_MAX_PROJECTS = 50;
 const DEFAULT_DEADLINE_MS = 10_000;
 
+// The sweep is not recorded in the query log, for the same reason it records no
+// usefulness: one question answered from many stores has no project whose log
+// it belongs in, and an evaluation fixture has to be reproducible against the
+// single store it was asked of.
+//
 // Results stay grouped per project, never fused into one ranked list: scores
 // from different stores are not comparable, and the label is what keeps a
 // cross-project answer from being mistaken for a scoped one. A project that

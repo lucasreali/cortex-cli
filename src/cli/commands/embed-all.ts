@@ -1,6 +1,7 @@
 import type { CortexRuntime } from "@/app/runtime";
 import { failure, style, success } from "@/cli/style";
 import type { Decision } from "@/domain";
+import { embedDeadlineMs } from "@/embedding/model-cache";
 import type { EmbeddingProvider } from "@/embedding/provider";
 import { DEFAULT_EMBED_TIMEOUT_MS, decisionPassage } from "@/embedding/queue";
 import { disposingOnTimeout } from "@/embedding/with-timeout";
@@ -53,7 +54,7 @@ async function embedDecision(
 		const [vector] = await disposingOnTimeout(
 			provider,
 			provider.embedPassages([decisionPassage(decision)]),
-			timeoutMs,
+			embedDeadlineMs(provider, timeoutMs),
 		);
 		return vector ?? null;
 	} catch (error) {
