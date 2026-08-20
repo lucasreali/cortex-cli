@@ -95,10 +95,25 @@ describe("currentHost", () => {
 		expect(typeof probe.baseline).toBe("boolean");
 	});
 
-	// install.sh treats a missing cpuinfo as "not baseline"; a host we cannot
-	// inspect must not be sent the baseline asset.
-	test("an unreadable cpuinfo is assumed to support avx2", () => {
-		expect(currentHost("/definitely/not/a/cpuinfo").baseline).toBe(false);
+	// `grep -q avx2 /proc/cpuinfo` exits non-zero when the file is not there, so
+	// install.sh sends a host it cannot inspect the baseline build. This has to
+	// answer the same way, and it is the answer that runs on either CPU.
+	test("an unreadable cpuinfo asks for the baseline build, as install.sh does", () => {
+		expect(currentHost("/definitely/not/a/cpuinfo").baseline).toBe(
+			process.platform === "linux",
+		);
+	});
+
+	// install.sh reads a failed `ldd --version` as "not musl" and carries on;
+	// spawnSync answers a missing executable by throwing.
+	test("a host with no ldd at all is described rather than fatal", () => {
+		const path = process.env.PATH;
+		process.env.PATH = "/definitely/not/a/bin";
+		try {
+			expect(currentHost().musl).toBe(false);
+		} finally {
+			restore("PATH", path);
+		}
 	});
 });
 

@@ -121,23 +121,44 @@ export function checksumsUrl(origin: string, tag: string): string {
 }
 
 // install.sh reads `ldd --version` as well as the loader paths; a glibc host
-// answering on stderr is normal, so both streams are inspected.
+// answering on stderr is normal, so both streams are inspected. A host with no
+// ldd at all is not a musl host as far as either side can tell — the shell
+// reads the failed command as "no", and spawnSync must not throw where it
+// degrades.
 function runsOnMusl(): boolean {
 	if (existsSync("/lib/ld-musl-x86_64.so.1")) return true;
 	if (existsSync("/lib/ld-musl-aarch64.so.1")) return true;
-	const probe = Bun.spawnSync(["ldd", "--version"], {
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	const reported = `${probe.stdout}${probe.stderr}`;
-	return reported.toLowerCase().includes("musl");
+	return reportedLdd().toLowerCase().includes("musl");
 }
 
-// A CPU without AVX2 needs the baseline build; assuming AVX2 when /proc is
-// unreadable matches install.sh, which treats a missing cpuinfo the same way.
+function reportedLdd(): string {
+	try {
+		const probe = Bun.spawnSync(["ldd", "--version"], {
+			stdout: "pipe",
+			stderr: "pipe",
+			// ldd is found through PATH, and a subprocess otherwise inherits the
+			// environment this process started with rather than the one it has
+			// now: handing it the search path is what a probe needs, and all it
+			// needs.
+			env: { PATH: process.env.PATH ?? "" },
+		});
+		return `${probe.stdout}${probe.stderr}`;
+	} catch {
+		return "";
+	}
+}
+
+// A CPU without AVX2 needs the baseline build, and install.sh answers a
+// cpuinfo it cannot read the same way this does: `grep -q avx2 /proc/cpuinfo`
+// exits non-zero when the file is absent. Agreeing on the baseline build is
+// also agreeing on the safe answer — it runs on either CPU, where the AVX2
+// build meets a machine without AVX2 as an illegal instruction.
 function supportsAvx2(cpuinfoPath: string): boolean {
-	if (!existsSync(cpuinfoPath)) return true;
-	return readFileSync(cpuinfoPath, "utf8").includes("avx2");
+	try {
+		return readFileSync(cpuinfoPath, "utf8").includes("avx2");
+	} catch {
+		return false;
+	}
 }
 
 function supportedCpu(cpu: string): string {
