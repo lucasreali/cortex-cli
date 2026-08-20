@@ -90,8 +90,14 @@ Dependency direction, no cycles:
   of spawning git: a hook must not trust the GIT_DIR it inherits (git names the
   superproject during submodule work), and a replay is a fact on disk anyway.
 - `indexer/` — tree-sitter code index (TS/JS only), reconciled lazily on
-  first use; no file watcher (deliberate — see todo.md). Two lifetime rules
-  hold the pass together. A parsed tree is freed by `extract` itself:
+  first use; no file watcher (deliberate). What replaces the watcher is a
+  window: `LazyCodeIndex` re-checks the working tree once its last pass is
+  older than `RECHECK_AFTER_MS`, because a server that reconciled at startup
+  would keep calling anchors on code the session just wrote unresolved. The
+  re-check reuses the connection *and* the `CodeIndexer` — a second one would
+  reload the grammar and hold a second parser for the life of the process —
+  and a pass that throws still closes the connection it was handed, because
+  nothing caches it afterwards. Two lifetime rules hold the pass together. A parsed tree is freed by `extract` itself:
   web-tree-sitter registers no `FinalizationRegistry`, so a tree handed to the
   GC keeps roughly thirty times the parsed bytes for the life of the process —
   which is a long-lived MCP server, not a command. And a file the pass cannot
