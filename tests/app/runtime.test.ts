@@ -1,5 +1,6 @@
+import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildRuntime } from "@/app/runtime";
@@ -101,4 +102,42 @@ describe("buildRuntime", () => {
 
 		expect(await readConfig(join(dir, ".cortex"))).toBeNull();
 	});
+
+	// The MCP server retries a project on every tool call, so a store that
+	// fails to build must not cost a descriptor per attempt.
+	test("a store that fails to build releases its connection", async () => {
+		const dir = makeProjectDir();
+		const cortexDir = join(dir, ".cortex");
+		mkdirSync(cortexDir, { recursive: true });
+		const conflicting = new Database(join(cortexDir, "decisions.db"), {
+			create: true,
+		});
+		conflicting.run("CREATE TABLE nodes (unexpected INTEGER)");
+		conflicting.close();
+		const baseline = openDescriptors();
+
+		for (let attempt = 0; attempt < 30; attempt += 1) {
+			await expect(buildRuntime(dir)).rejects.toThrow();
+		}
+
+		expect(openDescriptors()).toBeLessThanOrEqual(baseline);
+	});
+
+	test("a file that is not a database releases its connection too", async () => {
+		const dir = makeProjectDir();
+		const cortexDir = join(dir, ".cortex");
+		mkdirSync(cortexDir, { recursive: true });
+		await Bun.write(join(cortexDir, "decisions.db"), "not a database at all");
+		const baseline = openDescriptors();
+
+		for (let attempt = 0; attempt < 30; attempt += 1) {
+			await expect(buildRuntime(dir)).rejects.toThrow();
+		}
+
+		expect(openDescriptors()).toBeLessThanOrEqual(baseline);
+	});
 });
+
+function openDescriptors(): number {
+	return readdirSync("/dev/fd").length;
+}

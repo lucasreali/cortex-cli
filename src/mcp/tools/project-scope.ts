@@ -26,7 +26,9 @@ export function projectPathField(registry: RuntimeRegistry) {
 // Every tool goes through here, so this is where the two answer shapes are
 // decided: a recoverable state is guidance the agent can act on, and only a
 // genuine fault is an isError the SDK would otherwise shape differently per
-// tool depending on whether that tool happened to catch.
+// tool depending on whether that tool happened to catch. Resolving the project
+// is inside the try for the same reason — a store that throws on open is a
+// fault of this call, not a crash of the tool.
 export function scopedToProject<Args extends { projectPath?: string }>(
 	registry: RuntimeRegistry,
 	handler: (
@@ -35,12 +37,12 @@ export function scopedToProject<Args extends { projectPath?: string }>(
 	) => Promise<CallToolResult>,
 ): (args: Args) => Promise<CallToolResult> {
 	return async ({ projectPath, ...args }) => {
-		const resolution = await registry.resolve(projectPath);
-		if (!resolution.ok) {
-			return guidanceResult("not_initialized", resolution.guidance);
-		}
 		try {
-			return await handler(resolution.runtime, args);
+			const outcome = await registry.withRuntime(projectPath, (runtime) =>
+				handler(runtime, args),
+			);
+			if (outcome.ok) return outcome.value;
+			return guidanceResult(outcome.status, outcome.guidance);
 		} catch (error) {
 			return errorResult(error);
 		}

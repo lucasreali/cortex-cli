@@ -37,8 +37,15 @@ export class EmbedQueue {
 			});
 	}
 
+	// The tail is re-read after every await: a save that lands while the queue
+	// is draining appends to it, and returning on the snapshot taken at call
+	// time would drop exactly the vector a shutdown drain exists to keep.
 	async onIdle(): Promise<void> {
-		await this.tail;
+		let drained: Promise<void> | null = null;
+		while (drained !== this.tail) {
+			drained = this.tail;
+			await drained;
+		}
 	}
 
 	private async embedNode(nodeId: string): Promise<void> {

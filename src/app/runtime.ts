@@ -1,3 +1,4 @@
+import type { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { exportDecisionsIfNeeded } from "@/decisions/bootstrap";
@@ -41,19 +42,40 @@ export interface CortexRuntime {
 
 export interface RuntimeOptions {
 	sharedEmbedding?: boolean;
+	busyTimeoutMs?: number;
 }
 
 export async function buildRuntime(cwd: string): Promise<CortexRuntime> {
 	return buildRuntimeAt(getRepoRoot(cwd) ?? resolve(cwd));
 }
 
+// The connection is closed by hand on every failure path: a store that throws
+// on migrate or on any later step would otherwise leak its handle, and a
+// server that retries a corrupt project climbs to its fd limit one call at a
+// time.
 export async function buildRuntimeAt(
 	repoRoot: string,
 	options: RuntimeOptions = {},
 ): Promise<CortexRuntime> {
 	const cortexDir = ProjectRoot.at(repoRoot).cortexDir;
 	mkdirSync(cortexDir, { recursive: true });
-	const db = openDecisionsDb(cortexDir);
+	const db = openDecisionsDb(cortexDir, {
+		busyTimeoutMs: options.busyTimeoutMs,
+	});
+	try {
+		return await assembleRuntime(repoRoot, cortexDir, db, options);
+	} catch (error) {
+		db.close();
+		throw error;
+	}
+}
+
+async function assembleRuntime(
+	repoRoot: string,
+	cortexDir: string,
+	db: Database,
+	options: RuntimeOptions,
+): Promise<CortexRuntime> {
 	exportDecisionsIfNeeded(cortexDir, db, migrate(db));
 
 	const nodes = new NodeRepository(db);
@@ -74,6 +96,12 @@ export async function buildRuntimeAt(
 			schema_version: SCHEMA_VERSION,
 		});
 	}
+	const codeIndex = new LazyCodeIndex(repoRoot);
+	const projectCanonicalId = getCanonicalProjectId(repoRoot) ?? repoRoot;
+	// Everything that can throw runs before the provider exists, so the only
+	// resource a failed build has to release is the connection its caller
+	// closes — a worker subprocess spawned here would outlive the throw.
+	const projectNodeId = nodes.ensureProject(projectCanonicalId);
 	const pinnedModelId = config?.model_id ?? GEMMA_MODEL.modelId;
 	const provider = embeddingsDisabled()
 		? null
@@ -106,9 +134,6 @@ export async function buildRuntimeAt(
 			if (touched(report)) semanticSearch.invalidate();
 		},
 	});
-	const codeIndex = new LazyCodeIndex(repoRoot);
-	const projectCanonicalId = getCanonicalProjectId(repoRoot) ?? repoRoot;
-	const projectNodeId = nodes.ensureProject(projectCanonicalId);
 	let sessionNodeId: string | null = null;
 	const ensureSession = (): string => {
 		sessionNodeId ??= nodes.createSession(projectNodeId);

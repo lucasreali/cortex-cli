@@ -86,6 +86,30 @@ describe("EmbedQueue", () => {
 		expect(embeddings.listMissingNodeIds("fake-model@4")).toEqual([]);
 	});
 
+	// A save that lands while the shutdown drain is running would be dropped
+	// if onIdle answered on the queue it saw when it was called.
+	test("onIdle waits for work enqueued while it is already draining", async () => {
+		const queue = new EmbedQueue({
+			nodes,
+			embeddings,
+			provider: workingProvider,
+		});
+		const first = seedDecision(dir, db, input, context);
+		const second = seedDecision(
+			dir,
+			db,
+			{ ...input, title: "Segunda" },
+			context,
+		);
+
+		queue.enqueue(first.id);
+		const draining = queue.onIdle();
+		queue.enqueue(second.id);
+		await draining;
+
+		expect(embeddings.getByNodeId(second.id)).not.toBeNull();
+	});
+
 	test("a broken provider leaves the decision pending without losing the save", async () => {
 		const queue = new EmbedQueue({
 			nodes,
