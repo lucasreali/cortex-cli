@@ -37,6 +37,7 @@ function codeDbDescriptors(): number {
 
 function dropFilesTable(): void {
 	const open = openCodeRepository(join(dir, ".cortex"));
+	open.database.run("DELETE FROM symbols");
 	open.database.run("DROP TABLE files");
 	open.database.close();
 }

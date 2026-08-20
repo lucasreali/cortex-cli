@@ -11,13 +11,40 @@ export interface GrammarSource {
 
 const DOWNLOAD_TIMEOUT_MS = 60_000;
 
+function grammarsDir(): string {
+	return userCortexDir("grammars", process.env.CORTEX_GRAMMARS_DIR);
+}
+
 // Official tree-sitter-typescript release; the tree-sitter-wasms package was
 // discarded (0.20-era dylink format, incompatible with web-tree-sitter 0.26).
 const TSX_GRAMMAR: GrammarSource = {
 	url: "https://github.com/tree-sitter/tree-sitter-typescript/releases/download/v0.23.2/tree-sitter-tsx.wasm",
 	sha256: "79e5da75ea62855a0cd67177685f0164eac87d5f630b3cbe1e0a099751ad30f8",
-	cacheDir: userCortexDir("grammars", process.env.CORTEX_GRAMMARS_DIR),
+	cacheDir: grammarsDir(),
 };
+
+// The two grammars exist because `<T>expr` cannot be both a type assertion and
+// a JSX element: parsing a `.ts` file with the TSX grammar turns the assertion
+// into an ERROR node that swallows the rest of the file, so every symbol after
+// it disappears with no diagnostic at all.
+const TS_GRAMMAR: GrammarSource = {
+	url: "https://github.com/tree-sitter/tree-sitter-typescript/releases/download/v0.23.2/tree-sitter-typescript.wasm",
+	sha256: "778025db5a8be0e70f8ccc3671e486dfeddd048c25d9e8a70c26de2e1bf6f97d",
+	cacheDir: grammarsDir(),
+};
+
+export interface GrammarPaths {
+	ts: string;
+	tsx: string;
+}
+
+export async function ensureGrammars(): Promise<GrammarPaths> {
+	const [ts, tsx] = await Promise.all([
+		ensureGrammar(TS_GRAMMAR),
+		ensureGrammar(TSX_GRAMMAR),
+	]);
+	return { ts, tsx };
+}
 
 export async function ensureGrammar(
 	source: GrammarSource = TSX_GRAMMAR,

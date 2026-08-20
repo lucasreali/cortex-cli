@@ -40,7 +40,9 @@ function entryFixture(overrides: Partial<FileIndexEntry> = {}): FileIndexEntry {
 			lang: "ts",
 			hash: "abc123",
 			mtime: 1700000000,
+			ctime: 1700000000,
 			size: 2048,
+			hasError: false,
 		},
 		symbols: [
 			{ name: "AuthService", kind: "class", line: 3 },
@@ -65,7 +67,9 @@ function importerFixture(): FileIndexEntry {
 			lang: "ts",
 			hash: "def456",
 			mtime: 1700000100,
+			ctime: 1700000100,
 			size: 512,
+			hasError: false,
 		},
 		symbols: [{ name: "login", kind: "function", line: 5 }],
 		imports: [
@@ -103,6 +107,7 @@ describe("code.db migrations", () => {
 		expect(rows).toEqual([
 			{ id: 1, name: "code-schema" },
 			{ id: 2, name: "code-meta" },
+			{ id: 3, name: "code-file-facts" },
 		]);
 	});
 
@@ -111,7 +116,7 @@ describe("code.db migrations", () => {
 		db = openCodeDb(dir);
 		migrateCode(db);
 		expect(db.query("SELECT count(*) AS n FROM _migrations").get()).toEqual({
-			n: 2,
+			n: 3,
 		});
 	});
 
@@ -142,9 +147,39 @@ describe("code.db migrations", () => {
 
 	test("creates the indexes", () => {
 		const indexes = schemaNames("index");
-		expect(indexes).toContain("idx_symbols_name");
 		expect(indexes).toContain("idx_symbols_file");
 		expect(indexes).toContain("idx_imports_to");
+	});
+
+	// Dropped for want of a reader: suggestions match with a leading wildcard,
+	// which SQLite cannot serve from an index, and every exact lookup goes
+	// through the in-process symbol table.
+	test("drops the symbol-name index nothing reads", () => {
+		expect(schemaNames("index")).not.toContain("idx_symbols_name");
+	});
+
+	// The pair (mtime, size) is forgeable by an ordinary mtime-preserving
+	// restore; an inode change time is not, and a half-parsed file must not have
+	// its missing symbols read as deletions.
+	test("records ctime and the parse outcome per file", () => {
+		repository.wipeAndRebuild([
+			entryFixture({
+				file: {
+					path: "src/broken.ts",
+					lang: "ts",
+					hash: "h",
+					mtime: 5,
+					ctime: 9,
+					size: 12,
+					hasError: true,
+				},
+			}),
+		]);
+
+		expect(repository.getFile("src/broken.ts")).toMatchObject({
+			ctime: 9,
+			hasError: true,
+		});
 	});
 
 	test("imports.provenance defaults to heuristic", () => {
@@ -185,7 +220,15 @@ function chainEntry(
 	imports: FileIndexEntry["imports"],
 ): FileIndexEntry {
 	return {
-		file: { path, lang: "ts", hash: `h-${path}`, mtime: 1, size: 10 },
+		file: {
+			path,
+			lang: "ts",
+			hash: `h-${path}`,
+			mtime: 1,
+			ctime: 1,
+			size: 10,
+			hasError: false,
+		},
 		symbols: [],
 		imports,
 	};
@@ -271,6 +314,16 @@ describe("CodeRepository symbol lookups", () => {
 		expect(
 			repository.suggestSymbols("src/auth/service.ts", "AuthService.login", 3),
 		).toEqual(["AuthService.validateToken"]);
+	});
+
+	// L21: a name that normalizes away entirely left LIKE '%%' behind, which
+	// matches every symbol in the index — a suggestion list that is a random
+	// sample reads as authoritative.
+	test("suggestSymbols returns nothing for a name that normalizes away", () => {
+		expect(repository.suggestSymbols("src/auth/service.ts", "???", 3)).toEqual(
+			[],
+		);
+		expect(repository.suggestSymbols("src/ghost.ts", "  ", 3)).toEqual([]);
 	});
 
 	test("suggestSymbols falls back to a global substring match", () => {
@@ -395,7 +448,9 @@ describe("CodeRepository", () => {
 			lang: "ts",
 			hash: "abc123",
 			mtime: 1700000000,
+			ctime: 1700000000,
 			size: 2048,
+			hasError: false,
 		});
 		expect(repository.getFile("ghost.ts")).toBeNull();
 	});
@@ -443,13 +498,20 @@ describe("CodeRepository", () => {
 				fromPath: "src/api/login.ts",
 				specifier: "../auth/service",
 				toPath: "src/auth/service.ts",
+				provenance: "heuristic",
 			},
 			{
 				fromPath: "src/auth/service.ts",
 				specifier: "./token.ts",
 				toPath: "src/auth/token.ts",
+				provenance: "exact",
 			},
-			{ fromPath: "src/auth/service.ts", specifier: "zod", toPath: null },
+			{
+				fromPath: "src/auth/service.ts",
+				specifier: "zod",
+				toPath: null,
+				provenance: "heuristic",
+			},
 		]);
 	});
 
@@ -460,7 +522,9 @@ describe("CodeRepository", () => {
 			lang: "ts",
 			hash: "abc123",
 			mtime: 1700009999,
+			ctime: 1700009999,
 			size: 2048,
+			hasError: false,
 		});
 
 		expect(repository.getFile("src/auth/service.ts")?.mtime).toBe(1700009999);

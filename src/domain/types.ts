@@ -94,7 +94,14 @@ export interface IndexedFile {
 	lang: string;
 	hash: string;
 	mtime: number;
+	// Inode change time. No userspace call can set it, which is what makes it
+	// the half of the staleness check that a mtime-preserving restore cannot
+	// forge.
+	ctime: number;
 	size: number;
+	// The grammar could not read the file end to end, so the symbols recorded
+	// for it are a prefix, not an inventory.
+	hasError: boolean;
 }
 
 export interface CodeSymbol {

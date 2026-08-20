@@ -22,6 +22,7 @@ export async function runIndex(args: string[], cwd: string): Promise<number> {
 			success(
 				`Indexed ${report.indexed} file(s) (${report.mode}), ` +
 					`${report.unchanged} unchanged, ${report.removed} removed, ` +
+					`${report.repaired} edge(s) re-pointed, ` +
 					`${report.skipped.length} skipped in ${elapsed} ms.`,
 			),
 		);

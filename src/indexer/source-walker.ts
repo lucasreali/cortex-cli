@@ -4,13 +4,19 @@ import { listRepoFiles } from "@/git";
 import { CORTEX_DIRECTORY } from "@/storage/project-root";
 import { errorMessage } from "@/support/errors";
 
-const EXCLUDED_DIRECTORIES = new Set([
-	"node_modules",
-	"dist",
-	"build",
-	CORTEX_DIRECTORY,
-	".git",
-]);
+// A dependency tree, the store's own directory and git's are never project
+// source, whoever produced the listing.
+const NEVER_SOURCE = new Set(["node_modules", CORTEX_DIRECTORY, ".git"]);
+
+// `dist` and `build` are a guess about generated output, and a guess is only
+// needed when nothing better answered. A git listing came with
+// --exclude-standard, which already applied the project's own .gitignore — the
+// authority on what is generated here — so applying the guess on top of it is
+// what made a tracked `src/build/pipeline.ts` invisible to the index, to
+// get_impact and, using the same filter, to doctor's drift check.
+const PRESUMED_GENERATED = new Set(["dist", "build"]);
+
+const WALK_EXCLUDED = new Set([...NEVER_SOURCE, ...PRESUMED_GENERATED]);
 
 const MAX_PARSED_BYTES = 1024 * 1024;
 
@@ -30,6 +36,7 @@ export interface SourceFile {
 	lang: string;
 	size: number;
 	mtime: number;
+	ctime: number;
 }
 
 // One entry per source file that will contribute no symbols, and why. A file is
@@ -60,9 +67,10 @@ class SourceScan {
 	constructor(private readonly root: string) {}
 
 	listing(): SourceListing {
-		const candidates = listRepoFiles(this.root) ?? this.walk("");
-		const files = candidates
-			.filter(hasNoExcludedSegment)
+		const tracked = listRepoFiles(this.root);
+		const excluded = tracked === null ? WALK_EXCLUDED : NEVER_SOURCE;
+		const files = (tracked ?? this.walk(""))
+			.filter((path) => hasNoExcludedSegment(path, excluded))
 			.map((path) => this.toSourceFile(path))
 			.filter((file): file is SourceFile => file !== null)
 			.sort((a, b) => a.path.localeCompare(b.path));
@@ -87,7 +95,7 @@ class SourceScan {
 	private walkEntry(prefix: string, entry: Dirent): string[] {
 		const path = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
 		if (!entry.isDirectory()) return [path];
-		if (EXCLUDED_DIRECTORIES.has(entry.name)) return [];
+		if (WALK_EXCLUDED.has(entry.name)) return [];
 		return this.walk(path);
 	}
 
@@ -97,7 +105,13 @@ class SourceScan {
 		const stats = this.statsOf(path);
 		if (!stats) return null;
 		this.skipIfOversized(path, stats.size);
-		return { path, lang, size: stats.size, mtime: Math.floor(stats.mtimeMs) };
+		return {
+			path,
+			lang,
+			size: stats.size,
+			mtime: Math.floor(stats.mtimeMs),
+			ctime: Math.floor(stats.ctimeMs),
+		};
 	}
 
 	// A tracked file that is no longer on disk is an ordinary listing, not a
@@ -124,6 +138,6 @@ class SourceScan {
 	}
 }
 
-function hasNoExcludedSegment(path: string): boolean {
-	return !path.split("/").some((segment) => EXCLUDED_DIRECTORIES.has(segment));
+function hasNoExcludedSegment(path: string, excluded: Set<string>): boolean {
+	return !path.split("/").some((segment) => excluded.has(segment));
 }

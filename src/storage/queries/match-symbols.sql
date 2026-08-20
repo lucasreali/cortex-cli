@@ -7,9 +7,13 @@
 -- the two, since SQLite's LIKE ignores ASCII case. A suggestion is a hint, so an
 -- approximate bridge is the right amount of machinery here; the exact question
 -- ("does this symbol exist?") is answered by comparing keys, never by this query.
+--
+-- Every term is guarded against the empty string: a name that normalizes away
+-- entirely leaves LIKE '%%', which matches every symbol in the index and turns
+-- a suggestion list into a random sample.
 SELECT DISTINCT name FROM symbols
 WHERE ($file IS NULL OR file_path = $file)
-  AND (name LIKE '%' || $full || '%'
-    OR name LIKE '%' || $last || '%'
+  AND (($full != '' AND name LIKE '%' || $full || '%')
+    OR ($last != '' AND name LIKE '%' || $last || '%')
     OR ($owner != '' AND name LIKE $owner || '.%'))
 ORDER BY name LIMIT $limit

@@ -58,14 +58,29 @@ describe("listSources in a git repository", () => {
 		expect(foundPaths()).toEqual(["src/tracked.ts", "src/untracked.tsx"]);
 	});
 
-	test("applies the fixed exclusions even for listed paths", () => {
+	test("drops what is never source, whoever listed it", () => {
 		write("src/app.ts", "export const a = 1;\n");
 		write("node_modules/pkg/index.js", "module.exports = {};\n");
-		write("dist/bundle.js", "var a;\n");
-		write("build/out.js", "var b;\n");
 		write(".cortex/tool.ts", "export {};\n");
 
 		expect(foundPaths()).toEqual(["src/app.ts"]);
+	});
+
+	// git listed these with --exclude-standard, so the project's own .gitignore
+	// already had its say: guessing `dist`/`build` on top of it is what made a
+	// tracked src/build/pipeline.ts invisible to the index and to get_impact.
+	test("defers to .gitignore instead of guessing at generated output", () => {
+		write(".gitignore", "/dist/\n");
+		write("src/build/pipeline.ts", "export const a = 1;\n");
+		write("src/dist/thing.ts", "export const b = 2;\n");
+		write("build/out.js", "var c;\n");
+		write("dist/bundle.js", "var d;\n");
+
+		expect(foundPaths()).toEqual([
+			"build/out.js",
+			"src/build/pipeline.ts",
+			"src/dist/thing.ts",
+		]);
 	});
 
 	test("skips non-source extensions and deleted tracked files", () => {
@@ -111,7 +126,7 @@ describe("listSources in a git repository", () => {
 		expect(listing.skipped[0]?.reason).toContain("ELOOP");
 	});
 
-	test("reports language, size and mtime for each file", () => {
+	test("reports language, size, mtime and ctime for each file", () => {
 		const content = "export const a = 1;\n";
 		write("src/app.cts", content);
 		const [file] = listSources(dir).files;
@@ -119,6 +134,7 @@ describe("listSources in a git repository", () => {
 		expect(file?.lang).toBe("ts");
 		expect(file?.size).toBe(content.length);
 		expect(file?.mtime).toBeGreaterThan(0);
+		expect(file?.ctime).toBeGreaterThan(0);
 	});
 });
 
@@ -143,11 +159,15 @@ describe("listSources outside a git repository", () => {
 		}
 	});
 
-	test("walks the directory tree with the same filters", () => {
+	// With no .gitignore to defer to, `dist` and `build` are the only guess
+	// available — and a guess is exactly what the git listing did not need.
+	test("walks the directory tree, guessing at generated output", () => {
 		write("src/deep/module.ts", "export const a = 1;\n");
 		write("src/view.jsx", "export const b = 2;\n");
 		write("main.mjs", "export const c = 3;\n");
 		write("node_modules/pkg/index.js", "module.exports = {};\n");
+		write("dist/bundle.js", "var d;\n");
+		write("src/build/pipeline.ts", "export const e = 5;\n");
 		write("docs/notes.md", "# notes\n");
 
 		expect(foundPaths()).toEqual([
