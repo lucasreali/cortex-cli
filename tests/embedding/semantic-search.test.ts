@@ -98,6 +98,14 @@ async function createEmbedded(
 	return decision.id;
 }
 
+function corruptVector(nodeId: string, vector: Uint8Array, dims: number): void {
+	db.query("UPDATE embeddings SET vector = ?, dims = ? WHERE node_id = ?").run(
+		vector,
+		dims,
+		nodeId,
+	);
+}
+
 describe("SemanticSearch — vector path", () => {
 	test("ranks by cosine above the threshold and tags source vector", async () => {
 		const jwtId = await createEmbedded(jwtInput, conceptProvider);
@@ -242,6 +250,48 @@ describe("SemanticSearch — degradation", () => {
 			{ nodes, embeddings, fts, provider: coldProvider },
 			{ queryTimeoutMs: 50 },
 		);
+
+		const results = await search.search("jwt");
+
+		expect(results.map((result) => [result.node.id, result.source])).toEqual([
+			[jwtId, "fts"],
+		]);
+	});
+
+	// listActiveVectors loads every vector, so a single unreadable blob used to
+	// throw RangeError out of the query instead of costing that one decision
+	// its semantic match.
+	test("a truncated blob is skipped and the other vectors still rank", async () => {
+		const jwtId = await createEmbedded(jwtInput, conceptProvider);
+		const postgresId = await createEmbedded(postgresInput, conceptProvider);
+		corruptVector(postgresId, new Uint8Array([1, 2, 3]), 4);
+		const search = new SemanticSearch({
+			nodes,
+			embeddings,
+			fts,
+			provider: conceptProvider,
+		});
+
+		expect(embeddings.listActiveVectors(conceptProvider.modelId)).toEqual([
+			{ nodeId: jwtId, vector: expect.any(Float32Array) },
+		]);
+		expect(embeddings.getByNodeId(postgresId)).toBeNull();
+
+		const results = await search.search("autenticação de usuários");
+		expect(results.map((result) => [result.node.id, result.source])).toEqual([
+			[jwtId, "vector"],
+		]);
+	});
+
+	test("a vector from another embedding space degrades to FTS", async () => {
+		const jwtId = await createEmbedded(jwtInput, conceptProvider);
+		corruptVector(jwtId, new Uint8Array(new Float32Array([1, 0]).buffer), 2);
+		const search = new SemanticSearch({
+			nodes,
+			embeddings,
+			fts,
+			provider: conceptProvider,
+		});
 
 		const results = await search.search("jwt");
 

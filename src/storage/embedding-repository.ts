@@ -42,29 +42,34 @@ export class EmbeddingRepository {
 			)
 			.get(nodeId);
 		if (!row) return null;
+		const vector = toFloat32Array(row.vector, row.dims);
+		if (!vector) return null;
 		return {
 			nodeId: row.node_id,
 			modelId: row.model_id,
 			dims: row.dims,
-			vector: toFloat32Array(row.vector),
+			vector,
 		};
 	}
 
+	// One truncated blob must not take the whole vector leg down with it: a row
+	// that disagrees with its own dims column is dropped, costing that decision
+	// its semantic match until `cortex embed` rewrites it.
 	listActiveVectors(
 		modelId: string,
 	): Array<{ nodeId: string; vector: Float32Array }> {
 		return this.db
-			.query<{ node_id: string; vector: Uint8Array }, [string]>(
-				`SELECT e.node_id, e.vector FROM embeddings e
+			.query<{ node_id: string; dims: number; vector: Uint8Array }, [string]>(
+				`SELECT e.node_id, e.dims, e.vector FROM embeddings e
 				 JOIN nodes n ON n.id = e.node_id
 				 WHERE e.model_id = ? AND n.kind = 'decision'
 				   AND n.status = 'active' AND n.present = 1`,
 			)
 			.all(modelId)
-			.map((row) => ({
-				nodeId: row.node_id,
-				vector: toFloat32Array(row.vector),
-			}));
+			.flatMap((row) => {
+				const vector = toFloat32Array(row.vector, row.dims);
+				return vector ? [{ nodeId: row.node_id, vector }] : [];
+			});
 	}
 
 	listMissingNodeIds(modelId: string): string[] {
@@ -81,9 +86,11 @@ export class EmbeddingRepository {
 	}
 }
 
-// A Float32Array view requires a 4-byte-aligned offset, which a blob handed
-// back as a view into a larger buffer does not guarantee; copying first costs
-// one allocation and removes the RangeError from the query path.
-function toFloat32Array(blob: Uint8Array): Float32Array {
+// Two ways the constructor would throw, both answered here: a byte length that
+// is not a multiple of 4, and a view whose offset into a larger buffer is not
+// 4-byte-aligned. The dims column exists to make the first check possible, and
+// copying costs one allocation to remove the second.
+function toFloat32Array(blob: Uint8Array, dims: number): Float32Array | null {
+	if (blob.byteLength !== dims * Float32Array.BYTES_PER_ELEMENT) return null;
 	return new Float32Array(blob.slice().buffer);
 }

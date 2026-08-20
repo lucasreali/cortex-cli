@@ -68,11 +68,25 @@ export class SemanticSearch {
 		if (!provider) return [];
 		const queryVector = await this.embedIntent(provider, intent);
 		if (!queryVector) return [];
-		return [...this.loadCache(provider.modelId).entries()]
-			.map(([nodeId, vector]) => ({ nodeId, score: dot(queryVector, vector) }))
-			.filter((entry) => entry.score >= this.threshold())
-			.sort((a, b) => b.score - a.score)
-			.map((entry) => entry.nodeId);
+		return this.rank(queryVector, provider.modelId);
+	}
+
+	// A stored vector from another embedding space makes dot() throw, and a
+	// search must degrade to FTS rather than fail: the ladder ends in pure FTS,
+	// never in an error.
+	private rank(queryVector: Float32Array, modelId: string): string[] {
+		try {
+			return [...this.loadCache(modelId).entries()]
+				.map(([nodeId, vector]) => ({
+					nodeId,
+					score: dot(queryVector, vector),
+				}))
+				.filter((entry) => entry.score >= this.threshold())
+				.sort((a, b) => b.score - a.score)
+				.map((entry) => entry.nodeId);
+		} catch {
+			return [];
+		}
 	}
 
 	private bm25Leg(intent: string): string[] {
