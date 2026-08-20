@@ -39,6 +39,15 @@ describe("MCP result discipline with an unavailable code index", () => {
 		expect(payload.code_warning).toContain("code index unavailable");
 	});
 
+	test("a malformed decision id is guidance, not a zod dump under isError", async () => {
+		const { isError, payload } = await callTool(client, "get_impact", {
+			decision_id: "the one about the service",
+		});
+		expect(isError).toBe(false);
+		expect(payload.status).toBe("invalid_id");
+		expect(payload.guidance).toContain("uuid");
+	});
+
 	test("save_decision with a symbol anchor degrades to a warning", async () => {
 		const { isError, payload } = await callTool(client, "save_decision", {
 			title: "Símbolo ancorado com índice quebrado",

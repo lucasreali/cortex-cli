@@ -23,7 +23,8 @@ export function registerGetImpact(
 			annotations: READ_ONLY_ANNOTATIONS,
 			inputSchema: {
 				decision_id: z
-					.uuid()
+					.string()
+					.min(1)
 					.describe("Decision id, as returned by save_decision or search."),
 				max_depth: z
 					.number()
@@ -48,10 +49,21 @@ export function registerGetImpact(
 	);
 }
 
+// The id is validated here rather than by the tool schema: a malformed one is
+// a recoverable mistake the agent can fix from the guidance, and the SDK would
+// answer it with a raw zod dump under isError instead.
 async function getImpact(
 	runtime: CortexRuntime,
 	args: { decision_id: string; max_depth?: number; code_depth?: number },
 ) {
+	if (!z.uuid().safeParse(args.decision_id).success) {
+		return guidanceResult(
+			"invalid_id",
+			`"${args.decision_id}" is not a decision id. Ids are uuids, as ` +
+				"returned by save_decision, search or get_context — pass one of " +
+				"those, not a title or a file path.",
+		);
+	}
 	const impact = await decisionImpact(runtime, args.decision_id, {
 		maxDepth: args.max_depth,
 		codeDepth: args.code_depth,
@@ -67,6 +79,11 @@ async function getImpact(
 	return jsonResult(toPayload(impact));
 }
 
+// A decision at the centre of a large graph can reach thousands of others, and
+// this is the tool whose whole purpose is context economy: the answer is capped
+// and says so, rather than shipping a multi-megabyte blob into the context.
+const MAX_ENTRIES = 100;
+
 function toPayload(impact: DecisionImpact) {
 	const { root } = impact;
 	return {
@@ -76,14 +93,15 @@ function toPayload(impact: DecisionImpact) {
 			status: root.status,
 			anchors: root.anchors,
 		},
-		impacted: impact.impacted.map(({ node, depth }) => ({
+		...truncationMarker(impact),
+		impacted: impact.impacted.slice(0, MAX_ENTRIES).map(({ node, depth }) => ({
 			id: node.id,
 			depth,
 			title: node.title,
 			status: node.status,
 			anchors: node.anchors,
 		})),
-		code_impacted: impact.codeImpacted.map((entry) => ({
+		code_impacted: impact.codeImpacted.slice(0, MAX_ENTRIES).map((entry) => ({
 			id: entry.decision.id,
 			title: entry.decision.title,
 			status: entry.decision.status,
@@ -94,5 +112,21 @@ function toPayload(impact: DecisionImpact) {
 		...(impact.codeWarning === null
 			? {}
 			: { code_warning: impact.codeWarning }),
+	};
+}
+
+function truncationMarker(impact: DecisionImpact) {
+	const dropped =
+		Math.max(0, impact.impacted.length - MAX_ENTRIES) +
+		Math.max(0, impact.codeImpacted.length - MAX_ENTRIES);
+	if (dropped === 0) return {};
+	return {
+		truncated: {
+			shown_per_lens: MAX_ENTRIES,
+			omitted: dropped,
+			guidance:
+				"This decision reaches more entries than one answer carries. " +
+				"Narrow the walk with a smaller max_depth or code_depth.",
+		},
 	};
 }
