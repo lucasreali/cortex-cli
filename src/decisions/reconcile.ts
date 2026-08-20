@@ -4,6 +4,7 @@ import type {
 	VersionedEdgeKind,
 } from "@/storage/decision-sync-repository";
 import { errorMessage } from "@/support/errors";
+import { breaksPromptFence } from "@/support/prompt-fence";
 import type { DecisionStore } from "./decision-store";
 
 export interface ReconcileDependencies {
@@ -41,6 +42,7 @@ export interface ReconcileReport {
 	dangling: VersionedEdge[];
 	multiplyReplaced: SupersededTwice[];
 	malformed: MalformedDecisionFile[];
+	fenceBreaking: string[];
 }
 
 interface ParsedFiles {
@@ -94,6 +96,7 @@ function quiet(malformed: MalformedDecisionFile[]): ReconcileReport {
 		dangling: [],
 		multiplyReplaced: [],
 		malformed,
+		fenceBreaking: [],
 	};
 }
 
@@ -144,7 +147,22 @@ function apply(
 			...insertion.refused,
 			...unnamed(dependencies),
 		],
+		fenceBreaking: fenceBreaking(parsed.files),
 	};
+}
+
+// The prompt hook escapes this text before it ever reaches a prompt, so a file
+// naming the closing tag is reported and still imported — it is readable, it is
+// a decision, and refusing it would drop one from the branch over a string.
+// What it is not is an accident, which is why every one of them is named:
+// unreadable files arrive in bulk from a corrupt checkout and share a cause
+// worth capping the list over, while each of these is a separate act to look at.
+function fenceBreaking(files: DecisionFile[]): string[] {
+	return files
+		.filter((file) =>
+			[file.title, file.body, file.module ?? ""].some(breaksPromptFence),
+		)
+		.map((file) => `${file.id}.md`);
 }
 
 interface Insertion {

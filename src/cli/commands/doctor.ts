@@ -156,7 +156,18 @@ function checkDecisionFiles(
 			`superseded ${entry.by.length} times: ${entry.target} — by ${entry.by.join(", ")}`,
 		);
 	}
-	if (reconciled.malformed.length + reconciled.dangling.length === 0) {
+	for (const name of reconciled.fenceBreaking) {
+		report.warn(
+			`decision file closes the prompt-hook context fence: ${name} — the ` +
+				"hook escapes it, but read that file before trusting it",
+		);
+	}
+	if (
+		reconciled.malformed.length +
+			reconciled.dangling.length +
+			reconciled.fenceBreaking.length ===
+		0
+	) {
 		report.ok("decision files: all readable, every link resolved");
 	}
 }

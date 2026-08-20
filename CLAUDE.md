@@ -27,10 +27,13 @@ Dependency direction, no cycles:
 - `domain/` — pure types + Zod schemas; depends only on zod. Shared
   invariants (e.g. `MINIMUM_KEYWORDS`) are defined here, nowhere else.
 - `support/` — dependency-free leaf helpers (`errorMessage`, `errnoCode`,
-  `parseJsonOrNull`, `sha256Hex`, `symbolKey`, `truncate`, `writeAtomically`,
-  `userCortexDir`). Anything may import it, including `release/`; it imports
-  nothing. Put a helper here only once a third call site wants it — `symbolKey`
-  arrived with exactly three. `writeAtomically` and its sync twin resolve the
+  `parseJsonOrNull`, `sha256Hex`, `symbolKey`, `truncate`, `fenceSafe`,
+  `writeAtomically`, `userCortexDir`). Anything may import it, including
+  `release/`; it imports nothing. Put a helper here only once a third call site wants it — `symbolKey`
+  arrived with exactly three. `prompt-fence.ts` is the exception that earned its
+  place on two: `prompt-hook` renders the fence and the reconcile reports it,
+  and neither directory may import the other, so one truth about the tag has
+  nowhere else to live. `writeAtomically` and its sync twin resolve the
   leaf symlink chain before choosing the staging path, so a managed path that
   is a link is written *through* rather than replaced, and the staging file
   stays on the target's filesystem — which is the only place rename is atomic.
@@ -196,7 +199,20 @@ revisit a `content_sha` column that day, and not before.
   load the model, and a CLI process disposes before the embed would finish.
   `cortex embed --missing` owns that, and doctor reports the pending count.
 - `prompt-hook` never reconciles — it is read-only and must never migrate. It
-  serves the previous view until the next command runs.
+  serves the previous view until the next command runs. Read-only to SQLite is
+  not read-only to the filesystem, though: reading a WAL database creates
+  `-shm`, so a `.cortex` the user cannot write is a store the hook cannot open,
+  and it exits 0 in silence like every other failure. Its stdin is bounded in
+  time and size for the same reason — a caller that holds the pipe open is a
+  caller that will never finish, in front of a person waiting to type.
+- Everything a decision file contributes to that output goes through
+  `fenceSafe` first, and the truncation runs after the escape so a cut cannot
+  reassemble a tag out of what it leaves behind. The fence is the only thing
+  separating injected context from the user's own prompt, and a decision file
+  arrives through any merged pull request. A file that spells the closing tag
+  anyway is named in `ReconcileReport.fenceBreaking` and warned about by
+  `doctor` — reported, never refused: the escape already made it harmless, and
+  dropping a decision off the branch over a string is the larger damage.
 - `git-hook` is its mirror image: reconciling is the whole job, so it opens the
   store read-write — but only when `decisions.db` already exists, so a hook can
   never conjure a store behind a commit. It bypasses `app/runtime` (which would
