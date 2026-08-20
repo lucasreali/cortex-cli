@@ -86,7 +86,7 @@ async function intentContext(
 }
 
 function overviewContext(runtime: CortexRuntime, module?: string) {
-	const recent = runtime.nodes.listActive({ module }).slice(0, RECENT_LIMIT);
+	const recent = runtime.nodes.listActive({ module, limit: RECENT_LIMIT });
 	const conflicts = conflictsOf(runtime, recent);
 	return jsonResult({
 		project: runtime.projectCanonicalId,

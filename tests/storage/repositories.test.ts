@@ -194,6 +194,48 @@ describe("NodeRepository.listActive filters", () => {
 		expect(nodes.hasCommitSha("sha-2")).toBe(true);
 		expect(nodes.hasCommitSha("unknown-sha")).toBe(false);
 	});
+
+	// The overview path wants the newest few, and used to load the whole store
+	// to slice them; the cap belongs in SQL.
+	test("honours a limit, newest first, and combines it with a filter", () => {
+		create(decisionInput({ module: "auth" }), context);
+		create(decisionInput({ module: "billing" }), context);
+		const newest = create(decisionInput({ module: "auth" }), context);
+
+		expect(nodes.listActive({ limit: 1 })).toEqual([newest]);
+		expect(
+			nodes
+				.listActive({ module: "auth", limit: 1 })
+				.map((decision) => decision.id),
+		).toEqual([newest.id]);
+		expect(nodes.listActive({ limit: 10 })).toHaveLength(3);
+		expect(nodes.listActive()).toHaveLength(3);
+	});
+
+	test("carries the anchors of every decision on the page", () => {
+		const first = create(
+			decisionInput({
+				anchors: [
+					{ file_path: "src/auth/service.ts", symbol: "AuthService" },
+					{ file_path: "src/auth/jwt.ts" },
+				],
+			}),
+			context,
+		);
+		const second = create(
+			decisionInput({ anchors: [{ file_path: "src/api/login.ts" }] }),
+			context,
+		);
+
+		expect(nodes.listActive().map((decision) => decision.anchors)).toEqual([
+			second.anchors,
+			first.anchors,
+		]);
+		expect(first.anchors).toEqual([
+			{ filePath: "src/auth/jwt.ts", symbol: "" },
+			{ filePath: "src/auth/service.ts", symbol: "AuthService" },
+		]);
+	});
 });
 
 describe("NodeRepository.listModules", () => {
@@ -287,6 +329,23 @@ describe("NodeRepository.listByAnchorPath", () => {
 
 		expect(nodes.listByAnchorPath("src/billing")).toEqual([]);
 	});
+
+	// `_` is LIKE's single-character wildcard, so an unescaped prefix matched
+	// sibling directories that merely differ in one character.
+	test("a wildcard character in the path stays literal", () => {
+		const underscored = create(
+			decisionInput({ anchors: [{ file_path: "src/auth_v2/service.ts" }] }),
+			context,
+		);
+		create(
+			decisionInput({ anchors: [{ file_path: "src/authXv2/service.ts" }] }),
+			context,
+		);
+
+		expect(
+			nodes.listByAnchorPath("src/auth_v2").map((decision) => decision.id),
+		).toEqual([underscored.id]);
+	});
 });
 
 describe("NodeRepository.listActiveWithFewKeywords", () => {
@@ -327,6 +386,18 @@ describe("SearchRepository.searchExact", () => {
 
 	test("returns empty for no terms", () => {
 		expect(search.searchExact([])).toEqual([]);
+	});
+
+	// A NUL truncates the MATCH expression mid-quote inside SQLite, which used
+	// to raise "unterminated string" out of the query.
+	test("a NUL inside a term neither throws nor widens the match", () => {
+		const decision = create(decisionInput(), context);
+
+		expect(search.searchExact(["jwt\u0000"])).toEqual([
+			{ nodeId: decision.id, rank: expect.any(Number) },
+		]);
+		expect(search.searchExact(["\u0000"])).toEqual([]);
+		expect(search.searchColumn("title", ["\u0000"])).toEqual([]);
 	});
 
 	test("excludes replaced decisions at the source", () => {

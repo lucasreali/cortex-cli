@@ -5,6 +5,7 @@ import type {
 	DecisionStatus,
 	NodeProvenance,
 } from "@/domain";
+import { likeLiteral } from "./like-pattern";
 
 export interface SaveContext {
 	projectId: string;
@@ -17,6 +18,7 @@ export interface SaveContext {
 export interface ListActiveFilters {
 	module?: string;
 	sinceSha?: string;
+	limit?: number;
 }
 
 interface NodeRow {
@@ -44,16 +46,20 @@ export class NodeRepository {
 			)
 			.get(id);
 		if (!row) return null;
-		return this.toDecision(row);
+		return this.toDecisions([row])[0] ?? null;
 	}
 
+	// A store accumulates decisions forever, so the callers that only want the
+	// most recent few say so here rather than slicing what they were handed:
+	// SQLite reads `LIMIT -1` as no limit, which keeps the unbounded callers on
+	// the same statement.
 	listActive(filters: ListActiveFilters = {}): Decision[] {
 		const conditions = [
 			"kind = 'decision'",
 			"status = 'active'",
 			"present = 1",
 		];
-		const params: string[] = [];
+		const params: Array<string | number> = [];
 		if (filters.module) {
 			conditions.push("module = ?");
 			params.push(filters.module);
@@ -62,12 +68,14 @@ export class NodeRepository {
 			conditions.push("id >= (SELECT MIN(id) FROM nodes WHERE commit_sha = ?)");
 			params.push(filters.sinceSha);
 		}
+		params.push(filters.limit ?? -1);
 		const rows = this.db
-			.query<NodeRow, string[]>(
-				`SELECT * FROM nodes WHERE ${conditions.join(" AND ")} ORDER BY id DESC`,
+			.query<NodeRow, Array<string | number>>(
+				`SELECT * FROM nodes WHERE ${conditions.join(" AND ")}
+				 ORDER BY id DESC LIMIT ?`,
 			)
 			.all(...params);
-		return rows.map((row) => this.toDecision(row));
+		return this.toDecisions(rows);
 	}
 
 	// listActive's `sinceSha` filter compares against the id of the first
@@ -135,22 +143,22 @@ export class NodeRepository {
 
 	listByAnchorPath(path: string): Decision[] {
 		const normalized = path.replace(/\/+$/, "");
-		return this.db
+		const rows = this.db
 			.query<NodeRow, [string, string]>(
 				`SELECT DISTINCT n.* FROM nodes n
 				 JOIN anchors a ON a.node_id = n.id
 				 WHERE n.kind = 'decision' AND n.present = 1
-				   AND (a.file_path = ? OR a.file_path LIKE ? || '/%')
+				   AND (a.file_path = ? OR a.file_path LIKE ? || '/%' ESCAPE '\\')
 				 ORDER BY n.id ASC`,
 			)
-			.all(normalized, normalized)
-			.map((row) => this.toDecision(row));
+			.all(normalized, likeLiteral(normalized));
+		return this.toDecisions(rows);
 	}
 
 	listActiveAnchoredToFiles(
 		paths: string[],
 	): Array<{ decision: Decision; filePath: string }> {
-		return this.db
+		const rows = this.db
 			.query<NodeRow & { anchor_path: string }, [string]>(
 				`SELECT DISTINCT n.*, a.file_path AS anchor_path
 				 FROM nodes n
@@ -159,15 +167,16 @@ export class NodeRepository {
 				   AND a.file_path IN (SELECT value FROM json_each(?))
 				 ORDER BY n.id, a.file_path`,
 			)
-			.all(JSON.stringify(paths))
-			.map((row) => ({
-				decision: this.toDecision(row),
-				filePath: row.anchor_path,
-			}));
+			.all(JSON.stringify(paths));
+		const anchors = this.anchorsFor(rows.map((row) => row.id));
+		return rows.map((row) => ({
+			decision: this.toDecision(row, anchors.get(row.id) ?? []),
+			filePath: row.anchor_path,
+		}));
 	}
 
 	listByFileAnchorOrSymbol(filePath: string, symbol: string): Decision[] {
-		return this.db
+		const rows = this.db
 			.query<NodeRow, [string, string]>(
 				`SELECT DISTINCT n.* FROM nodes n
 				 JOIN anchors a ON a.node_id = n.id
@@ -176,8 +185,8 @@ export class NodeRepository {
 				   AND (a.symbol = '' OR a.symbol = ?)
 				 ORDER BY n.id ASC`,
 			)
-			.all(filePath, symbol)
-			.map((row) => this.toDecision(row));
+			.all(filePath, symbol);
+		return this.toDecisions(rows);
 	}
 
 	listActiveWithFewKeywords(minimum: number): Array<{
@@ -211,17 +220,33 @@ export class NodeRepository {
 			.run(fromId, toId, kind);
 	}
 
-	private anchorsOf(nodeId: string): Anchor[] {
-		return this.db
-			.query<{ file_path: string; symbol: string }, [string]>(
-				`SELECT file_path, symbol FROM anchors WHERE node_id = ?
-				 ORDER BY file_path, symbol`,
-			)
-			.all(nodeId)
-			.map((row) => ({ filePath: row.file_path, symbol: row.symbol }));
+	private toDecisions(rows: NodeRow[]): Decision[] {
+		const anchors = this.anchorsFor(rows.map((row) => row.id));
+		return rows.map((row) => this.toDecision(row, anchors.get(row.id) ?? []));
 	}
 
-	private toDecision(row: NodeRow): Decision {
+	// One query for the whole page instead of one per row: the overview path is
+	// the most frequent read there is, and it used to cost a round trip per
+	// decision in the store.
+	private anchorsFor(nodeIds: string[]): Map<string, Anchor[]> {
+		const byNode = new Map<string, Anchor[]>();
+		if (nodeIds.length === 0) return byNode;
+		const rows = this.db
+			.query<{ node_id: string; file_path: string; symbol: string }, [string]>(
+				`SELECT node_id, file_path, symbol FROM anchors
+				 WHERE node_id IN (SELECT value FROM json_each(?))
+				 ORDER BY file_path, symbol`,
+			)
+			.all(JSON.stringify(nodeIds));
+		for (const row of rows) {
+			const anchors = byNode.get(row.node_id) ?? [];
+			anchors.push({ filePath: row.file_path, symbol: row.symbol });
+			byNode.set(row.node_id, anchors);
+		}
+		return byNode;
+	}
+
+	private toDecision(row: NodeRow, anchors: Anchor[]): Decision {
 		return {
 			id: row.id,
 			title: row.title,
@@ -235,7 +260,7 @@ export class NodeRepository {
 			provenance: row.provenance,
 			props: row.props === null ? null : JSON.parse(row.props),
 			createdAt: row.created_at,
-			anchors: this.anchorsOf(row.id),
+			anchors,
 		};
 	}
 }

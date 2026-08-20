@@ -11,13 +11,15 @@ export class SearchRepository {
 	constructor(private readonly db: Database) {}
 
 	searchExact(terms: string[], limit = 20): SearchHit[] {
-		if (terms.length === 0) return [];
-		return this.match(toMatchExpression(terms), limit);
+		const expression = toMatchExpression(terms);
+		if (expression === "") return [];
+		return this.match(expression, limit);
 	}
 
 	searchColumn(column: SearchColumn, terms: string[], limit = 20): SearchHit[] {
-		if (terms.length === 0) return [];
-		return this.match(`${column} : (${toMatchExpression(terms)})`, limit);
+		const expression = toMatchExpression(terms);
+		if (expression === "") return [];
+		return this.match(`${column} : (${expression})`, limit);
 	}
 
 	// nodes_fts is insert-only (neither replacing a decision nor checking out a
@@ -40,7 +42,18 @@ export class SearchRepository {
 }
 
 function toMatchExpression(terms: string[]): string {
-	return terms.map(quote).join(" OR ");
+	return terms
+		.map(withoutNul)
+		.filter((term) => term.length > 0)
+		.map(quote)
+		.join(" OR ");
+}
+
+// SQLite receives the MATCH expression as a C string, so an embedded NUL
+// truncates it mid-quote and the query dies with "unterminated string" instead
+// of simply not matching. Every other character quoting handles.
+function withoutNul(term: string): string {
+	return term.replaceAll("\u0000", "");
 }
 
 function quote(term: string): string {
