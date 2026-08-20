@@ -107,6 +107,30 @@ Dependency direction, no cycles:
   file stays in the listing regardless, because an import can point at it —
   it is `computeDrift`, reading the same skip list, that keeps it from looking
   like drift forever.
+
+  Two grammars are loaded, not one (`ensureGrammars`): `<T>expr` is a type
+  assertion in `.ts` and a JSX element in `.tsx`, and parsed by the wrong one it
+  becomes an ERROR node that swallows every symbol after it. `.ts` gets the
+  TypeScript grammar, everything else the TSX one, because a `.js` file carries
+  JSX far too often to risk the other way round. What the grammar could not read
+  end to end is recorded per file rather than thrown: `IndexedFile.hasError`
+  says the symbols are a prefix, never an inventory, and everything downstream
+  reads it that way.
+
+  An import's target is a fact about the whole file set, so the incremental pass
+  cannot leave it to the importer's own bytes: adding a module used to leave
+  every earlier import of it NULL forever, and renaming one left every edge into
+  it pointing at a file that was gone. Whenever the file set moves, the pass
+  re-resolves every edge in `imports` and writes only the rows that moved
+  (`IndexReport.repaired`); `danglingTargets` is the same question asked of a
+  store nobody reconciled, which is the one drift `computeDrift` cannot see.
+
+  Staleness is `(size, mtime, ctime)`. The first two are both forgeable by an
+  ordinary restore — `cp -p`, `tar -x`, `rsync -t`, a CI cache restore — and no
+  userspace call can set an inode's change time. And the listing only guesses at
+  generated output when nothing better answered: a git listing already came
+  through `--exclude-standard`, so `dist` and `build` are dropped by the
+  directory walk alone, never on top of the project's own `.gitignore`.
 - `embedding/` — the hard part; see topology below.
 - `release/` — self-update: resolve a GitHub release, verify its checksum,
   unpack the ustar member, replace the running binary by atomic rename. It

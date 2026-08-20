@@ -8,10 +8,10 @@ import { boundedMalformedLines } from "@/cli/malformed-files";
 import { withRuntime } from "@/cli/open-runtime";
 import { boundedSkippedLines } from "@/cli/skipped-sources";
 import { success, warning } from "@/cli/style";
-import { MINIMUM_KEYWORDS } from "@/domain";
+import { type IndexedFile, MINIMUM_KEYWORDS } from "@/domain";
 import { GEMMA_MODEL } from "@/embedding/model";
 import { modelCacheDirectory, modelIsResident } from "@/embedding/model-cache";
-import { computeDrift } from "@/indexer/code-indexer";
+import { computeDrift, danglingTargets } from "@/indexer/code-indexer";
 import { EXTRACTION_VERSION } from "@/indexer/extraction-version";
 import { listSources, type SourceListing } from "@/indexer/source-walker";
 import { TsconfigAliases } from "@/indexer/tsconfig-aliases";
@@ -377,6 +377,8 @@ function checkCodeDrift(
 	const indexed = repository.listFiles();
 	const listing = listSources(runtime.repoRoot);
 	reportSkippedSources(listing, report);
+	reportUnparsedSources(indexed, report);
+	reportDanglingTargets(listing, repository, report);
 	const drift = computeDrift(listing, indexed);
 	if (drift.added === 0 && drift.changed === 0 && drift.removed === 0) {
 		report.ok(
@@ -401,12 +403,43 @@ function reportSkippedSources(
 	}
 }
 
+// A file the grammar could not read end to end contributes the symbols before
+// the break and nothing after it, which is why anchor grading stops calling a
+// symbol missing from one "gone". Reported so the count is visible rather than
+// only implied by anchors that never reach `exact`.
+function reportUnparsedSources(
+	indexed: IndexedFile[],
+	report: DoctorReport,
+): void {
+	const broken = indexed.filter((file) => file.hasError);
+	if (broken.length === 0) return;
+	report.warn(
+		`code index: ${broken.length} file(s) did not parse cleanly — ` +
+			`symbols for them are incomplete (first: ${broken[0]?.path})`,
+	);
+}
+
+// The one drift computeDrift cannot see: the importer is unchanged, so its
+// `files` row compares clean while its edge points at a file that is gone.
+function reportDanglingTargets(
+	listing: SourceListing,
+	repository: CodeRepository,
+	report: DoctorReport,
+): void {
+	const dangling = danglingTargets(listing, repository.listImports());
+	if (dangling.length === 0) return;
+	report.warn(
+		`code index: ${dangling.length} import target(s) no longer in the working ` +
+			`tree (first: ${dangling[0]}) — run: cortex index`,
+	);
+}
+
 async function checkImportResolution(
 	runtime: CortexRuntime,
 	repository: CodeRepository,
 	report: DoctorReport,
 ): Promise<void> {
-	const aliases = await TsconfigAliases.load(runtime.repoRoot);
+	const aliases = TsconfigAliases.load(runtime.repoRoot);
 	const resolvable = repository
 		.listImports()
 		.filter((entry) => hasResolvableIntent(aliases, entry.specifier));

@@ -29,14 +29,8 @@ const TYPESCRIPT_COUNTERPARTS = new Map<string, string[]>([
 ]);
 
 export class ImportResolver {
-	static async create(
-		repoRoot: string,
-		files: Iterable<string>,
-	): Promise<ImportResolver> {
-		return new ImportResolver(
-			new Set(files),
-			await TsconfigAliases.load(repoRoot),
-		);
+	static create(repoRoot: string, files: Iterable<string>): ImportResolver {
+		return new ImportResolver(new Set(files), TsconfigAliases.load(repoRoot));
 	}
 
 	private constructor(

@@ -13,6 +13,9 @@ import decisionsGraphVocabulary from "./migrations/005-decisions-graph-vocabular
 import decisionsProjectIdentity from "./migrations/006-decisions-project-identity.sql" with {
 	type: "text",
 };
+import codeFileFacts from "./migrations/007-code-file-facts.sql" with {
+	type: "text",
+};
 import migrationsTable from "./migrations/migrations-table.sql" with {
 	type: "text",
 };
@@ -63,6 +66,11 @@ const codeMigrations: Migration[] = [
 		id: 2,
 		name: "code-meta",
 		up: (db) => db.run(codeMeta),
+	},
+	{
+		id: 3,
+		name: "code-file-facts",
+		up: (db) => db.run(codeFileFacts),
 	},
 ];
 

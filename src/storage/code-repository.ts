@@ -34,7 +34,9 @@ interface FileRow {
 	lang: string;
 	hash: string;
 	mtime: number;
+	ctime: number;
 	size: number;
+	has_error: number;
 }
 
 interface SymbolRow {
@@ -46,6 +48,13 @@ interface SymbolRow {
 interface ImportRow {
 	specifier: string;
 	to_path: string | null;
+	provenance: ImportProvenance;
+}
+
+export interface CodeEdge {
+	fromPath: string;
+	specifier: string;
+	toPath: string | null;
 	provenance: ImportProvenance;
 }
 
@@ -97,9 +106,18 @@ export class CodeRepository {
 	touchFile(file: IndexedFile): void {
 		this.db
 			.query(
-				"UPDATE files SET lang = ?, hash = ?, mtime = ?, size = ? WHERE path = ?",
+				`UPDATE files SET lang = ?, hash = ?, mtime = ?, ctime = ?, size = ?,
+				 has_error = ? WHERE path = ?`,
 			)
-			.run(file.lang, file.hash, file.mtime, file.size, file.path);
+			.run(
+				file.lang,
+				file.hash,
+				file.mtime,
+				file.ctime,
+				file.size,
+				Number(file.hasError),
+				file.path,
+			);
 	}
 
 	getFile(path: string): IndexedFile | null {
@@ -107,13 +125,14 @@ export class CodeRepository {
 			.query<FileRow, [string]>("SELECT * FROM files WHERE path = ?")
 			.get(path);
 		if (!row) return null;
-		return row;
+		return indexedFileOf(row);
 	}
 
 	listFiles(): IndexedFile[] {
 		return this.db
 			.query<FileRow, []>("SELECT * FROM files ORDER BY path")
-			.all();
+			.all()
+			.map(indexedFileOf);
 	}
 
 	symbolsIn(filePath: string): CodeSymbol[] {
@@ -205,24 +224,47 @@ export class CodeRepository {
 			.map((row) => row.name);
 	}
 
-	listImports(): Array<{
-		fromPath: string;
-		specifier: string;
-		toPath: string | null;
-	}> {
+	listImports(): CodeEdge[] {
 		return this.db
 			.query<
-				{ from_path: string; specifier: string; to_path: string | null },
+				{
+					from_path: string;
+					specifier: string;
+					to_path: string | null;
+					provenance: ImportProvenance;
+				},
 				[]
 			>(
-				"SELECT from_path, specifier, to_path FROM imports ORDER BY from_path, specifier",
+				`SELECT from_path, specifier, to_path, provenance FROM imports
+				 ORDER BY from_path, specifier`,
 			)
 			.all()
 			.map((row) => ({
 				fromPath: row.from_path,
 				specifier: row.specifier,
 				toPath: row.to_path,
+				provenance: row.provenance,
 			}));
+	}
+
+	// The target of an edge is a fact about the whole file set, so it outlives
+	// the pass that read the importer: re-pointing edges is a write the indexer
+	// makes without touching the file rows they belong to.
+	retargetImports(edges: CodeEdge[]): void {
+		const statement = this.db.query(
+			`UPDATE imports SET to_path = ?, provenance = ?
+			 WHERE from_path = ? AND specifier = ?`,
+		);
+		this.db.transaction(() => {
+			for (const edge of edges) {
+				statement.run(
+					edge.toPath,
+					edge.provenance,
+					edge.fromPath,
+					edge.specifier,
+				);
+			}
+		})();
 	}
 
 	importsFrom(path: string): CodeImport[] {
@@ -248,9 +290,18 @@ export class CodeRepository {
 	private insertFile(file: IndexedFile): void {
 		this.db
 			.query(
-				"INSERT INTO files (path, lang, hash, mtime, size) VALUES (?, ?, ?, ?, ?)",
+				`INSERT INTO files (path, lang, hash, mtime, ctime, size, has_error)
+				 VALUES (?, ?, ?, ?, ?, ?, ?)`,
 			)
-			.run(file.path, file.lang, file.hash, file.mtime, file.size);
+			.run(
+				file.path,
+				file.lang,
+				file.hash,
+				file.mtime,
+				file.ctime,
+				file.size,
+				Number(file.hasError),
+			);
 	}
 
 	private insertSymbols(filePath: string, symbols: CodeSymbol[]): void {
@@ -281,4 +332,16 @@ export class CodeRepository {
 		this.db.query("DELETE FROM imports WHERE from_path = ?").run(path);
 		this.db.query("DELETE FROM files WHERE path = ?").run(path);
 	}
+}
+
+function indexedFileOf(row: FileRow): IndexedFile {
+	return {
+		path: row.path,
+		lang: row.lang,
+		hash: row.hash,
+		mtime: row.mtime,
+		ctime: row.ctime,
+		size: row.size,
+		hasError: row.has_error !== 0,
+	};
 }

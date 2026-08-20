@@ -37,7 +37,9 @@ beforeEach(() => {
 				lang: "ts",
 				hash: "a",
 				mtime: 1,
+				ctime: 1,
 				size: 1,
+				hasError: false,
 			},
 			symbols: [{ name: "AuthService.login", kind: "method", line: 10 }],
 			imports: [],
@@ -48,7 +50,9 @@ beforeEach(() => {
 				lang: "ts",
 				hash: "b",
 				mtime: 1,
+				ctime: 1,
 				size: 1,
+				hasError: false,
 			},
 			symbols: [{ name: "rotateRefreshToken", kind: "function", line: 4 }],
 			imports: [],
@@ -142,6 +146,29 @@ describe("anchor confidence", () => {
 		expect(confidences([[INDEXED_FILE, "AuthService.logout"]])).toEqual([
 			"unresolved",
 		]);
+	});
+
+	// H10/H11: whole declaration categories were invisible to the extractor, so
+	// grading a live symbol `unresolved` asserted the code had changed when only
+	// the extractor was blind. A file the grammar could not read end to end has
+	// a prefix of its symbols, never an inventory, so "absent" is not a claim it
+	// can support.
+	test("a symbol missing from a half-parsed file is only file_only", () => {
+		code.upsertFile({
+			file: {
+				path: INDEXED_FILE,
+				lang: "ts",
+				hash: "a",
+				mtime: 1,
+				ctime: 1,
+				size: 1,
+				hasError: true,
+			},
+			symbols: [{ name: "AuthService.login", kind: "method", line: 10 }],
+			imports: [],
+		});
+
+		expect(confidences([[INDEXED_FILE, "vanished"]])).toEqual(["file_only"]);
 	});
 
 	test("an anchor whose file left the working tree is unresolved", () => {

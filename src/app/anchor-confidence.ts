@@ -170,10 +170,13 @@ class IndexedAnchors implements AnchorResolver {
 	}
 
 	// The indexer covers TS/JS only, so a symbol it cannot find in a file it
-	// never read is unverified rather than gone. A symbol missing from a file
-	// the index does hold is a real miss.
+	// never read is unverified rather than gone — and so is a symbol missing
+	// from a file the grammar could not read end to end, whose symbol list is a
+	// prefix rather than an inventory. Only a clean parse of an indexed file
+	// makes "absent" a claim about the code instead of about the extractor.
 	private symbolIsGone(anchor: Anchor): boolean {
 		if (anchor.symbol === "") return false;
-		return this.code.getFile(anchor.filePath) !== null;
+		const file = this.code.getFile(anchor.filePath);
+		return file !== null && !file.hasError;
 	}
 }
