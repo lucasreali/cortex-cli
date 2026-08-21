@@ -9,6 +9,7 @@ import {
 import { basename, dirname, join } from "node:path";
 import { createStagingFile, stagingPath } from "@/support/atomic-write";
 import { errnoCode } from "@/support/errors";
+import { RUNS_FROM_COMPILED_BINARY } from "./target";
 
 const PROBE_TIMEOUT_MS = 10_000;
 const STAGING_SUFFIX = ".partial";
@@ -24,6 +25,22 @@ export interface Installation {
 // symlinked cortex a symlink instead of replacing the link with 60 MB.
 export function currentBinaryPath(): string {
 	return realpathSync(process.execPath);
+}
+
+// Which file an upgrade may replace, or null when there is none — a source
+// checkout, where process.execPath is the bun runtime and replacing it would be
+// absurd. CORTEX_UPGRADE_TARGET_PATH is the test seam that gives the source
+// checkout a file of its own to install over, so the order the orchestration
+// runs in can be driven end to end. It follows CORTEX_RELEASE_BASE_URL's rule
+// and for the same reason: an installed binary ignores it outright, because
+// anything able to set an environment variable would otherwise choose what the
+// download lands on.
+export function upgradeTargetPath(
+	compiled: boolean = RUNS_FROM_COMPILED_BINARY,
+): string | null {
+	if (compiled) return currentBinaryPath();
+	const override = process.env.CORTEX_UPGRADE_TARGET_PATH;
+	return override ? realpathSync(override) : null;
 }
 
 // The running executable cannot be written into (ETXTBSY), but renaming over

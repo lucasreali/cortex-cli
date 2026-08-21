@@ -102,33 +102,39 @@ jobs:
       contents: read
       attestations: read
     steps:
-      - name: Install from the published release
+      - uses: actions/checkout@v4
+
+      # Through install.sh rather than beside it: this job is the only place a
+      # darwin install is ever executed, and a second hand-rolled download would
+      # prove the release is fine while the script every user actually runs —
+      # its darwin branch, its checksum verification, its version probe — stays
+      # unexercised.
+      - name: Install the way a user would
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release download "$GITHUB_REF_NAME" \
-            --repo "$GITHUB_REPOSITORY" \
-            --pattern "cortex-$GITHUB_REF_NAME-darwin-arm64.tar.gz" \
-            --pattern "checksums.txt" \
-            --dir .
-          grep " cortex-$GITHUB_REF_NAME-darwin-arm64.tar.gz\$" checksums.txt \
-            | shasum -a 256 -c -
-          tar -xzf "cortex-$GITHUB_REF_NAME-darwin-arm64.tar.gz"
+          CORTEX_VERSION: ${{ github.ref_name }}
+          CORTEX_INSTALL_DIR: ${{ github.workspace }}/bin
+        run: sh install.sh
 
       # The verification instruction the README gives readers, run against a
-      # real release before anyone follows it.
+      # real release before anyone follows it. install.sh downloads into a temp
+      # directory it removes on exit — deliberately, it installs a binary and
+      # not an archive — so the asset is fetched again here rather than left
+      # behind for this step.
       - name: Verify the published attestation
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh attestation verify \
-            "cortex-$GITHUB_REF_NAME-darwin-arm64.tar.gz" \
-            --repo "$GITHUB_REPOSITORY"
+          set -eu
+          asset="cortex-$GITHUB_REF_NAME-darwin-arm64.tar.gz"
+          gh release download "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" --pattern "$asset" --dir attestation
+          gh attestation verify "attestation/$asset" --repo "$GITHUB_REPOSITORY"
 
       - name: Run the darwin binary
         run: |
-          ./cortex --version
-          ./cortex upgrade --check --json
+          cortex="$GITHUB_WORKSPACE/bin/cortex"
+          "$cortex" --version
+          "$cortex" upgrade --check --json
           repo=$(mktemp -d)
           cd "$repo"
           git init -b main
@@ -139,5 +145,5 @@ jobs:
           printf 'export class A { b(): boolean { return true } }\n' > src/a.ts
           git add .
           git commit -m init --no-gpg-sign
-          "$GITHUB_WORKSPACE/cortex" init --yes
-          "$GITHUB_WORKSPACE/cortex" index
+          "$cortex" init --yes
+          "$cortex" index

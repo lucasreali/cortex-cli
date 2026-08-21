@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
+	chmodSync,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
@@ -1094,6 +1095,118 @@ describe("cortex prompt-hook", () => {
 		expect(await new Response(child.stdout).text()).toBe("");
 		expect(elapsedSeconds).toBeLessThan(15);
 	}, 30_000);
+
+	// Every assertion above reads stdout and the exit code, so swapping
+	// `{ readonly: true }` for openDecisionsDb would keep them all green while
+	// every keystroke opened a write transaction and migrated the user's store
+	// from a hook that has no channel to report a failure on. That this command
+	// writes nothing is the property, so it is asserted directly.
+	describe("writes nothing", () => {
+		const MATCHING = "como funciona a autenticação por jwt?";
+
+		function storeDigest(cortexDir: string): string {
+			return Bun.SHA256.hash(
+				readFileSync(join(cortexDir, "decisions.db")),
+				"hex",
+			);
+		}
+
+		function migrationCount(cortexDir: string): number {
+			const db: Database = openDecisionsDb(cortexDir);
+			try {
+				return (
+					db
+						.query<{ n: number }, []>("SELECT count(*) AS n FROM _migrations")
+						.get()?.n ?? -1
+				);
+			} finally {
+				db.close();
+			}
+		}
+
+		test("leaves the database file byte for byte as it found it", () => {
+			const cortexDir = join(dir, ".cortex");
+			const before = storeDigest(cortexDir);
+
+			const result = promptHook({ prompt: MATCHING, cwd: dir });
+
+			expect(result.stdout).toContain("<cortex_context");
+			expect(storeDigest(cortexDir)).toBe(before);
+		});
+
+		// It runs on every prompt, so it must never be the thing that migrates a
+		// store: it serves the previous view until a command that may write runs.
+		test("does not migrate a store whose schema is behind", () => {
+			const cortexDir = join(dir, ".cortex");
+			const db: Database = openDecisionsDb(cortexDir);
+			db.run(
+				"DELETE FROM _migrations WHERE id = (SELECT max(id) FROM _migrations)",
+			);
+			db.close();
+			const behind = migrationCount(cortexDir);
+
+			expect(promptHook({ prompt: MATCHING, cwd: dir }).code).toBe(0);
+
+			expect(migrationCount(cortexDir)).toBe(behind);
+		});
+
+		// Decision files and no database is exactly what a fresh clone looks like:
+		// the store is a derived cache and nothing has rebuilt it yet. The hook
+		// serves nothing there — building it is a job for a command that may write.
+		test("does not create the database it did not find", () => {
+			const fresh = realpathSync(mkdtempSync(join(tmpdir(), "cortex-fresh-")));
+			mkdirSync(join(fresh, ".cortex", "decisions"), { recursive: true });
+			try {
+				const result = promptHook({ prompt: MATCHING, cwd: fresh });
+
+				expect(result.code).toBe(0);
+				expect(result.stdout).toBe("");
+				expect(readdirSync(join(fresh, ".cortex"))).toEqual(["decisions"]);
+			} finally {
+				rmSync(fresh, { recursive: true, force: true });
+			}
+		});
+
+		test("a directory with no store does not gain one", () => {
+			const bare = realpathSync(
+				mkdtempSync(join(tmpdir(), "cortex-untouched-")),
+			);
+			try {
+				const result = promptHook({ prompt: "jwt auth login", cwd: bare });
+
+				expect(result.code).toBe(0);
+				expect(readdirSync(bare)).toEqual([]);
+			} finally {
+				rmSync(bare, { recursive: true, force: true });
+			}
+		});
+
+		// Read-only to SQLite is not read-only to the filesystem: reading a WAL
+		// database still creates `-shm`. A `.cortex` the user cannot write is
+		// therefore a store this hook cannot open, and it says nothing about it.
+		test("a store it cannot write is refused in silence", () => {
+			if (process.getuid?.() === 0) return;
+			const readOnly = realpathSync(mkdtempSync(join(tmpdir(), "cortex-ro-")));
+			const cortexDir = join(readOnly, ".cortex");
+			mkdirSync(cortexDir);
+			writeFileSync(
+				join(cortexDir, "decisions.db"),
+				readFileSync(join(dir, ".cortex", "decisions.db")),
+			);
+			chmodSync(cortexDir, 0o555);
+			try {
+				const result = promptHook({ prompt: MATCHING, cwd: readOnly });
+
+				expect(result.code).toBe(0);
+				expect(result.stdout).toBe("");
+				expect(result.stderr).toBe("");
+				expect(readdirSync(cortexDir)).toEqual(["decisions.db"]);
+			} finally {
+				chmodSync(cortexDir, 0o755);
+				rmSync(readOnly, { recursive: true, force: true });
+			}
+		});
+	});
 });
 
 describe("cortex CLI in an empty project", () => {

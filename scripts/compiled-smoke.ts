@@ -85,6 +85,17 @@ function git(...argv: string[]): void {
 	if (result.exitCode !== 0) throw new Error(result.stderr.toString());
 }
 
+// Outside the project: a file inside it would be one the code index has not
+// seen, and doctor would rightly call the index outdated.
+function refusingWorker(): string {
+	const path = join(
+		mkdtempSync(join(tmpdir(), "cortex-smoke-worker-")),
+		"w.ts",
+	);
+	writeFileSync(path, "process.exit(1);\n");
+	return path;
+}
+
 function makeProject(): void {
 	projectDir = realpathSync(mkdtempSync(join(tmpdir(), "cortex-smoke-")));
 	git("init", "-b", "main");
@@ -174,6 +185,17 @@ try {
 		"semantic search in Portuguese",
 		cortex("search", "fusão de rankings na busca híbrida"),
 		"Adopt reciprocal rank fusion",
+	);
+	// The other half of the same rule the origin refusals above prove: a variable
+	// that chooses which program cortex executes is a test seam a source checkout
+	// honours, and an installed binary must not. The path below is a script that
+	// fails immediately, so a binary that took it could not embed at all.
+	step(
+		"an installed binary ignores CORTEX_EMBED_WORKER_PATH",
+		runCortex(["embed", "--rebuild", "--yes"], {
+			CORTEX_EMBED_WORKER_PATH: refusingWorker(),
+		}),
+		"Embedded 1 decision(s).",
 	);
 	step("doctor", cortex("doctor"), "");
 } finally {

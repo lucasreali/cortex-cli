@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readdirSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +11,27 @@ import { SCHEMA_VERSION } from "@/storage/migrations";
 import { ProjectRoot } from "@/storage/project-root";
 import { UsefulnessEventLog } from "@/usefulness/event-log";
 import { UsefulnessRecorder } from "@/usefulness/recorder";
+
+// Nothing here used to set this, so every buildRuntime spawned the real worker
+// and every search below burned its full 2 s timeout waiting for a model that
+// was still loading, degraded to FTS, and passed on the tie FTS-only produces.
+// It tested the fallback while claiming to test the production path — and would
+// have become a flake the day the model loaded inside the deadline. The
+// degradation is what these assertions are about, so it is asked for.
+let previouslyDisabled: string | undefined;
+
+beforeAll(() => {
+	previouslyDisabled = process.env.CORTEX_DISABLE_EMBEDDINGS;
+	process.env.CORTEX_DISABLE_EMBEDDINGS = "1";
+});
+
+afterAll(() => {
+	if (previouslyDisabled === undefined) {
+		delete process.env.CORTEX_DISABLE_EMBEDDINGS;
+		return;
+	}
+	process.env.CORTEX_DISABLE_EMBEDDINGS = previouslyDisabled;
+});
 
 function makeProjectDir(): string {
 	return realpathSync(mkdtempSync(join(tmpdir(), "cortex-runtime-")));
@@ -65,6 +86,7 @@ async function searchIn(
 ): Promise<string[]> {
 	const runtime = await buildRuntime(dir);
 	try {
+		expect(runtime.provider).toBeNull();
 		runtime.decisions.ensure();
 		before(runtime);
 		const results = await runtime.semanticSearch.search("jwt migrations");
