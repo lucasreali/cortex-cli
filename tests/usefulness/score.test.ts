@@ -168,4 +168,16 @@ describe("usefulnessScores — bookkeeping", () => {
 			false,
 		);
 	});
+
+	// Its weight is already clamped to 1.0, so without a horizon in this
+	// direction a clock-skewed event would be the strongest signal in the log
+	// and no compaction could ever remove it.
+	test("the horizon ends six half-lives out in the other direction too", () => {
+		expect(isWithinHorizon(event("s1", "d1", "used", daysAgo(-1)), NOW)).toBe(
+			true,
+		);
+		expect(isWithinHorizon(event("s1", "d1", "used", daysAgo(-181)), NOW)).toBe(
+			false,
+		);
+	});
 });

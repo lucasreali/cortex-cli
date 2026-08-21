@@ -112,6 +112,20 @@ describe("UsefulnessEventLog — compaction", () => {
 		]);
 	});
 
+	// A clock a year ahead used to write an event that decayed to nothing and
+	// compacted to nothing either: maximal weight, and immortal.
+	test("an event far in the future is dropped like one far in the past", () => {
+		const log = new UsefulnessEventLog(path);
+		log.append([event("skewed", daysAgo(-200)), event("recent")], NOW);
+
+		log.append([event("fresh")], NOW);
+
+		expect(log.events().map((entry) => entry.decision)).toEqual([
+			"recent",
+			"fresh",
+		]);
+	});
+
 	test("compaction keeps what another process appended meanwhile", () => {
 		const log = new UsefulnessEventLog(path);
 		log.append([event("old", daysAgo(200))], NOW);

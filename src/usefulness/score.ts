@@ -46,8 +46,13 @@ export function ageInDays(at: string, now: Date): number {
 	return (now.getTime() - Date.parse(at)) / MILLISECONDS_PER_DAY;
 }
 
+// The horizon measures distance from now in either direction. Clamping the
+// weight of a future timestamp, as `decay` does, is only half the guard: an age
+// that never grows is also an age that never reaches the horizon, so a clock a
+// year ahead would otherwise mint an event that is both maximal and immortal —
+// one no compaction could ever remove.
 export function isWithinHorizon(event: UsefulnessEvent, now: Date): boolean {
-	return ageInDays(event.at, now) < DECAY_HORIZON_DAYS;
+	return Math.abs(ageInDays(event.at, now)) < DECAY_HORIZON_DAYS;
 }
 
 // A timestamp ahead of the clock weighs the same as one from this instant:
