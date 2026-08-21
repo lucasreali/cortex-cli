@@ -100,6 +100,21 @@ describe("registration", () => {
 		expect(text).toContain('model = "gpt-5"');
 		expect(text).toContain('command = "/new/cortex"');
 	});
+
+	test("a config.toml cortex cannot rewrite is skipped with its reason", async () => {
+		const home = fakeHome();
+		const codex = target("codex");
+		const path = codex.configPath(home);
+		const existing = 'mcp_servers = { cortex = { command = "/old" } }\n';
+		await Bun.write(path, existing);
+
+		const outcome = await codex.register(home, SPEC);
+		expect(outcome).toMatchObject({
+			action: "skipped",
+			reason: expect.stringContaining("mcp_servers.cortex"),
+		});
+		expect(await Bun.file(path).text()).toBe(existing);
+	});
 });
 
 describe("resolveTargets", () => {

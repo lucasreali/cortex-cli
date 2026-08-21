@@ -1,4 +1,4 @@
-import { chmodSync, lstatSync, mkdirSync, unlinkSync } from "node:fs";
+import { chmodSync, lstatSync, mkdirSync, statSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { confirmInteractive } from "@/cli/confirm";
@@ -85,20 +85,14 @@ async function installOne(
 ): Promise<EventOutcome> {
 	const path = join(hooksDir, event);
 	if (isSymlink(path)) return sharedHookWarning(event, path);
-	const plan = planHookFile({
-		event,
-		existing: await readIfExists(path),
-		command,
-	});
+	const existing = await readIfExists(path);
+	const plan = planHookFile({ event, existing, command });
 	if (plan.action === "skipped") {
 		console.log(warning(`${event} — ${plan.reason}`));
 		return "failed";
 	}
 	if (plan.action !== "unchanged") await writeAtomically(path, plan.content);
-	// writeAtomically renames a fresh temp file over the target, so the mode
-	// the user (or our own first install) set is gone — and git silently skips
-	// a hook it cannot execute, which would disable their hook, not just ours.
-	chmodSync(path, 0o755);
+	ensureExecutable(path, existing === null);
 	console.log(success(`${event} — ${INSTALL_VERBS[plan.action]} (${path})`));
 	return "done";
 }
@@ -123,6 +117,23 @@ async function removeOne(
 	await writeAtomically(path, plan.content);
 	console.log(success(`${event} — cortex block removed (${path})`));
 	return "done";
+}
+
+// git silently skips a hook it cannot execute, so the block has to be reachable
+// — but a hook the user chmodded 0700 is a decision, and 0755 would publish it
+// to their group and to everyone else. Mirror `chmod +x`: an execute bit
+// wherever there is already a read bit, and no chmod at all when the mode
+// already says executable, so the write path only ever adds permission it needs.
+// A hook we created has no mode of its own to keep; writeAtomically left it at
+// the umask default, which is not executable.
+function ensureExecutable(path: string, created: boolean): void {
+	if (created) {
+		chmodSync(path, 0o755);
+		return;
+	}
+	const mode = statSync(path).mode & 0o777;
+	const executable = mode | ((mode & 0o444) >> 2);
+	if (executable !== mode) chmodSync(path, executable);
 }
 
 function sharedHookWarning(event: HookEvent, path: string): EventOutcome {
