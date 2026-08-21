@@ -406,3 +406,12 @@ which is why `cortex upgrade` stops the old daemon once the new binary is in
 place. Installing over the old binary by hand leaves it running until its idle
 timeout; an MCP server already running inside an editor keeps the old binary
 until the client restarts it either way.
+
+## License
+
+MIT — see [LICENSE](LICENSE). Copyright (c) 2026 Lucas Reali.
+
+The released binary is a single file with every dependency bundled into it, so
+each tarball ships `LICENSE` and `THIRD-PARTY-NOTICES.md` next to `cortex`.
+The notices file is generated from the bundle itself at packaging time, so it
+names exactly the packages whose code is inside the binary that carries it.
