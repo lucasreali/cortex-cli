@@ -40,6 +40,7 @@ export async function runImpact(args: string[], cwd: string): Promise<number> {
 			return 0;
 		}
 		printDependsOnTree(impact);
+		printConflicts(impact);
 		printAnchors(impact);
 		printCodeImpact(impact);
 		return 0;
@@ -61,6 +62,14 @@ function printDependsOnTree(impact: DecisionImpact): void {
 		console.log(
 			`${connector} ${entry.node.title}${marker}  ${style.dim(entry.node.id)}`,
 		);
+	}
+}
+
+function printConflicts(impact: DecisionImpact): void {
+	if (impact.conflicts.length === 0) return;
+	console.log(`\n${style.bold("Conflicts with:")}`);
+	for (const conflict of impact.conflicts) {
+		console.log(`  ${conflict.title}  ${style.dim(conflict.id)}`);
 	}
 }
 

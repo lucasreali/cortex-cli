@@ -223,3 +223,31 @@ describe("decisionImpact", () => {
 		expect(impact?.codeWarning).toBe("code index unavailable: disk on fire");
 	});
 });
+
+// A conflict is declared on one side and binds both, and this is the answer a
+// caller reads before contradicting a decision — it was reachable only through
+// get_context, the one surface consulted instead of asking about impact.
+describe("decisionImpact and declared conflicts", () => {
+	test("names the partner from either side of the declaration", async () => {
+		const older = saveDecision("Decisão antiga sobre sessões em cookie");
+		const newer = saveDecision("Decisão nova sobre sessões sem estado", {
+			conflicts_with: [older.id],
+		});
+
+		const fromDeclarer = await decisionImpact(runtime(), newer.id);
+		const fromTarget = await decisionImpact(runtime(), older.id);
+
+		expect(fromDeclarer?.conflicts).toEqual([
+			{ id: older.id, title: older.title },
+		]);
+		expect(fromTarget?.conflicts).toEqual([
+			{ id: newer.id, title: newer.title },
+		]);
+	});
+
+	test("a decision nothing contradicts reports an empty list", async () => {
+		const alone = saveDecision("Decisão sozinha sobre índices de busca");
+
+		expect((await decisionImpact(runtime(), alone.id))?.conflicts).toEqual([]);
+	});
+});

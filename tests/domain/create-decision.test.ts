@@ -129,6 +129,26 @@ describe("createDecisionSchema", () => {
 			const anchors = [{ file_path: "src/a.ts", line: 10 }];
 			expect(parse({ anchors }).success).toBe(false);
 		});
+
+		// The anchor is written into a file that is immutable once committed, so
+		// a path pointing outside the repository stays there for good.
+		test("rejects a path that escapes the repository", () => {
+			for (const file_path of [
+				"/etc/passwd",
+				"~/.ssh/id_rsa",
+				"../../../etc/passwd",
+				"src/../../outside.ts",
+				"C:\\Windows\\System32\\drivers\\etc\\hosts",
+				"src\\..\\..\\outside.ts",
+			]) {
+				expect(parse({ anchors: [{ file_path }] }).success).toBe(false);
+			}
+		});
+
+		test("accepts a dot in a name that is not a segment of its own", () => {
+			const anchors = [{ file_path: "src/..hidden/a.test.ts" }];
+			expect(parse({ anchors }).success).toBe(true);
+		});
 	});
 
 	describe("depends_on", () => {

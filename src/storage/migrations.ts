@@ -16,6 +16,9 @@ import decisionsProjectIdentity from "./migrations/006-decisions-project-identit
 import codeFileFacts from "./migrations/007-code-file-facts.sql" with {
 	type: "text",
 };
+import decisionsNoSelfEdges from "./migrations/008-decisions-no-self-edges.sql" with {
+	type: "text",
+};
 import migrationsTable from "./migrations/migrations-table.sql" with {
 	type: "text",
 };
@@ -53,6 +56,12 @@ const decisionsMigrations: Migration[] = [
 		id: 4,
 		name: "decisions-project-identity",
 		up: (db) => db.run(decisionsProjectIdentity),
+	},
+	{
+		id: 5,
+		name: "decisions-no-self-edges",
+		up: (db) => db.run(decisionsNoSelfEdges),
+		rebuildsTables: true,
 	},
 ];
 

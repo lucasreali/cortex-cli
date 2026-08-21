@@ -85,7 +85,10 @@ Dependency direction, no cycles:
   decisions exists in process — so `TOKEN_METHOD` names the rule in every
   output, and both sides of every ratio use the same counter.
 - `git/` — subprocess git: repo root, HEAD, canonical project identity, hooks
-  path. Every accessor answers `null` outside a repo; none of them throw.
+  path. Every accessor answers `null` outside a repo; none of them throw —
+  which is a claim about `Bun.spawnSync` too, not only about exit codes: no
+  `git` on PATH and a cwd that no longer exists both raise rather than fail,
+  and they are exactly the cases the callers' fallbacks were written for.
   `src/git/replay.ts` is the one file here that reads the git directory instead
   of spawning git: a hook must not trust the GIT_DIR it inherits (git names the
   superproject during submodule work), and a replay is a fact on disk anyway.
@@ -238,6 +241,24 @@ revisit a `content_sha` column that day, and not before.
 - Edge targets are validated against the store, not the branch. A dangling
   target is skipped and reported; inserting it would fail every command,
   because foreign keys are on.
+- A retirement that closes a cycle — two files each superseding the other, or
+  one naming its own id — is dropped and reported in `ReconcileReport.cyclic`
+  rather than applied. Both facts are true and applying both retires both, so
+  the pair would leave every surface at once with a clean report, and files
+  are immutable, so there is no undo except writing another decision. A
+  self-edge of any kind goes the same way, and `CHECK (from_id <> to_id)`
+  keeps one out of the store — one reaching the insert would roll back the
+  whole reconcile, on every command.
+- Nothing a reconcile reads may throw, because every command runs one and the
+  git hook swallows what it raises: `DecisionStore.read` answers a reason for
+  a file it cannot read — `EACCES`, a directory named `<id>.md`, anything that
+  is not a regular file — and the file lands in `ReconcileReport.malformed`,
+  present-but-unusable, never absent. The directory itself is the one listing
+  that cannot degrade to empty: `DecisionListing` carries the failure to the
+  caller, because answering with no ids would retire every decision the store
+  holds. A `.md` whose name is not a lowercase id and a `.partial` a killed
+  write left behind are reported the same way — nothing else collects either,
+  and both are invisible to loading.
 - `save_decision` writes the file, inserts the row, then reconciles. Status
   and versioned edges are derived in exactly one place, so a decision saved
   here goes through the same path as one that arrived from a pull.

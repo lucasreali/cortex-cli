@@ -14,9 +14,15 @@ export interface ImpactedDecision {
 	depth: number;
 }
 
+export interface ConflictingDecision {
+	id: string;
+	title: string;
+}
+
 export interface DecisionImpact {
 	root: AnchoredDecision;
 	impacted: ImpactedDecision[];
+	conflicts: ConflictingDecision[];
 	codeImpacted: CodeImpactedDecision[];
 	codeTruncated: boolean;
 	codeWarning: string | null;
@@ -69,10 +75,27 @@ export async function decisionImpact(
 			node: lens.resolver.label(entry.node),
 			depth: entry.depth,
 		})),
+		conflicts: conflictsOf(runtime, decisionId),
 		codeImpacted: code?.decisions ?? [],
 		codeTruncated: code?.truncated ?? false,
 		codeWarning: lens.warning,
 	};
+}
+
+// A conflict is declared on one side and binds both, and this is the tool that
+// exists to be called before contradicting a decision — a decision already
+// recorded as contradicting this one is the first thing that answer owes the
+// caller. It was reachable only through get_context until now, which is the one
+// surface a reader consults *instead of* asking about impact.
+function conflictsOf(
+	runtime: ImpactDependencies,
+	decisionId: string,
+): ConflictingDecision[] {
+	const partners = runtime.edges.listConflictPartners([decisionId]);
+	return (partners.get(decisionId) ?? []).flatMap((id) => {
+		const partner = presentDecision(runtime, id);
+		return partner ? [{ id: partner.id, title: partner.title }] : [];
+	});
 }
 
 // get-impact.sql walks edges without consulting the working tree, so an

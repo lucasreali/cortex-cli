@@ -3,9 +3,14 @@ import type {
 	DecisionSyncRepository,
 	VersionedEdgeKind,
 } from "@/storage/decision-sync-repository";
+import { DECISIONS_DIRECTORY } from "@/storage/project-root";
 import { errorMessage } from "@/support/errors";
 import { breaksPromptFence } from "@/support/prompt-fence";
-import type { DecisionStore } from "./decision-store";
+import type {
+	DecisionIndex,
+	DecisionStore,
+	UnusableDecisionFile,
+} from "./decision-store";
 
 export interface ReconcileDependencies {
 	store: DecisionStore;
@@ -25,10 +30,7 @@ export interface VersionedEdge {
 	to: string;
 }
 
-export interface MalformedDecisionFile {
-	name: string;
-	reason: string;
-}
+export type MalformedDecisionFile = UnusableDecisionFile;
 
 export interface SupersededTwice {
 	target: string;
@@ -40,6 +42,7 @@ export interface ReconcileReport {
 	absent: string[];
 	restored: string[];
 	dangling: VersionedEdge[];
+	cyclic: VersionedEdge[];
 	multiplyReplaced: SupersededTwice[];
 	malformed: MalformedDecisionFile[];
 	fenceBreaking: string[];
@@ -57,7 +60,9 @@ export function reconcileDecisions(
 	dependencies: ReconcileDependencies,
 	options: ReconcileOptions = {},
 ): ReconcileReport {
-	const onDisk = new Set(dependencies.store.listIds());
+	const listing = dependencies.store.list();
+	if (!listing.ok) return quiet([unreadableDirectory(listing.reason)]);
+	const onDisk = new Set(listing.ids);
 	const stored = dependencies.repository.listPresence();
 	const arriving = [...onDisk].filter(
 		(id) => !stored.some((entry) => entry.id === id),
@@ -72,9 +77,18 @@ export function reconcileDecisions(
 
 	if (!options.full) {
 		const arrivals = parseAll(dependencies, arriving);
-		if (nothingMoves(arrivals, drift)) return quiet(arrivals.malformed);
+		if (nothingMoves(arrivals, drift)) {
+			return quiet([...arrivals.malformed, ...listing.unusable]);
+		}
 	}
-	return apply(dependencies, drift, [...onDisk], stored);
+	return apply(dependencies, drift, listing, stored);
+}
+
+// The whole directory answering EACCES is not a branch without decisions: it
+// is reported and nothing moves, because retiring every decision the store
+// holds is the one outcome an unreadable listing must never produce.
+function unreadableDirectory(reason: string): MalformedDecisionFile {
+	return { name: DECISIONS_DIRECTORY, reason };
 }
 
 // A file that does not parse is never inserted, so it stays in `arriving` for
@@ -94,6 +108,7 @@ function quiet(malformed: MalformedDecisionFile[]): ReconcileReport {
 		absent: [],
 		restored: [],
 		dangling: [],
+		cyclic: [],
 		multiplyReplaced: [],
 		malformed,
 		fenceBreaking: [],
@@ -109,10 +124,10 @@ interface Drift {
 function apply(
 	dependencies: ReconcileDependencies,
 	drift: Drift,
-	onDisk: string[],
+	listing: DecisionIndex,
 	stored: Array<{ id: string }>,
 ): ReconcileReport {
-	const parsed = parseAll(dependencies, onDisk);
+	const parsed = parseAll(dependencies, listing.ids);
 	const usable = new Map(parsed.files.map((file) => [file.id, file]));
 	const arrivals = drift.arriving
 		.filter((id) => usable.has(id))
@@ -141,12 +156,9 @@ function apply(
 		absent: drift.absent,
 		restored: drift.restored,
 		dangling: links.dangling,
+		cyclic: links.cyclic,
 		multiplyReplaced: supersededTwice(parsed.files),
-		malformed: [
-			...parsed.malformed,
-			...insertion.refused,
-			...unnamed(dependencies),
-		],
+		malformed: [...parsed.malformed, ...insertion.refused, ...listing.unusable],
 		fenceBreaking: fenceBreaking(parsed.files),
 	};
 }
@@ -209,15 +221,10 @@ function parseAll(
 	return { files, malformed };
 }
 
-function unnamed(dependencies: ReconcileDependencies): MalformedDecisionFile[] {
-	return dependencies.store
-		.listUnparseableNames()
-		.map((name) => ({ name, reason: "filename is not a decision id" }));
-}
-
 interface DerivedLinks {
 	edges: VersionedEdge[];
 	dangling: VersionedEdge[];
+	cyclic: VersionedEdge[];
 	replaced: string[];
 	archived: string[];
 }
@@ -227,20 +234,78 @@ interface DerivedLinks {
 // still resolves. A target that is nowhere is skipped rather than inserted —
 // foreign keys are on, and a bad edge would fail every command.
 function deriveLinks(files: DecisionFile[], known: Set<string>): DerivedLinks {
-	const edges: VersionedEdge[] = [];
+	const resolved: VersionedEdge[] = [];
 	const dangling: VersionedEdge[] = [];
-	const replaced = new Set<string>();
-	const archived = new Set<string>();
 	for (const edge of files.flatMap(edgesOf)) {
-		if (!known.has(edge.from) || !known.has(edge.to)) {
-			dangling.push(edge);
-			continue;
-		}
-		edges.push(edge);
-		if (edge.kind === "REPLACED_BY") replaced.add(edge.from);
-		if (edge.kind === "ARCHIVED_BY") archived.add(edge.from);
+		if (known.has(edge.from) && known.has(edge.to)) resolved.push(edge);
+		else dangling.push(edge);
 	}
-	return { edges, dangling, replaced: [...replaced], archived: [...archived] };
+	return { dangling, ...acyclic(resolved) };
+}
+
+// Every retirement is derived from the same files on every run, so a cycle in
+// them is not a transient state: two branches that each superseded the other's
+// decision merge cleanly, and applying both retires both — the pair vanishes
+// from search, get_context and prompt-hook with an empty report, and files are
+// immutable, so there is no undo. Dropped and named instead, which leaves both
+// decisions active until a human writes the one that settles it.
+function acyclic(edges: VersionedEdge[]): Omit<DerivedLinks, "dangling"> {
+	const retirements = successorsOf(edges.filter(isRetirement));
+	const cyclic = edges.filter((edge) => closesCycle(edge, retirements));
+	const sound = edges.filter((edge) => !cyclic.includes(edge));
+	return {
+		edges: sound,
+		cyclic,
+		replaced: retiredBy(sound, "REPLACED_BY"),
+		archived: retiredBy(sound, "ARCHIVED_BY"),
+	};
+}
+
+function retiredBy(edges: VersionedEdge[], kind: VersionedEdgeKind): string[] {
+	const retired = edges
+		.filter((edge) => edge.kind === kind)
+		.map((edge) => edge.from);
+	return [...new Set(retired)];
+}
+
+function isRetirement(edge: VersionedEdge): boolean {
+	return edge.kind === "REPLACED_BY" || edge.kind === "ARCHIVED_BY";
+}
+
+// A self-edge of any kind is dropped, not only a retiring one: it states
+// nothing, the schema now refuses it, and letting one reach the insert would
+// roll the whole reconcile back on every command.
+function closesCycle(
+	edge: VersionedEdge,
+	retirements: Map<string, string[]>,
+): boolean {
+	if (edge.from === edge.to) return true;
+	return isRetirement(edge) && reaches(retirements, edge.to, edge.from);
+}
+
+function successorsOf(edges: VersionedEdge[]): Map<string, string[]> {
+	const successors = new Map<string, string[]>();
+	for (const edge of edges) {
+		successors.set(edge.from, [...(successors.get(edge.from) ?? []), edge.to]);
+	}
+	return successors;
+}
+
+function reaches(
+	successors: Map<string, string[]>,
+	start: string,
+	target: string,
+): boolean {
+	const seen = new Set<string>();
+	const pending = [start];
+	while (pending.length > 0) {
+		const node = pending.pop() as string;
+		if (node === target) return true;
+		if (seen.has(node)) continue;
+		seen.add(node);
+		pending.push(...(successors.get(node) ?? []));
+	}
+	return false;
 }
 
 // `replaces` and `archives` live on the new decision's file — that is what

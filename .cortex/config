@@ -1,4 +1,4 @@
 {
 	"model_id": "embeddinggemma-300m-q8@256",
-	"schema_version": 4
+	"schema_version": 5
 }

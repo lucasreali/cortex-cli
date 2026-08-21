@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { listedIds } from "@tests/fixtures/decision-listing";
 import { DecisionStore } from "@/decisions/decision-store";
 import { type DecisionSync, openDecisionSync } from "@/decisions/decision-sync";
 import type { ReconcileReport } from "@/decisions/reconcile";
@@ -82,7 +83,7 @@ describe("DecisionSync.save", () => {
 			context,
 		);
 
-		expect(store.listIds()).toEqual([saved.id]);
+		expect(listedIds(store)).toEqual([saved.id]);
 		const decision = nodes.getById(saved.id);
 		expect(decision?.module).toBe("auth");
 		expect(decision?.commitSha).toBe("ca43a65");
@@ -92,6 +93,27 @@ describe("DecisionSync.save", () => {
 		const parsed = store.read(saved.id);
 		expect(parsed.ok && parsed.file.createdAt).toBe(
 			decision?.createdAt as string,
+		);
+	});
+
+	// The row and the file are two copies of one body, and only one of them is
+	// the product: a body that reads back differently after a rebuild would make
+	// a fresh clone disagree with the machine that saved it.
+	test("a CRLF body is stored exactly as the file parses back", () => {
+		const saved = sync.save(
+			decisionInput({
+				body: "Primeira linha da decisão.\r\nSegunda linha da decisão.\r\n",
+			}),
+			context,
+		);
+
+		const parsed = store.read(saved.id);
+
+		expect(parsed.ok && parsed.file.body).toBe(
+			nodes.getById(saved.id)?.body as string,
+		);
+		expect(nodes.getById(saved.id)?.body).toBe(
+			"Primeira linha da decisão.\nSegunda linha da decisão.",
 		);
 	});
 

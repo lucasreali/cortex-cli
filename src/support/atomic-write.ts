@@ -61,7 +61,16 @@ export function writeAtomicallySync(targetPath: string, source: string): void {
 }
 
 export function stagingPath(targetPath: string): string {
-	return `${targetPath}.${process.pid}.partial`;
+	return `${targetPath}.${process.pid}${STAGING_SUFFIX}`;
+}
+
+const STAGING_SUFFIX = ".partial";
+
+// Nothing collects a staging file a killed process left behind, so a directory
+// that is committed — `.cortex/decisions/` — needs to recognize one to report
+// it. The suffix is this module's to name, not a string for a reader to match.
+export function stagingSuffix(): string {
+	return STAGING_SUFFIX;
 }
 
 export function createStagingFile(path: string): number {
