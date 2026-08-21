@@ -30,8 +30,20 @@ describe("readCortexBinary", () => {
 	test("reads a member out of an archive real tar produced", () => {
 		const dir = makeTempDir();
 		writeFileSync(join(dir, "cortex"), BINARY);
+		writeFileSync(join(dir, "LICENSE"), "MIT License\n");
+		writeFileSync(join(dir, "THIRD-PARTY-NOTICES.md"), "# Notices\n");
 		const tar = Bun.spawnSync(
-			["tar", "--format=ustar", "-cf", "-", "-C", dir, "cortex"],
+			[
+				"tar",
+				"--format=ustar",
+				"-cf",
+				"-",
+				"-C",
+				dir,
+				"cortex",
+				"LICENSE",
+				"THIRD-PARTY-NOTICES.md",
+			],
 			{ stdout: "pipe", stderr: "pipe" },
 		);
 		expect(tar.exitCode).toBe(0);

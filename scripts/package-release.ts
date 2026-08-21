@@ -4,6 +4,7 @@ import { assetName, RELEASE_SUFFIXES } from "@/release/target";
 import { sha256Hex } from "@/support/hash";
 import { CORTEX_VERSION } from "@/version";
 import { compile, ROOT, sizeInMegabytes } from "./compile";
+import { bundledPackages, readNotice, renderNotices } from "./notices";
 
 const TARGETS = RELEASE_SUFFIXES.map((suffix) => ({
 	target: `bun-${suffix}` as Bun.Build.CompileTarget,
@@ -13,6 +14,13 @@ const TARGETS = RELEASE_SUFFIXES.map((suffix) => ({
 const TAG = `v${CORTEX_VERSION}`;
 const RELEASE_DIR = join(ROOT, "dist", "release");
 const STAGE_DIR = join(ROOT, "dist", "stage");
+const MODULES_DIR = join(ROOT, "node_modules");
+const VENDORED_LICENSES_DIR = join(ROOT, "scripts", "licenses");
+const NOTICES = "THIRD-PARTY-NOTICES.md";
+
+// cortex is read first by src/release/archive.ts, which scans members until it
+// finds the executable and never needs the two text files behind it.
+const MEMBERS = ["cortex", "LICENSE", NOTICES];
 
 function createTar(
 	stageDir: string,
@@ -28,7 +36,7 @@ function createTar(
 			"-",
 			"-C",
 			stageDir,
-			"cortex",
+			...MEMBERS,
 		],
 		{ stdout: "pipe", stderr: "pipe" },
 	);
@@ -39,9 +47,10 @@ function createTar(
 // is the exception: libarchive gained it late enough that the version macOS
 // ships may reject it, so it degrades to the builder's uid rather than failing.
 async function archive(stageDir: string, outfile: string): Promise<void> {
-	const binary = join(stageDir, "cortex");
-	chmodSync(binary, 0o755);
-	utimesSync(binary, 0, 0);
+	chmodSync(join(stageDir, "cortex"), 0o755);
+	for (const member of MEMBERS) {
+		utimesSync(join(stageDir, member), 0, 0);
+	}
 	let tar = createTar(stageDir, ["--owner=0", "--group=0"]);
 	if (tar.exitCode !== 0) {
 		tar = createTar(stageDir, []);
@@ -60,6 +69,22 @@ async function sha256(path: string): Promise<string> {
 	return sha256Hex(new Uint8Array(await Bun.file(path).arrayBuffer()));
 }
 
+// Apache-2.0 §4 requires the license text and the attribution to travel with
+// the redistributed work, and the tarball is the only thing a user receives.
+// The list comes from this target's own sourcemap, so a tarball can never name
+// a package the binary beside it does not contain.
+async function stageNotices(stageDir: string): Promise<void> {
+	const sourcemap = await Bun.file(join(stageDir, "main.js.map")).text();
+	const packages = bundledPackages(sourcemap, repositorySources);
+	const notices = await Promise.all(
+		packages.map((name) =>
+			readNotice(name, MODULES_DIR, VENDORED_LICENSES_DIR),
+		),
+	);
+	await Bun.write(join(stageDir, "LICENSE"), Bun.file(join(ROOT, "LICENSE")));
+	await Bun.write(join(stageDir, NOTICES), renderNotices(TAG, notices));
+}
+
 async function packageTarget(
 	target: Bun.Build.CompileTarget,
 	suffix: string,
@@ -67,11 +92,22 @@ async function packageTarget(
 	const stageDir = join(STAGE_DIR, suffix);
 	mkdirSync(stageDir, { recursive: true });
 	await compile({ outfile: join(stageDir, "cortex"), target, suffix });
+	await stageNotices(stageDir);
 	const asset = assetName(TAG, suffix);
 	await archive(stageDir, join(RELEASE_DIR, asset));
 	console.log(`${asset} (${sizeInMegabytes(join(RELEASE_DIR, asset))} MB)`);
 	return { asset, stageDir };
 }
+
+// An asset reaches the bundle through a `type: "file"` import and leaves no
+// sourcemap entry, so the package it came from is read off the importing source.
+const repositorySources = (
+	await Promise.all(
+		(
+			await Array.fromAsync(new Bun.Glob("src/**/*.ts").scan(ROOT))
+		).map((file) => Bun.file(join(ROOT, file)).text()),
+	)
+).join("\n");
 
 rmSync(RELEASE_DIR, { recursive: true, force: true });
 rmSync(STAGE_DIR, { recursive: true, force: true });
@@ -90,6 +126,13 @@ for (const { target, suffix } of TARGETS) {
 		Bun.file(join(packaged.stageDir, "main.js.map")),
 	);
 	assets.push(sourcemap);
+}
+
+// Checksums refuses a listing that names one asset twice, and install.sh fails
+// the comparison for the same reason, so a name collision here would publish a
+// release nobody can install. Cheaper to find it before the upload.
+if (new Set(assets).size !== assets.length) {
+	throw new Error("two release assets share a name");
 }
 
 const lines = await Promise.all(
