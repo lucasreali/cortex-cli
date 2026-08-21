@@ -14,6 +14,12 @@ import { openDecisionsDb } from "@/storage/connection";
 import { EmbeddingRepository } from "@/storage/embedding-repository";
 import { migrate } from "@/storage/migrations";
 import { ProjectRoot } from "@/storage/project-root";
+import { errnoCode } from "@/support/errors";
+
+// Far below the default: git is holding the user's terminal until this
+// returns, so a store another process is writing to is worth a moment's wait
+// and not a second's — after that the work is deferred rather than queued for.
+const BUSY_TIMEOUT_MS = 500;
 
 // The command the installed git hooks call. LOAD-BEARING: it must never fail a
 // commit, a checkout or a merge, so every path — kill-switch, unknown event, no
@@ -39,22 +45,50 @@ async function reconcileProject(event: HookEvent, cwd: string): Promise<void> {
 	// for the wrong repository, and costs no subprocess.
 	const project = ProjectRoot.nearest(cwd);
 	if (!project || !existsSync(project.decisionsDbPath)) return;
-	const modelId = await pinnedModelId(project.cortexDir);
-	if (reconcile(project, embedsAfter(event, cwd) ? modelId : null)) {
-		spawnEmbedMissing(project.directory);
+	const embeds = embedsAfter(event, cwd);
+	const modelId = embeds ? await pinnedModelId(project.cortexDir) : null;
+	const outcome = reconcile(project, modelId);
+	if (outcome === "settled") return;
+	// Busy is not "nothing to do": another process holds the write lock right
+	// now, and waiting for it here would hold up the commit that called us. The
+	// work is handed to a detached child instead — both of these reconcile on
+	// their way in, so the decisions this commit brought still land, just after
+	// git has let go.
+	spawnDetached(project.directory, deferredArguments(outcome, embeds));
+}
+
+function deferredArguments(outcome: Reconcile, embeds: boolean): string[] {
+	if (outcome === "busy" && !embeds) return ["sync"];
+	return ["embed", "--missing"];
+}
+
+type Reconcile = "settled" | "embeds-pending" | "busy";
+
+// Whether embedding is pending has to be read from the same connection the
+// reconcile ran on: reconciling is synchronous by design, and reopening the
+// store to ask would race the hook that follows.
+function reconcile(project: ProjectRoot, modelId: string | null): Reconcile {
+	try {
+		return reconcileOnce(project, modelId);
+	} catch (error) {
+		if (errnoCode(error) !== "SQLITE_BUSY") throw error;
+		return "busy";
 	}
 }
 
-// Reports whether embedding is pending, because the answer has to be read from
-// the same connection the reconcile ran on: reconciling is synchronous by
-// design, and reopening the store to ask would race the hook that follows.
-function reconcile(project: ProjectRoot, modelId: string | null): boolean {
-	const db = openDecisionsDb(project.cortexDir);
+function reconcileOnce(
+	project: ProjectRoot,
+	modelId: string | null,
+): Reconcile {
+	const db = openDecisionsDb(project.cortexDir, {
+		busyTimeoutMs: BUSY_TIMEOUT_MS,
+	});
 	try {
 		exportDecisionsIfNeeded(project.cortexDir, db, migrate(db));
 		openDecisionSync({ cortexDir: project.cortexDir, db }).resync();
-		if (!modelId) return false;
-		return new EmbeddingRepository(db).listMissingNodeIds(modelId).length > 0;
+		if (!modelId) return "settled";
+		const pending = new EmbeddingRepository(db).listMissingNodeIds(modelId);
+		return pending.length > 0 ? "embeds-pending" : "settled";
 	} finally {
 		db.close();
 	}
@@ -82,8 +116,8 @@ async function pinnedModelId(cortexDir: string): Promise<string> {
 	return config?.model_id ?? GEMMA_MODEL.modelId;
 }
 
-function spawnEmbedMissing(directory: string): void {
-	const command = selfCommand(["embed", "--missing"]);
+function spawnDetached(directory: string, args: string[]): void {
+	const command = selfCommand(args);
 	const child = Bun.spawn([command.executable, ...command.args], {
 		cwd: directory,
 		stdin: "ignore",

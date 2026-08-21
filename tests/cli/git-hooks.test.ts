@@ -284,6 +284,34 @@ describe("the installed hooks reconcile without an explicit command", () => {
 		expect(presenceOf(ON_FEATURE)).toBeNull();
 	});
 
+	// A hook that waited out the lock would hold up the commit; one that gave
+	// up silently would lose the decision until the next command happened to
+	// run. It hands the reconcile to a detached child instead.
+	test("a busy store defers the reconcile instead of dropping it", async () => {
+		repoWithHooks();
+		git("checkout", "-b", "feature");
+		decisionFile(ON_FEATURE, "Feature decision");
+		const writer = new Database(join(dir, ".cortex", "decisions.db"));
+		try {
+			writer.run("PRAGMA busy_timeout = 5000;");
+			writer.run("BEGIN IMMEDIATE;");
+			expect(commitAll("feature decision").code).toBe(0);
+			expect(presenceOf(ON_FEATURE)).toBeNull();
+		} finally {
+			writer.run("ROLLBACK;");
+			writer.close();
+		}
+		expect(await eventually(() => presenceOf(ON_FEATURE) === 1)).toBe(true);
+	}, 20_000);
+
+	async function eventually(settled: () => boolean): Promise<boolean> {
+		for (let attempt = 0; attempt < 150; attempt++) {
+			if (settled()) return true;
+			await Bun.sleep(100);
+		}
+		return false;
+	}
+
 	test("a corrupt store never fails the commit", () => {
 		repoWithHooks();
 		writeFileSync(join(dir, ".cortex", "decisions.db"), "not a database");
