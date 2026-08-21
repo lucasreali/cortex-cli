@@ -18,6 +18,7 @@ const DATE_LENGTH = "YYYY-MM-DD".length;
 // would have been tempting, and padded columns read the same in every console.
 const LABEL_WIDTH = 48;
 const NUMBER_WIDTH = 12;
+const WRAP_WIDTH = 76;
 
 // Cortex is what every other row is divided by, so its own ratio is one by
 // construction; a null anywhere else is a run with nothing to divide by.
@@ -41,7 +42,7 @@ export function formatBenchmarkTable(report: BenchmarkReport): string {
 		),
 		"",
 		hitRateLine(report),
-		`  ${report.hitRateCaveat}.`,
+		...wrapped(`${report.hitRateCaveat}.`).map((line) => `  ${line}`),
 	].join("\n");
 }
 
@@ -63,7 +64,7 @@ export function formatBenchmarkMarkdown(
 		"",
 		...markdownTable(report),
 		"",
-		`**${hitRateLine(report)}** - ${report.hitRateCaveat}.`,
+		...wrapped(`**${hitRateLine(report)}** - ${report.hitRateCaveat}.`),
 		"",
 		...methodSection(report),
 		"",
@@ -199,6 +200,22 @@ function count(value: number): string {
 
 function round(value: number): string {
 	return value.toFixed(1);
+}
+
+// Everything else in this file is written pre-broken, because the markdown is
+// hard-wrapped so that a re-run diffs line by line. The caveat is not: it
+// belongs to the report, is printed on two surfaces of different widths, and
+// arrives here as one sentence.
+function wrapped(text: string): string[] {
+	return text.split(" ").reduce(intoLines, []);
+}
+
+function intoLines(lines: string[], word: string): string[] {
+	const last = lines.at(-1);
+	if (last === undefined || last.length + 1 + word.length > WRAP_WIDTH) {
+		return [...lines, word];
+	}
+	return [...lines.slice(0, -1), `${last} ${word}`];
 }
 
 function times(ratio: number | null): string {

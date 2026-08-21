@@ -134,7 +134,10 @@ class RepositoryReading {
 	// either — while a file that refused to open is something the caller has to
 	// hear about.
 	add(path: string, text: string | null): void {
-		if (text === null) return void this.unreadable.push(path);
+		if (text === null) {
+			this.unreadable.push(path);
+			return;
+		}
 		if (text.includes(NUL)) return;
 		this.files.push({ path, text });
 	}
@@ -152,7 +155,9 @@ async function readRepository(repoRoot: string): Promise<RepositoryReading> {
 		const texts = await Promise.all(
 			batch.map((path) => readTextOrNull(join(repoRoot, path))),
 		);
-		batch.forEach((path, index) => reading.add(path, texts[index] ?? null));
+		batch.forEach((path, index) => {
+			reading.add(path, texts[index] ?? null);
+		});
 	}
 	return reading;
 }

@@ -186,11 +186,17 @@ describe("benchmark report", () => {
 	// far more often published a ceiling as if it were a measurement.
 	test("the ceiling caveat reaches every surface, not just the markdown", async () => {
 		const report = await measure({ "search degrades to full text": ["d1"] });
+		const unwrapped = (text: string) => text.replace(/\s+/g, " ");
 
 		expect(report.hitRateCaveat).toBe(HIT_RATE_CAVEAT);
-		expect(formatBenchmarkTable(report)).toContain(HIT_RATE_CAVEAT);
+		expect(unwrapped(formatBenchmarkTable(report))).toContain(HIT_RATE_CAVEAT);
 		expect(
-			formatBenchmarkMarkdown(report, { date: "2026-08-15", version: "9.9.9" }),
+			unwrapped(
+				formatBenchmarkMarkdown(report, {
+					date: "2026-08-15",
+					version: "9.9.9",
+				}),
+			),
 		).toContain(HIT_RATE_CAVEAT);
 	});
 
