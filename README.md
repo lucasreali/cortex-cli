@@ -389,14 +389,14 @@ through the same `search` path an agent takes, and charges the answer the full
 text of every decision file it names. Against that it puts two baselines: the
 whole decision corpus, and a naive `grep -il` over every tracked file outside
 `.cortex/`, one keyword at a time (their union would only measure the
-connectives). On this repository, at 115 active decisions:
+connectives). On this repository, at 126 active decisions:
 
 | what the agent reads per question | tokens | vs cortex |
 | --- | ---: | ---: |
-| whole decision corpus (115 decisions) | 56,336 | 23.1x |
-| repository grep, median keyword (48.3 files) | 142,735 | 58.5x |
-| repository grep, narrowest keyword (4.4 files) | 26,138 | 10.7x |
-| cortex answer (5.0 decisions) | 2,442 | 1.0x |
+| whole decision corpus (126 decisions) | 61,493 | 25.1x |
+| repository grep, median keyword (50.6 files) | 119,090 | 48.6x |
+| repository grep, narrowest keyword (4.3 files) | 14,335 | 5.8x |
+| cortex answer (5.0 decisions) | 2,453 | 1.0x |
 
 Token counts are a deterministic approximation, named in the output
 (`atoms-per-5-bytes/v1`) so they are never mistaken for another model's
