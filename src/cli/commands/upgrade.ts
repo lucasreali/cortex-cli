@@ -5,10 +5,9 @@ import { style, success } from "@/cli/style";
 import { daemonPathsFor } from "@/embedding/daemon/paths";
 import { stopDaemon } from "@/embedding/daemon/stop";
 import { GEMMA_MODEL } from "@/embedding/model";
-import { RUNS_FROM_COMPILED_BINARY } from "@/embedding/subprocess-command";
 import { readCortexBinary } from "@/release/archive";
 import { downloadRelease, latestTag } from "@/release/catalog";
-import { currentBinaryPath, installBinary } from "@/release/installer";
+import { installBinary, upgradeTargetPath } from "@/release/installer";
 import {
 	assetName,
 	buildTarget,
@@ -29,23 +28,39 @@ export async function runUpgrade(args: string[]): Promise<number> {
 		},
 	});
 	if (values.json && !values.check) return usageError("upgrade");
-	if (!values.check && !RUNS_FROM_COMPILED_BINARY) {
+	if (values.check) return await runCheck(values.version, values.json);
+	const targetPath = upgradeTargetPath();
+	if (!targetPath) {
 		reportFailure(
 			"upgrade replaces the installed binary — this is a source checkout, use git pull",
 		);
 		return 1;
 	}
 	const origin = releaseOrigin();
-	const tag = values.version
-		? normalizeTag(values.version)
-		: await latestTag(origin);
-	if (values.check) return report(tag, values.json);
+	const tag = await resolveTag(origin, values.version);
 	if (!worthInstalling(tag, Boolean(values.version) || values.force)) {
 		console.log(`cortex ${CORTEX_VERSION} is already the latest release`);
 		return 0;
 	}
-	await install(origin, tag);
+	await install(origin, tag, targetPath);
 	return 0;
+}
+
+async function runCheck(
+	version: string | undefined,
+	json: boolean,
+): Promise<number> {
+	const origin = releaseOrigin();
+	return report(await resolveTag(origin, version), json);
+}
+
+// A pinned version is the answer already; asking the origin for the latest one
+// would be a round trip whose result is thrown away.
+async function resolveTag(
+	origin: string,
+	version: string | undefined,
+): Promise<string> {
+	return version ? normalizeTag(version) : await latestTag(origin);
 }
 
 function report(tag: string, json: boolean): number {
@@ -76,14 +91,17 @@ function isNewer(tag: string): boolean {
 	return Bun.semver.order(versionFromTag(tag), CORTEX_VERSION) === 1;
 }
 
-async function install(origin: string, tag: string): Promise<void> {
+async function install(
+	origin: string,
+	tag: string,
+	targetPath: string,
+): Promise<void> {
 	const target = buildTarget();
 	// The origin is named before anything is fetched: this command replaces the
 	// binary that runs on every prompt, so where the replacement came from is
 	// not a detail to keep to itself.
 	console.log(`Downloading ${assetName(tag, target)} from ${origin}`);
 	const tarball = await downloadRelease(origin, tag, target);
-	const targetPath = currentBinaryPath();
 	await installBinary({
 		binary: readCortexBinary(tarball),
 		version: versionFromTag(tag),

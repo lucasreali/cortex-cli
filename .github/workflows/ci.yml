@@ -72,6 +72,19 @@ jobs:
       - name: Compiled binary smoke test
         run: bun run smoke:compiled
 
+      # Retrieval quality has no other gate: every unit test asserts ordering
+      # over three-decision fixtures, so a change to the fusion weights, the
+      # similarity threshold, intentTerms or the FTS tokenizer could halve
+      # recall@5 over a real corpus and the whole suite would stay green. This
+      # runs in the one job that already has the model. The floor sits under
+      # today's 0.92 so the corpus can grow without failing the build, and far
+      # above anything that would count as a regression.
+      - name: Search quality — recall@5 over this repo's own decisions
+        run: |
+          bun src/cli/main.ts sync
+          bun src/cli/main.ts embed --missing
+          bun run eval:search --min-recall 0.85
+
       # install.sh picks the asset to download and target.ts picks the one to
       # upgrade to. They are separate implementations on purpose; this is what
       # keeps them from disagreeing about the running host.

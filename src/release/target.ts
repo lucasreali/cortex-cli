@@ -14,7 +14,9 @@ const TAG_PATTERN = /^v[0-9A-Za-z][0-9A-Za-z.+-]*$/;
 // does rather than importing it — the upgrade path must not drag the rest of
 // the program in behind it — and it is the one fact about this process that an
 // environment variable cannot forge.
-const RUNS_FROM_COMPILED_BINARY = import.meta.url.includes("$bunfs");
+export const RUNS_FROM_COMPILED_BINARY: boolean = import.meta.url.includes(
+	"$bunfs",
+);
 
 // Every asset the release workflow publishes. scripts/package-release.ts
 // compiles one binary per entry (Bun's target is this prefixed with "bun-"),

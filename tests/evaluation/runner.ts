@@ -9,6 +9,7 @@ import { meanScore, type RankingScore, scoreRanking } from "./scoring";
 import { buildStrategies, type SearchStrategy } from "./strategies";
 
 const TOP_K = 5;
+const MEASURED_STRATEGY = "current";
 
 interface StrategyOutcome extends RankingScore {
 	ranked: string[];
@@ -83,7 +84,40 @@ async function evaluate(
 	const report = await measure(runtime, provider, root);
 	if (json) printJson(report);
 	else printHuman(report, runtime);
-	return 0;
+	return recallVerdict(report);
+}
+
+// Without a floor this always returned 0, so the eval could only ever be read
+// by a human who happened to run it — a change to the fusion weights, the
+// similarity threshold or the FTS tokenizer could halve recall@5 and every
+// unit test would still pass, because they assert ordering over three-decision
+// fixtures rather than recall over the real corpus. --min-recall is what lets
+// CI fail on that.
+function recallVerdict(report: EvalReport): number {
+	const floor = requestedFloor();
+	if (floor === null) return 0;
+	const measured = report.summaries.find(
+		(summary) => summary.name === MEASURED_STRATEGY,
+	);
+	if (!measured) {
+		console.error(failure(`no ${MEASURED_STRATEGY} strategy to measure`));
+		return 1;
+	}
+	if (measured.recall >= floor) return 0;
+	console.error(
+		failure(
+			`recall@${TOP_K} is ${measured.recall.toFixed(3)}, below the ${floor.toFixed(3)} floor`,
+		),
+	);
+	return 1;
+}
+
+function requestedFloor(): number | null {
+	const index = process.argv.indexOf("--min-recall");
+	if (index === -1) return null;
+	const floor = Number(process.argv[index + 1]);
+	if (floor >= 0 && floor <= 1) return floor;
+	throw new Error("--min-recall takes a fraction between 0 and 1");
 }
 
 function validateGroundTruth(runtime: CortexRuntime): string[] {

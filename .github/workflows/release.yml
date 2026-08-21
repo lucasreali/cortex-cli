@@ -67,23 +67,24 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Install from the published release
+      - uses: actions/checkout@v4
+
+      # Through install.sh rather than beside it: this job is the only place a
+      # darwin install is ever executed, and a second hand-rolled download would
+      # prove the release is fine while the script every user actually runs —
+      # its darwin branch, its checksum verification, its version probe — stays
+      # unexercised.
+      - name: Install the way a user would
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release download "$GITHUB_REF_NAME" \
-            --repo "$GITHUB_REPOSITORY" \
-            --pattern "cortex-$GITHUB_REF_NAME-darwin-arm64.tar.gz" \
-            --pattern "checksums.txt" \
-            --dir .
-          grep " cortex-$GITHUB_REF_NAME-darwin-arm64.tar.gz\$" checksums.txt \
-            | shasum -a 256 -c -
-          tar -xzf "cortex-$GITHUB_REF_NAME-darwin-arm64.tar.gz"
+          CORTEX_VERSION: ${{ github.ref_name }}
+          CORTEX_INSTALL_DIR: ${{ github.workspace }}/bin
+        run: sh install.sh
 
       - name: Run the darwin binary
         run: |
-          ./cortex --version
-          ./cortex upgrade --check --json
+          cortex="$GITHUB_WORKSPACE/bin/cortex"
+          "$cortex" --version
+          "$cortex" upgrade --check --json
           repo=$(mktemp -d)
           cd "$repo"
           git init -b main
@@ -94,5 +95,5 @@ jobs:
           printf 'export class A { b(): boolean { return true } }\n' > src/a.ts
           git add .
           git commit -m init --no-gpg-sign
-          "$GITHUB_WORKSPACE/cortex" init --yes
-          "$GITHUB_WORKSPACE/cortex" index
+          "$cortex" init --yes
+          "$cortex" index
