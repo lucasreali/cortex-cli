@@ -9,6 +9,15 @@ import { dirname, join, resolve } from "node:path";
 // announces itself.
 const TODO_FILES = ["rebase-merge/git-rebase-todo", "sequencer/todo"];
 
+// The two mistakes this guard can make are not symmetric. Answering "no replay"
+// during one costs a handful of redundant background embeds; answering "replay"
+// when none is running costs the post-commit embed *forever*, because a todo
+// left behind by a killed rebase or an interrupted `git cherry-pick A..B` is
+// never cleaned up by anyone. So a todo nothing has touched in a while is read
+// as wreckage rather than as an operation in progress: git rewrites the file on
+// every step, and no replay leaves it untouched for an hour between commits.
+const TODO_STALE_AFTER_MS = 60 * 60 * 1000;
+
 // Answers null-safely like everything else in this directory: a repository this
 // cannot read is one with no replay running, which is the answer that keeps the
 // caller doing what it did before this guard existed.
@@ -38,9 +47,16 @@ function linkedGitDirectory(directory: string, gitPath: string): string | null {
 }
 
 function hasStep(todoPath: string): boolean {
+	if (isStale(todoPath)) return false;
 	const todo = readTextOrNull(todoPath);
 	if (todo === null) return false;
 	return todo.split("\n").some(isStep);
+}
+
+function isStale(todoPath: string): boolean {
+	const written = statSync(todoPath, { throwIfNoEntry: false })?.mtimeMs;
+	if (written === undefined) return false;
+	return Date.now() - written > TODO_STALE_AFTER_MS;
 }
 
 function isStep(line: string): boolean {
