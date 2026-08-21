@@ -21,6 +21,10 @@ function plan(existing: string | null, command: HookCommand = COMPILED) {
 	return planHookFile({ event: "post-commit", existing, command });
 }
 
+function buildBlock(command: HookCommand = COMPILED): string {
+	return `${CORTEX_HOOK_BEGIN}\n${buildHookBody("post-commit", command)}\n${CORTEX_HOOK_END}`;
+}
+
 function written(existing: string | null, command: HookCommand = COMPILED) {
 	const result = plan(existing, command);
 	if (!("content" in result)) throw new Error(`skipped: ${result.action}`);
@@ -199,6 +203,88 @@ describe("planHookFile", () => {
 			args: ["$(pwd)/main.ts"],
 		});
 		expect(result).toMatchObject({ action: "skipped" });
+	});
+});
+
+// M36: `reasonToLeaveAlone` refused foreign interpreters, but a POSIX-sh hook
+// ending in `exit 0` — the shape husky and every hook generator writes — was
+// accepted and the block went below it, where the shell never arrives. Three
+// green lines, and decisions stop reconciling on commit.
+describe("a hook whose last statement ends the script", () => {
+	const terminators = ["exit 0", "exit", "exit 1", 'exec "$@"'];
+
+	for (const terminator of terminators) {
+		test(`puts the block above ${terminator}`, () => {
+			const existing = `#!/bin/sh\necho "mine"\n${terminator}\n`;
+			const result = plan(existing);
+			expect(result.action).toBe("appended");
+			const content = written(existing);
+			expect(content.indexOf(CORTEX_HOOK_END)).toBeLessThan(
+				content.lastIndexOf(`\n${terminator}\n`),
+			);
+			expect(content).toEndWith(`${terminator}\n`);
+			expect(content).toContain('echo "mine"');
+		});
+	}
+
+	test("a trailing comment does not hide the terminator", () => {
+		const content = written("#!/bin/sh\nexit 0\n\n# done\n");
+		expect(content.indexOf(CORTEX_HOOK_END)).toBeLessThan(
+			content.lastIndexOf("\nexit 0\n"),
+		);
+	});
+
+	test("re-planning what it just wrote is unchanged", () => {
+		const installed = written('#!/bin/sh\necho "mine"\nexit 0\n');
+		expect(plan(installed)).toEqual({
+			action: "unchanged",
+			content: installed,
+		});
+	});
+
+	test("lifts a block an older cortex stranded below the terminator", () => {
+		const stranded = `#!/bin/sh\nexit 0\n\n${buildBlock()}\n`;
+		const result = plan(stranded);
+		expect(result.action).toBe("updated");
+		const content = written(stranded);
+		expect(content.indexOf(CORTEX_HOOK_END)).toBeLessThan(
+			content.lastIndexOf("\nexit 0\n"),
+		);
+		expect(content.match(new RegExp(CORTEX_HOOK_BEGIN, "g"))).toHaveLength(1);
+	});
+
+	test("still refuses a half-written block", () => {
+		expect(plan(`#!/bin/sh\n${CORTEX_HOOK_BEGIN}\nhalf\nexit 0\n`)).toEqual({
+			action: "skipped",
+			reason: `found ${CORTEX_HOOK_BEGIN} without ${CORTEX_HOOK_END} — fix the markers and rerun`,
+		});
+	});
+});
+
+// An `exit` that is not the last statement is a branch this cannot read: the
+// block might run, might not, and installing it would report success either
+// way. Refusing says so.
+describe("a hook that can leave before its end", () => {
+	test("is refused rather than appended to", () => {
+		const result = plan('#!/bin/sh\nexit 0\n\necho "unreachable"\n');
+		expect(result).toEqual({
+			action: "skipped",
+			reason:
+				"the existing hook runs `exit 0` before its end — the block would " +
+				"never run there, so add it yourself",
+		});
+	});
+
+	test("leaves an already-installed block where its author put it", () => {
+		const installed = written('#!/bin/sh\necho "mine"\n');
+		const branching = `${installed}\nif [ -n "$SKIP" ]; then\nexit 0\nfi\necho "after"\n`;
+		expect(plan(branching, FROM_SOURCE).action).toBe("updated");
+	});
+
+	test("an indented exit inside a branch is not a terminator", () => {
+		expect(
+			plan('#!/bin/sh\nif [ -n "$SKIP" ]; then\n  exit 0\nfi\n').action,
+		).toBe("appended");
 	});
 });
 
