@@ -8,7 +8,7 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 handshake, so the version here, the version there and the git tag are one fact
 in three places — the release workflow refuses a tag that disagrees.
 
-## [Unreleased]
+## [0.5.0] - 2026-08-21
 
 The release that follows a full pre-release audit: 123 findings across store
 integrity, the indexer, embedding, the release channel, the MCP server and the
@@ -142,7 +142,7 @@ First release: decisions in SQLite, a tree-sitter code index over TS/JS,
 local semantic search through a WASM embedding worker, the CLI, and an MCP
 server.
 
-[Unreleased]: https://github.com/lucasreali/cortex-cli/compare/v0.4.0...HEAD
+[0.5.0]: https://github.com/lucasreali/cortex-cli/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/lucasreali/cortex-cli/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/lucasreali/cortex-cli/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/lucasreali/cortex-cli/compare/v0.2.0...v0.2.1

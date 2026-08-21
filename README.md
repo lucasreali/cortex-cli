@@ -24,7 +24,7 @@ your shell rc if the directory is not already on `PATH`.
 
 - macOS and Linux, x64 and arm64 (glibc and musl). Windows is not supported yet.
 - git is the only runtime dependency (project identity and head tracking).
-- `CORTEX_VERSION=v0.4.0` pins a release; `CORTEX_INSTALL_DIR=/somewhere/bin`
+- `CORTEX_VERSION=v0.5.0` pins a release; `CORTEX_INSTALL_DIR=/somewhere/bin`
   changes the destination.
 
 Prefer not to pipe a URL into a shell? Download the tarball for your platform
@@ -35,7 +35,7 @@ verify it, and move the binary yourself:
 what you downloaded instead of the whole file:
 
 ```bash
-asset=cortex-v0.4.0-darwin-arm64.tar.gz
+asset=cortex-v0.5.0-darwin-arm64.tar.gz
 
 grep " $asset\$" checksums.txt | sha256sum -c -   # shasum -a 256 -c - on macOS
 tar -xzf "$asset"
