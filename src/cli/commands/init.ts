@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { confirmInteractive } from "@/cli/confirm";
+import { consent } from "@/cli/confirm";
 import { style, success, warning } from "@/cli/style";
 import { exportDecisionsIfNeeded } from "@/decisions/bootstrap";
 import { GEMMA_MODEL } from "@/embedding/model";
@@ -99,10 +99,8 @@ async function ensureGitignore(
 	const file = Bun.file(path);
 	const current = (await file.exists()) ? await file.text() : "";
 	if (alreadyRuled(current)) return;
-	if (
-		!assumeYes &&
-		!confirmInteractive("Version .cortex/decisions/ and ignore the rest?")
-	) {
+	const question = "Version .cortex/decisions/ and ignore the rest?";
+	if (consent(question, assumeYes) !== "granted") {
 		console.log(
 			warning(
 				`Skipped .gitignore change — add ${IGNORE_RULES.join(" and ")} ` +
@@ -137,7 +135,7 @@ async function ensureInstructionFiles(
 		return;
 	}
 	const question = `Add cortex usage instructions to ${files.join(", ")}?`;
-	if (!assumeYes && !confirmInteractive(question)) {
+	if (consent(question, assumeYes) !== "granted") {
 		console.log(
 			warning("Skipped agent instructions — rerun with --yes to add them."),
 		);

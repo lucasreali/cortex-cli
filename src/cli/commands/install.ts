@@ -1,8 +1,8 @@
 import { homedir } from "node:os";
 import { parseArgs } from "node:util";
-import { confirmInteractive } from "@/cli/confirm";
-import { failure, style, success, warning } from "@/cli/style";
-import { usageError } from "@/cli/usage";
+import { type Consent, consent, refusal } from "@/cli/confirm";
+import { reportFailure, usageError } from "@/cli/error-output";
+import { style, success, warning } from "@/cli/style";
 import { RUNS_FROM_COMPILED_BINARY } from "@/embedding/subprocess-command";
 import type { UpsertOutcome } from "@/install/json-mcp";
 import { resolveServerSpec } from "@/install/server-spec";
@@ -20,27 +20,33 @@ export async function runInstall(args: string[], cwd: string): Promise<number> {
 		args,
 		options: {
 			yes: { type: "boolean", default: false },
-			target: { type: "string", default: "auto" },
+			target: { type: "string" },
 			"git-hooks": { type: "boolean", default: false },
 			uninstall: { type: "boolean", default: false },
 		},
 	});
 	// Registering the MCP server is user-scoped and hooks are repo-scoped, so
 	// --git-hooks is exclusive: a bare `cortex install` must keep writing no
-	// repository files, and must keep working outside a git repository.
+	// repository files, and must keep working outside a git repository. Being
+	// exclusive is why --target has to be refused rather than ignored — a flag
+	// silently discarded is a flag the user believes was honoured.
 	if (values["git-hooks"]) {
+		if (values.target !== undefined) {
+			reportFailure("--target selects coding agents, not git hooks");
+			return usageError("install");
+		}
 		return values.uninstall
 			? removeGitHooks(cwd, values.yes)
 			: installGitHooks(cwd, values.yes);
 	}
 	if (values.uninstall) {
-		console.error(failure("--uninstall only applies to --git-hooks"));
+		reportFailure("--uninstall only applies to --git-hooks");
 		return usageError("install");
 	}
 	const home = homedir();
-	const resolution = resolveTargets(values.target, home);
+	const resolution = resolveTargets(values.target ?? "auto", home);
 	if ("error" in resolution) {
-		console.error(failure(resolution.error));
+		reportFailure(resolution.error);
 		return usageError("install");
 	}
 	if (resolution.targets.length === 0) {
@@ -65,18 +71,20 @@ async function registerTargets(
 
 	let unreadable = false;
 	let registered = 0;
+	let withheld: Consent | null = null;
 	for (const target of targets) {
 		const path = tildify(target.configPath(home), home);
-		if (!assumeYes && !confirmAccepts(target, path)) continue;
+		const consented = consent(confirmQuestion(target, path), assumeYes);
+		if (consented !== "granted") {
+			withheld = consented;
+			continue;
+		}
 		const outcome = await target.register(home, server.spec);
 		if (outcome.action === "skipped-unreadable") unreadable = true;
 		else registered += 1;
 		report(target, outcome, home);
 	}
-	if (registered === 0 && !assumeYes && !process.stdin.isTTY) {
-		console.log(warning("non-interactive: nothing written — rerun with --yes"));
-		return 1;
-	}
+	if (registered === 0 && withheld) return refusal(withheld);
 	if (registered > 0) {
 		console.log(
 			style.dim(
@@ -88,10 +96,8 @@ async function registerTargets(
 	return unreadable ? 1 : 0;
 }
 
-function confirmAccepts(target: HarnessTarget, path: string): boolean {
-	return confirmInteractive(
-		`Register the cortex MCP server for ${target.displayName} (${path})?`,
-	);
+function confirmQuestion(target: HarnessTarget, path: string): string {
+	return `Register the cortex MCP server for ${target.displayName} (${path})?`;
 }
 
 function report(
@@ -101,9 +107,7 @@ function report(
 ): void {
 	const path = tildify(outcome.path, home);
 	if (outcome.action === "skipped-unreadable") {
-		console.error(
-			failure(`${path} is not valid JSON — fix or remove it, then rerun`),
-		);
+		reportFailure(`${path} is not valid JSON — fix or remove it, then rerun`);
 		return;
 	}
 	const verb = {

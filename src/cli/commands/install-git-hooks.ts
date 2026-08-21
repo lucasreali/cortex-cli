@@ -1,7 +1,7 @@
 import { chmodSync, lstatSync, mkdirSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { confirmInteractive } from "@/cli/confirm";
+import { consent, refusal } from "@/cli/confirm";
 import { selfCommand } from "@/cli/self-command";
 import { failure, style, success, warning } from "@/cli/style";
 import { getHooksPath } from "@/git";
@@ -15,7 +15,6 @@ import {
 import { writeAtomically } from "@/support/atomic-write";
 import { tildify } from "@/support/tildify";
 
-type Consent = "granted" | "declined" | "unavailable";
 type EventOutcome = "done" | "nothing" | "failed";
 
 const INSTALL_VERBS = {
@@ -140,18 +139,6 @@ function resolveHooksDir(cwd: string): string | null {
 	if (hooksDir) return hooksDir;
 	console.error(failure("git hooks need a git repository — none found here"));
 	return null;
-}
-
-function consent(question: string, assumeYes: boolean): Consent {
-	if (assumeYes) return "granted";
-	if (!process.stdin.isTTY) return "unavailable";
-	return confirmInteractive(question) ? "granted" : "declined";
-}
-
-function refusal(consented: Consent): number {
-	if (consented === "declined") return 0;
-	console.log(warning("non-interactive: nothing written — rerun with --yes"));
-	return 1;
 }
 
 function isSymlink(path: string): boolean {

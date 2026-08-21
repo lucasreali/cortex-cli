@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { errorMessage } from "@/support/errors";
 import { CORTEX_VERSION } from "@/version";
+import { flagsIn } from "./arguments";
 import { runBenchmark } from "./commands/benchmark";
 import { runIndex } from "./commands/code-index";
 import { runDoctor } from "./commands/doctor";
@@ -18,7 +19,8 @@ import { runServe } from "./commands/serve";
 import { runSync } from "./commands/sync";
 import { runUpgrade } from "./commands/upgrade";
 import { runWhy } from "./commands/why";
-import { failure, style } from "./style";
+import { reportFailure } from "./error-output";
+import { style } from "./style";
 import { USAGE } from "./usage";
 
 interface Command {
@@ -161,11 +163,12 @@ async function main(): Promise<void> {
 	}
 	const command = name ? COMMANDS[name] : undefined;
 	if (!command) {
-		if (name) console.error(failure(`unknown command: ${name}`));
+		if (name) reportFailure(`unknown command: ${name}`);
 		printUsage();
 		process.exit(name ? 1 : 0);
 	}
-	if (args.includes("--help") || args.includes("-h")) {
+	const flags = flagsIn(args);
+	if (flags.includes("--help") || flags.includes("-h")) {
 		console.log(`usage: cortex ${command.usage}\n\n${command.description}`);
 		return;
 	}
@@ -173,7 +176,7 @@ async function main(): Promise<void> {
 		const code = await command.run(args, process.cwd());
 		if (code !== null) process.exit(code);
 	} catch (error) {
-		console.error(failure(errorMessage(error)));
+		reportFailure(errorMessage(error));
 		process.exit(1);
 	}
 }
