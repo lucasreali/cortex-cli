@@ -21,8 +21,12 @@ function readAll(): DecisionFile[] {
 }
 
 const decisions = readAll();
-const superseded = new Set(
-	decisions.flatMap((file) => (file.replaces ? [file.replaces] : [])),
+// Status is derived from both links: `replaces` retires a decision in favour of
+// a successor, `archives` retires one that has none. A case expecting either is
+// asking the eval to rank something the search deliberately no longer returns —
+// which reads as a recall regression and is a stale fixture.
+const retired = new Set(
+	decisions.flatMap((file) => [file.replaces, file.archives]).filter(Boolean),
 );
 
 describe("ground truth shape", () => {
@@ -50,11 +54,22 @@ describe("ground truth against the dogfooded decision files", () => {
 		}
 	});
 
-	test("no expected id has been superseded", () => {
+	test("no expected id has been replaced or archived", () => {
 		for (const evalCase of GROUND_TRUTH) {
 			for (const id of evalCase.expected) {
-				expect(superseded.has(id), `${evalCase.id} expects ${id}`).toBe(false);
+				expect(retired.has(id), `${evalCase.id} expects ${id}`).toBe(false);
 			}
+		}
+	});
+
+	// The listing is what a fresh clone carries, so a case naming a decision no
+	// file declares is a case the eval can never satisfy.
+	test("every retired decision names one that exists", () => {
+		const present = new Set(decisions.map((file) => file.id));
+		for (const id of retired) {
+			expect(present.has(id as string), `${id} is retired by a file`).toBe(
+				true,
+			);
 		}
 	});
 });

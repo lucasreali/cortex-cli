@@ -21,6 +21,12 @@ let dir: string;
 beforeEach(() => {
 	dir = realpathSync(mkdtempSync(join(tmpdir(), "cortex-replay-")));
 	run("git", "init", "-b", "main");
+	// A rebase replays commits with the repository's identity, not the one
+	// commitFile passes per invocation, and the suite runs under a HOME with no
+	// git config in it.
+	run("git", "config", "user.email", "test@example.com");
+	run("git", "config", "user.name", "Test");
+	run("git", "config", "commit.gpgsign", "false");
 });
 
 afterEach(() => {

@@ -25,10 +25,13 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
+      # tests/preload.ts keeps the suite out of ~/.cortex and out of HOME
+      # entirely; what it may not do is re-fetch the grammar from GitHub on
+      # every run, so that one download lives in a cache of the suite's own.
       - name: Cache the downloaded tree-sitter grammar
         uses: actions/cache@v4
         with:
-          path: ~/.cortex/grammars
+          path: /tmp/cortex-test-cache/grammars
           key: grammars-${{ runner.os }}-${{ hashFiles('src/indexer/grammar.ts') }}
 
       - run: bun run lint:ci

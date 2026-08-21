@@ -43,7 +43,13 @@ const NOT_IN_THE_TREE: Record<string, string> = {
 		"the anchors column CLAUDE.md rejects — a second copy of the symbol recipe",
 };
 
-const MINIMUM_REFERENCES = 25;
+// Floors, not targets: CLAUDE.md cites around 70 paths, 97 identifiers and 5
+// hidden commands today. The single floor of 25 they replace sat so far under
+// those counts that a regex which stopped matching two thirds of the file would
+// have left every check above passing over a corpus it had quietly emptied.
+const MINIMUM_PATHS = 55;
+const MINIMUM_IDENTIFIERS = 80;
+const MINIMUM_COMMANDS = 4;
 
 function codeSpans(markdown: string): string[] {
 	const spans = [...markdown.matchAll(/`([^`\n]+)`/g)].map(
@@ -170,10 +176,10 @@ describe("CLAUDE.md names things that exist", () => {
 		}
 	});
 
-	test("the extractor still matches paths and identifiers", () => {
-		expect(paths.length).toBeGreaterThanOrEqual(MINIMUM_REFERENCES);
-		expect(identifiers.length).toBeGreaterThanOrEqual(MINIMUM_REFERENCES);
-		expect(commands.length).toBeGreaterThan(0);
+	test("the extractor still matches what CLAUDE.md cites", () => {
+		expect(paths.length).toBeGreaterThanOrEqual(MINIMUM_PATHS);
+		expect(identifiers.length).toBeGreaterThanOrEqual(MINIMUM_IDENTIFIERS);
+		expect(commands.length).toBeGreaterThanOrEqual(MINIMUM_COMMANDS);
 	});
 
 	test("no stale exemptions", () => {
