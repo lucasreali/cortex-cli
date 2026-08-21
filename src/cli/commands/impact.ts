@@ -5,10 +5,11 @@ import {
 	decisionImpact,
 } from "@/app/decision-impact";
 import { confidenceTag } from "@/cli/anchor-tag";
+import { presentArguments, wholeNumber } from "@/cli/arguments";
+import { reportFailure, usageError } from "@/cli/error-output";
 import { printJson } from "@/cli/json";
 import { withRuntime } from "@/cli/open-runtime";
-import { failure, style, warning } from "@/cli/style";
-import { usageError } from "@/cli/usage";
+import { style, warning } from "@/cli/style";
 
 export async function runImpact(args: string[], cwd: string): Promise<number> {
 	const { values, positionals } = parseArgs({
@@ -19,11 +20,11 @@ export async function runImpact(args: string[], cwd: string): Promise<number> {
 		},
 		allowPositionals: true,
 	});
-	const id = positionals[0];
+	const [id] = presentArguments(positionals);
 	if (!id) return usageError("impact");
 	const depth = parseDepth(values.depth);
 	if (depth === null) {
-		console.error(failure("--depth N must be a non-negative integer"));
+		reportFailure("--depth N must be a non-negative integer");
 		return usageError("impact");
 	}
 	return withRuntime(cwd, async (runtime) => {
@@ -32,7 +33,7 @@ export async function runImpact(args: string[], cwd: string): Promise<number> {
 			codeDepth: depth,
 		});
 		if (!impact) {
-			console.error(failure(`decision not found: ${id}`));
+			reportFailure(`decision not found: ${id}`);
 			return 1;
 		}
 		if (values.json) {
@@ -49,8 +50,7 @@ export async function runImpact(args: string[], cwd: string): Promise<number> {
 
 function parseDepth(raw: string | undefined): number | null {
 	if (raw === undefined) return DEFAULT_IMPACT_DEPTH;
-	const depth = Number(raw);
-	return Number.isInteger(depth) && depth >= 0 ? depth : null;
+	return wholeNumber(raw);
 }
 
 function printDependsOnTree(impact: DecisionImpact): void {

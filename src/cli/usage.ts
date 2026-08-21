@@ -1,6 +1,7 @@
-// One source for every usage line: main.ts prints them in --help and each
-// command prints its own on a bad invocation. They drifted while there were
-// two copies — cortex --help documented neither --json nor --force on upgrade.
+// One source for every usage line: main.ts prints them in --help, each command
+// prints its own on a bad invocation, and error-output.ts reads them to decide
+// whether a command speaks --json. They drifted while there were two copies —
+// cortex --help documented neither --json nor --force on upgrade.
 export const USAGE = {
 	init: "init [--yes]",
 	install: "install [--yes] [--target T] [--git-hooks [--uninstall]]",
@@ -22,8 +23,3 @@ export const USAGE = {
 } as const;
 
 export type CommandName = keyof typeof USAGE;
-
-export function usageError(name: CommandName): number {
-	console.error(`usage: cortex ${USAGE[name]}`);
-	return 1;
-}

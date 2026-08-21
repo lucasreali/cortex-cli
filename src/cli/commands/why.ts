@@ -9,10 +9,11 @@ import {
 import { accessCodeIndex } from "@/app/code-index-access";
 import type { CortexRuntime } from "@/app/runtime";
 import { confidenceTag } from "@/cli/anchor-tag";
+import { presentArguments } from "@/cli/arguments";
+import { usageError } from "@/cli/error-output";
 import { printJson } from "@/cli/json";
 import { withRuntime } from "@/cli/open-runtime";
 import { style, warning } from "@/cli/style";
-import { usageError } from "@/cli/usage";
 
 interface SymbolMatch {
 	filePath: string;
@@ -33,7 +34,7 @@ export async function runWhy(args: string[], cwd: string): Promise<number> {
 		options: { json: { type: "boolean", default: false } },
 		allowPositionals: true,
 	});
-	const target = positionals[0];
+	const [target] = presentArguments(positionals);
 	if (!target) return usageError("why");
 	return withRuntime(cwd, async (runtime) => {
 		const report = await buildReport(runtime, target);

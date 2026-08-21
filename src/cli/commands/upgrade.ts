@@ -1,6 +1,7 @@
 import { parseArgs } from "node:util";
+import { reportFailure, usageError } from "@/cli/error-output";
 import { printJson } from "@/cli/json";
-import { failure, style, success } from "@/cli/style";
+import { style, success } from "@/cli/style";
 import { daemonPathsFor } from "@/embedding/daemon/paths";
 import { stopDaemon } from "@/embedding/daemon/stop";
 import { GEMMA_MODEL } from "@/embedding/model";
@@ -27,17 +28,10 @@ export async function runUpgrade(args: string[]): Promise<number> {
 			force: { type: "boolean", default: false },
 		},
 	});
-	if (values.json && !values.check) {
-		console.error(
-			"usage: cortex upgrade [--check [--json]] [--version V] [--force]",
-		);
-		return 1;
-	}
+	if (values.json && !values.check) return usageError("upgrade");
 	if (!values.check && !RUNS_FROM_COMPILED_BINARY) {
-		console.error(
-			failure(
-				"upgrade replaces the installed binary — this is a source checkout, use git pull",
-			),
+		reportFailure(
+			"upgrade replaces the installed binary — this is a source checkout, use git pull",
 		);
 		return 1;
 	}

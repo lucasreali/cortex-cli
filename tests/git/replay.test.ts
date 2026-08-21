@@ -6,6 +6,7 @@ import {
 	readFileSync,
 	realpathSync,
 	rmSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -60,6 +61,12 @@ function writeTodo(relativePath: string, contents: string): void {
 	writeFileSync(path, contents);
 }
 
+function ageTodo(relativePath: string, byMs: number): void {
+	const path = join(dir, ".git", relativePath);
+	const when = new Date(Date.now() - byMs);
+	utimesSync(path, when, when);
+}
+
 describe("replayStepsRemaining", () => {
 	test("is false in a repository running nothing", () => {
 		commitFile("a.txt", "a");
@@ -84,6 +91,22 @@ describe("replayStepsRemaining", () => {
 
 	test("sees a cherry-pick or a revert through the sequencer", () => {
 		writeTodo("sequencer/todo", "pick 1a2b3c4 second\n");
+		expect(replayStepsRemaining(dir)).toBe(true);
+	});
+
+	// A killed cherry-pick leaves its todo behind and nothing ever removes it.
+	// Reading that as an operation in progress suppressed the post-commit embed
+	// in that repository forever; git rewrites the file on every step, so one
+	// nobody has touched for hours is wreckage, not a replay.
+	test("ignores a todo left behind by an interrupted replay", () => {
+		writeTodo("sequencer/todo", "pick 1a2b3c4 second\n");
+		ageTodo("sequencer/todo", 3 * 60 * 60 * 1000);
+		expect(replayStepsRemaining(dir)).toBe(false);
+	});
+
+	test("still sees a replay whose last step ran moments ago", () => {
+		writeTodo("rebase-merge/git-rebase-todo", "pick 1a2b3c4 second\n");
+		ageTodo("rebase-merge/git-rebase-todo", 60 * 1000);
 		expect(replayStepsRemaining(dir)).toBe(true);
 	});
 

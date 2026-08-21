@@ -7,10 +7,11 @@ import {
 } from "@/app/search-all-projects";
 import { searchDecisions } from "@/app/search-decisions";
 import { embedSweepQuery, sweepModelId } from "@/app/sweep-query";
+import { presentArguments } from "@/cli/arguments";
+import { usageError } from "@/cli/error-output";
 import { printJson } from "@/cli/json";
 import { projectRootFor, withRuntime } from "@/cli/open-runtime";
 import { style, warning } from "@/cli/style";
-import { usageError } from "@/cli/usage";
 import {
 	createProvider,
 	embeddingsDisabled,
@@ -38,14 +39,15 @@ export async function runSearch(args: string[], cwd: string): Promise<number> {
 		},
 		allowPositionals: true,
 	});
-	if (positionals.length === 0) return usageError("search");
+	const terms = presentArguments(positionals);
+	if (terms.length === 0) return usageError("search");
 	if (values["all-projects"]) {
-		return searchEverywhere(cwd, positionals, values.exact, values.json);
+		return searchEverywhere(cwd, terms, values.exact, values.json);
 	}
 	return withRuntime(cwd, async (runtime) => {
-		const results = await searchDecisions(runtime, positionals, values.exact);
+		const results = await searchDecisions(runtime, terms, values.exact);
 		runtime.queries.record(
-			searchQuery(positionals, values.exact),
+			searchQuery(terms, values.exact),
 			results.map((result) => result.node.id),
 		);
 		if (values.json) {

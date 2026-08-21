@@ -15,10 +15,10 @@ import {
 	RepositoryCorpus,
 	type RepositoryFile,
 } from "@/benchmark/repository-corpus";
+import { usageError } from "@/cli/error-output";
 import { printJson } from "@/cli/json";
 import { withRuntime } from "@/cli/open-runtime";
 import { failure, style, success, warning } from "@/cli/style";
-import { usageError } from "@/cli/usage";
 import { DecisionStore } from "@/decisions/decision-store";
 import { intentTerms } from "@/embedding/semantic-search";
 import { listRepoFiles } from "@/git";

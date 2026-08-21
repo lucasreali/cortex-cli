@@ -145,14 +145,31 @@ Dependency direction, no cycles:
   framework); one file per command in `cli/commands/`. Four are `hidden`
   because another program invokes them, never a person: `prompt-hook` (Claude
   Code), `git-hook` (the installed git hooks), `embed-worker` and
-  `embed-daemon` (the binary spawning itself). A file directly under `cli/` is
-  rendering two commands share: `malformed-files.ts` caps how many unreadable
-  decision files `doctor` and `sync` name and states the remainder, so neither
-  can truncate silently and a corrupt checkout cannot bury every other finding.
-  `skipped-sources.ts` is the same cap for the source files the code index
-  could not use, shared by `index` and `doctor`. Both are pure and unit-tested
-  in process, which is why they sit beside `cli/commands/` rather than inside
-  it.
+  `embed-daemon` (the binary spawning itself). All four are spawned with pipes,
+  so all four take a terminal on stdin as a person who found the name somewhere
+  and print what they are instead of running.
+
+  A file directly under `cli/` is something several commands share.
+  `error-output.ts` is the single failure reporter: `--json` means the same
+  thing on the error path as on the happy one, and `USAGE` — not a second list
+  — decides which commands may answer that way, so a command that cannot print
+  JSON on success does not invent it on failure. It owns `usageError` too,
+  which is why `usage.ts` is the table alone. `arguments.ts` holds the three
+  rules every command shares about its own argv: flags stop at `--`, a blank
+  positional is a missing one, and a count is spelled in digits.
+  `malformed-files.ts` caps how many unreadable decision files `doctor` and
+  `sync` name and states the remainder, so neither can truncate silently and a
+  corrupt checkout cannot bury every other finding. `skipped-sources.ts` is the
+  same cap for the source files the code index could not use, shared by `index`
+  and `doctor`. `confirm.ts` answers a confirmation in three values, not two:
+  a declined prompt costs nothing, a prompt that could never be shown is a
+  command that did nothing and has to say so.
+
+  `open-runtime.ts` is where a store SQLite refuses to open is turned into a
+  sentence: `decisions.db` is a derived cache and the files are the product, so
+  `SQLITE_NOTADB` names the path and the rebuild rather than dying on "file is
+  not a database" — reported, never repaired, because deleting a database on a
+  read command is the one thing that cannot be taken back.
 - `install/` — pure logic only, home and cwd passed in as parameters, 100%
   in-process coverage; the thin command files touch process state.
   `marked-block.ts` is the one marker fence, shared by the instruction block

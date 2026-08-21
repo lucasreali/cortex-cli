@@ -1,8 +1,9 @@
 import { parseArgs } from "node:util";
 import type { CortexRuntime } from "@/app/runtime";
+import { consent } from "@/cli/confirm";
+import { reportFailure, usageError } from "@/cli/error-output";
 import { withRuntime } from "@/cli/open-runtime";
-import { failure, style, success } from "@/cli/style";
-import { usageError } from "@/cli/usage";
+import { style, success } from "@/cli/style";
 import { createDirectProvider } from "@/embedding/create-provider";
 import { GEMMA_MODEL } from "@/embedding/model";
 import { modelIsResident } from "@/embedding/model-cache";
@@ -51,7 +52,7 @@ async function fetchModel(): Promise<number> {
 		console.log(success(`Embedding model ready: ${GEMMA_MODEL.modelId}`));
 		return 0;
 	} catch (error) {
-		console.error(failure(`Model download failed: ${errorMessage(error)}`));
+		reportFailure(`Model download failed: ${errorMessage(error)}`);
 		return 1;
 	} finally {
 		provider.dispose();
@@ -72,8 +73,8 @@ async function rebuild(
 	assumeYes: boolean,
 ): Promise<number> {
 	const active = runtime.nodes.listActive();
-	if (!assumeYes && !confirmRebuild(active.length)) {
-		console.error(failure("Rebuild needs confirmation — rerun with --yes."));
+	if (consent(rebuildQuestion(active.length), assumeYes) !== "granted") {
+		reportFailure("Rebuild needs confirmation — rerun with --yes.");
 		return 1;
 	}
 	const code = await embedAll(
@@ -95,7 +96,6 @@ async function rebuild(
 	return 0;
 }
 
-function confirmRebuild(count: number): boolean {
-	if (!process.stdin.isTTY) return false;
-	return confirm(`Re-embed all ${count} active decision(s)?`);
+function rebuildQuestion(count: number): string {
+	return `Re-embed all ${count} active decision(s)?`;
 }
