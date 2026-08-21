@@ -1,3 +1,4 @@
+import type { SessionSource } from "@/support/session-identity";
 import type { AskedQuery } from "./entry";
 import type { QueryLog } from "./query-log";
 
@@ -12,13 +13,13 @@ const RECORDED_IDS_LIMIT = 10;
 export class QueryRecorder {
 	constructor(
 		private readonly log: QueryLog,
-		private readonly session: string,
+		private readonly session: SessionSource,
 	) {}
 
 	record(query: AskedQuery, resultIds: string[]): void {
 		this.log.append({
 			...query,
-			session: this.session,
+			session: this.session.current(),
 			at: new Date().toISOString(),
 			results: resultIds.length,
 			ids: resultIds.slice(0, RECORDED_IDS_LIMIT),

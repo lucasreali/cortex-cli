@@ -1,6 +1,4 @@
-import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname } from "node:path";
-import { writeAtomicallySync } from "@/support/atomic-write";
+import { AppendOnlyLog } from "@/support/append-only-log";
 import { decodeEvents, encodeEvent, type UsefulnessEvent } from "./event";
 import { isWithinHorizon, usefulnessScores } from "./score";
 
@@ -12,12 +10,15 @@ const MAXIMUM_EVENTS = 5000;
 // degrades to "no signal" instead of throwing: a query must never fail because
 // a preference file could not be read or written.
 export class UsefulnessEventLog {
+	private readonly file: AppendOnlyLog;
 	private cached: UsefulnessEvent[] | null = null;
 
-	constructor(private readonly path: string) {}
+	constructor(path: string) {
+		this.file = new AppendOnlyLog(path);
+	}
 
 	events(): UsefulnessEvent[] {
-		this.cached ??= decodeEvents(readOrEmpty(this.path));
+		this.cached ??= decodeEvents(this.file.read());
 		return this.cached;
 	}
 
@@ -30,43 +31,32 @@ export class UsefulnessEventLog {
 	append(events: UsefulnessEvent[], now: Date = new Date()): void {
 		if (events.length === 0 || recordingDisabled()) return;
 		const merged = [...this.events(), ...events];
-		try {
-			mkdirSync(dirname(this.path), { recursive: true });
-			appendFileSync(this.path, events.map(encodeEvent).join(""));
-		} catch {
-			return;
-		}
+		if (!this.file.append(events.map(encodeEvent).join(""))) return;
 		this.cached = merged;
 		if (needsCompaction(merged, now)) this.compact(now);
 	}
 
-	// Re-reads before rewriting: another process may have appended events this
-	// one never saw, and compaction must not be how they disappear.
+	// A compaction puts back whatever another process appended while it ran, so
+	// what is on disk afterwards is no longer what this instance believed. The
+	// cache is dropped rather than guessed at, and the next read rebuilds it.
 	private compact(now: Date): void {
-		const onDisk = decodeEvents(readOrEmpty(this.path));
-		const kept = onDisk
-			.filter((event) => isWithinHorizon(event, now))
-			.slice(-MAXIMUM_EVENTS);
-		if (kept.length === onDisk.length) return;
-		try {
-			writeAtomicallySync(this.path, kept.map(encodeEvent).join(""));
-			this.cached = kept;
-		} catch {}
+		this.file.compact((text) => newestWithinHorizon(text, now));
+		this.cached = null;
 	}
+}
+
+function newestWithinHorizon(text: string, now: Date): string {
+	return decodeEvents(text)
+		.filter((event) => isWithinHorizon(event, now))
+		.slice(-MAXIMUM_EVENTS)
+		.map(encodeEvent)
+		.join("");
 }
 
 function needsCompaction(events: UsefulnessEvent[], now: Date): boolean {
 	if (events.length > MAXIMUM_EVENTS) return true;
 	const oldest = events[0];
 	return oldest !== undefined && !isWithinHorizon(oldest, now);
-}
-
-function readOrEmpty(path: string): string {
-	try {
-		return readFileSync(path, "utf8");
-	} catch {
-		return "";
-	}
 }
 
 function recordingDisabled(): boolean {

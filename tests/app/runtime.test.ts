@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readdirSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { sessionNamed } from "@tests/fixtures/session-source";
 import { buildRuntime, type CortexRuntime } from "@/app/runtime";
 import { DecisionStore } from "@/decisions/decision-store";
 import { readConfig, writeConfig } from "@/storage/config";
@@ -159,7 +160,9 @@ describe("buildRuntime", () => {
 		]);
 		const baseline = await searchIn(dir);
 		const runnerUp = baseline[1] as string;
-		new UsefulnessRecorder(logIn(dir), "earlier-session").used([runnerUp]);
+		new UsefulnessRecorder(logIn(dir), sessionNamed("earlier-session")).used([
+			runnerUp,
+		]);
 
 		const reranked = await searchIn(dir, (runtime) => {
 			runtime.usefulness.used([runnerUp]);

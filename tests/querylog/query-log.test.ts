@@ -5,17 +5,19 @@ import {
 	mkdtempSync,
 	readFileSync,
 	rmSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { sessionNamed } from "@tests/fixtures/session-source";
 import {
 	contextQuery,
 	encodeEntry,
 	type QueryLogEntry,
 	searchQuery,
 } from "@/querylog/entry";
-import { QueryLog } from "@/querylog/query-log";
+import { COMPACTED_BYTES, MAXIMUM_BYTES, QueryLog } from "@/querylog/query-log";
 import { QueryRecorder } from "@/querylog/recorder";
 import {
 	DISABLE_VARIABLE,
@@ -23,9 +25,6 @@ import {
 	PATH_VARIABLE,
 	QueryLogSettings,
 } from "@/querylog/settings";
-
-const MAXIMUM_ENTRIES = 2000;
-const APPENDS_BETWEEN_COMPACTIONS = 100;
 
 let dir: string;
 let path: string;
@@ -153,14 +152,11 @@ describe("QueryLog", () => {
 });
 
 describe("QueryLog — compaction", () => {
-	function seed(count: number): void {
+	function seedBeyondTheCeiling(): void {
 		mkdirSync(join(dir, "local"), { recursive: true });
-		writeFileSync(
-			path,
-			Array.from({ length: count }, (_, index) =>
-				encodeEntry(entry(`seeded-${index}`)),
-			).join(""),
-		);
+		const line = encodeEntry(entry("seeded"));
+		const count = Math.ceil(MAXIMUM_BYTES / line.length) + 1;
+		writeFileSync(path, line.repeat(count));
 	}
 
 	function appendMany(log: QueryLog, count: number): void {
@@ -169,26 +165,45 @@ describe("QueryLog — compaction", () => {
 		}
 	}
 
-	test("an oversized log is capped at the next compaction, newest kept", () => {
-		seed(MAXIMUM_ENTRIES + 500);
+	function sizeOnDisk(): number {
+		return statSync(path).size;
+	}
+
+	// The one a per-instance counter could never do: a CLI process makes a
+	// single query and exits, so the ceiling has to be read off the file.
+	test("one query from a fresh process caps a log that process never wrote", () => {
+		seedBeyondTheCeiling();
 		const log = openLog();
 
-		appendMany(log, APPENDS_BETWEEN_COMPACTIONS);
+		log.append(entry("the only query this process makes"));
 
-		expect(lines()).toHaveLength(MAXIMUM_ENTRIES);
+		expect(sizeOnDisk()).toBeLessThanOrEqual(COMPACTED_BYTES);
 		expect(log.entries().at(-1)?.query).toBe(
-			`fresh-${APPENDS_BETWEEN_COMPACTIONS - 1}`,
+			"the only query this process makes",
 		);
 	});
 
-	test("compaction keeps what another process appended meanwhile", () => {
-		seed(MAXIMUM_ENTRIES + 1);
+	test("compaction trims under the ceiling, so the next query does not repeat it", () => {
+		seedBeyondTheCeiling();
 		const log = openLog();
-		appendFileSync(path, encodeEntry(entry("elsewhere")));
+		log.append(entry("first"));
+		const compacted = readFileSync(path, "utf8");
 
-		appendMany(log, APPENDS_BETWEEN_COMPACTIONS);
+		log.append(entry("second"));
 
-		expect(log.entries().map((line) => line.query)).toContain("elsewhere");
+		expect(readFileSync(path, "utf8")).toBe(
+			compacted + encodeEntry(entry("second")),
+		);
+	});
+
+	test("an entry larger than the whole budget does not wedge the log", () => {
+		const log = openLog();
+
+		log.append(entry("x".repeat(MAXIMUM_BYTES + 1)));
+		log.append(entry("after"));
+
+		expect(sizeOnDisk()).toBeLessThanOrEqual(COMPACTED_BYTES);
+		expect(log.entries().map((line) => line.query)).toEqual(["after"]);
 	});
 
 	test("a log within its limits is never rewritten", () => {
@@ -196,17 +211,17 @@ describe("QueryLog — compaction", () => {
 		log.append(entry("first"));
 		const before = readFileSync(path, "utf8");
 
-		appendMany(log, APPENDS_BETWEEN_COMPACTIONS);
+		appendMany(log, 100);
 
 		expect(readFileSync(path, "utf8").startsWith(before)).toBe(true);
-		expect(lines()).toHaveLength(APPENDS_BETWEEN_COMPACTIONS + 1);
+		expect(lines()).toHaveLength(101);
 	});
 });
 
 describe("QueryRecorder", () => {
 	test("every query is a line, the same query twice is two", () => {
 		const log = openLog();
-		const recorder = new QueryRecorder(log, "session-1");
+		const recorder = new QueryRecorder(log, sessionNamed("session-1"));
 
 		recorder.record(searchQuery(["jwt"], false), ["d1"]);
 		recorder.record(searchQuery(["jwt"], false), ["d1"]);
@@ -219,7 +234,10 @@ describe("QueryRecorder", () => {
 		const log = openLog();
 		const ids = Array.from({ length: 25 }, (_, index) => `d${index}`);
 
-		new QueryRecorder(log, "session-1").record(searchQuery(["jwt"], true), ids);
+		new QueryRecorder(log, sessionNamed("session-1")).record(
+			searchQuery(["jwt"], true),
+			ids,
+		);
 
 		const recorded = log.entries()[0];
 		expect(recorded?.results).toBe(25);
@@ -230,7 +248,7 @@ describe("QueryRecorder", () => {
 	test("a query that returned nothing is recorded as such", () => {
 		const log = openLog();
 
-		new QueryRecorder(log, "session-1").record(
+		new QueryRecorder(log, sessionNamed("session-1")).record(
 			searchQuery(["nope"], false),
 			[],
 		);
@@ -242,7 +260,10 @@ describe("QueryRecorder", () => {
 		const log = openLog(false);
 
 		expect(() =>
-			new QueryRecorder(log, "session-1").record(contextQuery("x", null), []),
+			new QueryRecorder(log, sessionNamed("session-1")).record(
+				contextQuery("x", null),
+				[],
+			),
 		).not.toThrow();
 		expect(log.entries()).toEqual([]);
 	});

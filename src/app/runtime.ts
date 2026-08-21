@@ -25,6 +25,7 @@ import { migrate, SCHEMA_VERSION } from "@/storage/migrations";
 import { NodeRepository, type SaveContext } from "@/storage/node-repository";
 import { ProjectRoot } from "@/storage/project-root";
 import { SearchRepository } from "@/storage/search-repository";
+import { SessionIdentity } from "@/support/session-identity";
 import { UsefulnessEventLog } from "@/usefulness/event-log";
 import { UsefulnessRecorder } from "@/usefulness/recorder";
 
@@ -116,8 +117,10 @@ async function assembleRuntime(
 	const projectNodeId = nodes.ensureProject(projectCanonicalId);
 	// Minted here, inserted only when a write path needs the row: the local
 	// usefulness log keys its events by this id from the first read, and a
-	// read-only tool must not leave a session node behind to be recorded.
-	const sessionId = Bun.randomUUIDv7();
+	// read-only tool must not leave a session node behind to be recorded. It is
+	// an identity rather than a string because this runtime may be cached by a
+	// server that outlives the conversation that opened it.
+	const session = new SessionIdentity();
 	const pinnedModelId = config?.model_id ?? GEMMA_MODEL.modelId;
 	const provider = embeddingsDisabled()
 		? null
@@ -152,10 +155,19 @@ async function assembleRuntime(
 			if (touched(report)) semanticSearch.invalidate();
 		},
 	});
-	let sessionNodeId: string | null = null;
+	// One session node per identity, not per runtime: a server that has rolled
+	// into a new conversation must not hang this one's GENERATED_IN off the
+	// node the previous conversation created.
+	let sessionNode: { of: string; id: string } | null = null;
 	const ensureSession = (): string => {
-		sessionNodeId ??= nodes.createSession(projectNodeId, sessionId);
-		return sessionNodeId;
+		const current = session.current();
+		if (sessionNode?.of !== current) {
+			sessionNode = {
+				of: current,
+				id: nodes.createSession(projectNodeId, current),
+			};
+		}
+		return sessionNode.id;
 	};
 
 	return {
@@ -173,10 +185,10 @@ async function assembleRuntime(
 		semanticSearch,
 		codeIndex,
 		decisions,
-		usefulness: new UsefulnessRecorder(usefulnessLog, sessionId),
+		usefulness: new UsefulnessRecorder(usefulnessLog, session),
 		queries: new QueryRecorder(
 			new QueryLog(QueryLogSettings.from(cortexDir)),
-			sessionId,
+			session,
 		),
 		ensureSession,
 		saveContext() {
