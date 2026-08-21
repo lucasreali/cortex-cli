@@ -63,13 +63,13 @@ async function registerTargets(
 	});
 	if (server.warning) console.log(warning(server.warning));
 
-	let unreadable = false;
+	let skipped = false;
 	let registered = 0;
 	for (const target of targets) {
 		const path = tildify(target.configPath(home), home);
 		if (!assumeYes && !confirmAccepts(target, path)) continue;
 		const outcome = await target.register(home, server.spec);
-		if (outcome.action === "skipped-unreadable") unreadable = true;
+		if (outcome.action === "skipped") skipped = true;
 		else registered += 1;
 		report(target, outcome, home);
 	}
@@ -85,7 +85,7 @@ async function registerTargets(
 			),
 		);
 	}
-	return unreadable ? 1 : 0;
+	return skipped ? 1 : 0;
 }
 
 function confirmAccepts(target: HarnessTarget, path: string): boolean {
@@ -100,10 +100,8 @@ function report(
 	home: string,
 ): void {
 	const path = tildify(outcome.path, home);
-	if (outcome.action === "skipped-unreadable") {
-		console.error(
-			failure(`${path} is not valid JSON — fix or remove it, then rerun`),
-		);
+	if (outcome.action === "skipped") {
+		console.error(failure(`${path} ${outcome.reason}`));
 		return;
 	}
 	const verb = {
