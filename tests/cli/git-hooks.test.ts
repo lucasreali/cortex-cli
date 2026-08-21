@@ -17,6 +17,10 @@ import { join } from "node:path";
 import { CORTEX_HOOK_BEGIN, CORTEX_HOOK_END } from "@/install/git-hooks";
 
 const MAIN_PATH = new URL("../../src/cli/main.ts", import.meta.url).pathname;
+const FAKE_WORKER = new URL(
+	"../fixtures/fake-embedding-worker.ts",
+	import.meta.url,
+).pathname;
 const EVENTS = ["post-commit", "post-checkout", "post-merge"];
 const MINE = '#!/bin/sh\necho "mine"\n';
 
@@ -373,4 +377,152 @@ describe("the installed hooks reconcile without an explicit command", () => {
 		expect(commitAll("readme").code).toBe(0);
 		expect(existsSync(join(dir, ".cortex"))).toBe(false);
 	});
+});
+
+// Every test above forces CORTEX_DISABLE_EMBEDDINGS=1, so `embedsAfter` has
+// answered false on every hook run in the suite and the whole embed-spawn half
+// of the hook — the post-checkout exclusion, the sequencer guard, pinnedModelId,
+// spawnDetached — has never been executed. That is exactly the regression the
+// guard exists to prevent: inverting it would keep the suite green. Here the
+// kill-switch is off and a fake worker stands in for the model, so the detached
+// child the hook starts finishes in milliseconds and leaves a row behind.
+describe("what a hook defers to a detached embed", () => {
+	const BROUGHT = "019f0000-0000-7000-8000-0000000000c3";
+	const CARRIED = "019f0000-0000-7000-8000-0000000000d4";
+
+	function embedding(...args: string[]) {
+		return Bun.spawnSync(["git", ...args], {
+			cwd: dir,
+			stdout: "pipe",
+			stderr: "pipe",
+			env: {
+				...process.env,
+				HOME: home,
+				CORTEX_EMBED_WORKER_PATH: FAKE_WORKER,
+				CORTEX_DISABLE_EMBEDDINGS: "",
+			},
+		});
+	}
+
+	function decisionFile(id: string, title: string): void {
+		mkdirSync(join(dir, ".cortex", "decisions"), { recursive: true });
+		writeFileSync(
+			join(dir, ".cortex", "decisions", `${id}.md`),
+			[
+				"---",
+				`title: ${JSON.stringify(title)}`,
+				'keywords: ["alpha", "beta", "gamma", "delta", "epsilon"]',
+				'provenance: "agent"',
+				'created_at: "2026-08-14T12:00:00.000Z"',
+				"---",
+				"",
+				`${title} body.`,
+				"",
+			].join("\n"),
+		);
+	}
+
+	function embeddedIds(): string[] {
+		const db = new Database(join(dir, ".cortex", "decisions.db"), {
+			readonly: true,
+		});
+		try {
+			return db
+				.query<{ node_id: string }, []>(
+					"SELECT node_id FROM embeddings ORDER BY node_id",
+				)
+				.all()
+				.map((row) => row.node_id);
+		} catch {
+			return [];
+		} finally {
+			db.close();
+		}
+	}
+
+	async function eventuallyEmbedded(id: string): Promise<boolean> {
+		for (let attempt = 0; attempt < 100; attempt++) {
+			if (embeddedIds().includes(id)) return true;
+			await Bun.sleep(100);
+		}
+		return false;
+	}
+
+	// Nothing to wait *for* in the negative cases: the assertion is that no
+	// child ever appears, so the window has to be long enough for one that did.
+	async function stillNotEmbedded(id: string): Promise<boolean> {
+		await Bun.sleep(2000);
+		return !embeddedIds().includes(id);
+	}
+
+	function repoWithHooks(): void {
+		expect(cli("init", "--yes").code).toBe(0);
+		expect(cli("install", "--git-hooks", "--yes").code).toBe(0);
+	}
+
+	test("a commit embeds the decision it brought", async () => {
+		repoWithHooks();
+		decisionFile(BROUGHT, "Decision the commit brought");
+		embedding("add", "-A");
+
+		expect(embedding("commit", "-m", "brought").exitCode).toBe(0);
+
+		expect(await eventuallyEmbedded(BROUGHT)).toBe(true);
+	}, 30_000);
+
+	// A checkout restores rows that kept their vectors — nothing is deleted when
+	// a branch goes away — so it is the one event that brings no work.
+	test("a branch switch reconciles but embeds nothing", async () => {
+		repoWithHooks();
+		git("checkout", "-b", "feature");
+		decisionFile(CARRIED, "Decision carried by the branch");
+		git("add", "-A");
+		expect(git("commit", "-m", "carried").code).toBe(0);
+		git("checkout", "main");
+
+		expect(embedding("checkout", "feature").exitCode).toBe(0);
+
+		expect(await stillNotEmbedded(CARRIED)).toBe(true);
+	}, 30_000);
+
+	// A rebase fires post-commit once per replayed commit. Fifty replayed
+	// commits would otherwise be fifty detached embeds, each loading the model;
+	// the embed is left to the last step, whose todo is already empty.
+	test("a replay still holding steps defers to its last commit", async () => {
+		repoWithHooks();
+		mkdirSync(join(dir, ".git", "rebase-merge"), { recursive: true });
+		writeFileSync(
+			join(dir, ".git", "rebase-merge", "git-rebase-todo"),
+			"pick 0000000 a commit this replay has not reached yet\n",
+		);
+		decisionFile(BROUGHT, "Decision replayed onto the branch");
+		embedding("add", "-A");
+
+		expect(embedding("commit", "-m", "replayed").exitCode).toBe(0);
+
+		expect(await stillNotEmbedded(BROUGHT)).toBe(true);
+	}, 30_000);
+
+	// pinnedModelId falls back to the built-in model when the project has no
+	// config to read — a store restored from git without one still embeds.
+	test("a project with no config embeds under the built-in model", async () => {
+		repoWithHooks();
+		rmSync(join(dir, ".cortex", "config"), { force: true });
+		decisionFile(BROUGHT, "Decision with no config beside it");
+		embedding("add", "-A");
+
+		expect(embedding("commit", "-m", "no config").exitCode).toBe(0);
+
+		expect(await eventuallyEmbedded(BROUGHT)).toBe(true);
+	}, 30_000);
+
+	test("the kill-switch still stops the embed as well as the hook", async () => {
+		repoWithHooks();
+		decisionFile(BROUGHT, "Decision nobody embeds");
+		git("add", "-A");
+
+		expect(git("commit", "-m", "disabled").code).toBe(0);
+
+		expect(await stillNotEmbedded(BROUGHT)).toBe(true);
+	}, 30_000);
 });

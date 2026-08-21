@@ -33,6 +33,41 @@ describe("subprocess commands", () => {
 		});
 	});
 
+	// The variable is how a test drives a path that spawns a private worker
+	// without a model. An installed binary must not take it: a variable that
+	// chooses which program cortex executes is not a setting.
+	test("CORTEX_EMBED_WORKER_PATH is honoured from source and ignored compiled", () => {
+		const previous = process.env.CORTEX_EMBED_WORKER_PATH;
+		process.env.CORTEX_EMBED_WORKER_PATH = "/tmp/from-the-environment.ts";
+		try {
+			expect(embedWorkerCommand(undefined, false).argv).toEqual([
+				"/tmp/from-the-environment.ts",
+			]);
+			expect(embedWorkerCommand(undefined, true).argv).toEqual([
+				"embed-worker",
+			]);
+			expect(embedWorkerCommand("/tmp/explicit.ts", false).argv).toEqual([
+				"/tmp/explicit.ts",
+			]);
+		} finally {
+			if (previous === undefined) delete process.env.CORTEX_EMBED_WORKER_PATH;
+			else process.env.CORTEX_EMBED_WORKER_PATH = previous;
+		}
+	});
+
+	test("an empty CORTEX_EMBED_WORKER_PATH is no override at all", () => {
+		const previous = process.env.CORTEX_EMBED_WORKER_PATH;
+		process.env.CORTEX_EMBED_WORKER_PATH = "";
+		try {
+			expect(embedWorkerCommand(undefined, false).argv[0]).toEndWith(
+				"/src/embedding/worker.ts",
+			);
+		} finally {
+			if (previous === undefined) delete process.env.CORTEX_EMBED_WORKER_PATH;
+			else process.env.CORTEX_EMBED_WORKER_PATH = previous;
+		}
+	});
+
 	test("daemon from source spawns the daemon entrypoint with the model", () => {
 		const command = embedDaemonCommand("model-x", false);
 		expect(command.executable).toBe(process.execPath);
