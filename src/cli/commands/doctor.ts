@@ -7,6 +7,9 @@ import { printJson } from "@/cli/json";
 import { withRuntime } from "@/cli/open-runtime";
 import { success, warning } from "@/cli/style";
 import { MINIMUM_KEYWORDS } from "@/domain";
+import { listenerProbe } from "@/embedding/daemon/client";
+import { daemonLockIsAbandoned, readDaemonLock } from "@/embedding/daemon/lock";
+import { daemonPathsFor } from "@/embedding/daemon/paths";
 import { GEMMA_MODEL } from "@/embedding/model";
 import { modelsDir } from "@/embedding/models-dir";
 import { computeDrift } from "@/indexer/code-indexer";
@@ -34,6 +37,7 @@ export async function runDoctor(args: string[], cwd: string): Promise<number> {
 		checkEmbeddings(runtime, report);
 		checkKeywords(runtime, report);
 		checkModelDownloaded(report);
+		await checkEmbeddingDaemon(report);
 		await checkCodeIndex(runtime, report);
 		return values.json ? report.finishJson() : report.finish();
 	});
@@ -332,6 +336,34 @@ function hasResolvableIntent(
 ): boolean {
 	if (specifier.startsWith("./") || specifier.startsWith("../")) return true;
 	return aliases.expand(specifier).length > 0;
+}
+
+// The daemon is per user, not per project, and a lock no process can verify is
+// invisible everywhere else: every cortex on the machine quietly drops to the
+// private worker and none of them says why.
+async function checkEmbeddingDaemon(report: DoctorReport): Promise<void> {
+	const paths = daemonPathsFor(GEMMA_MODEL.modelId);
+	if (!existsSync(paths.lockPath)) {
+		report.ok("embedding daemon: not running (started on demand)");
+		return;
+	}
+	const holder = readDaemonLock(paths.lockPath);
+	if (!holder) {
+		report.warn(
+			`embedding daemon lock unreadable: ${paths.lockPath} — delete it`,
+		);
+		return;
+	}
+	if (await daemonLockIsAbandoned(holder, listenerProbe(paths, holder))) {
+		report.warn(
+			`embedding daemon lock is stale: ${paths.lockPath} holds pid ${holder.pid}, ` +
+				`which is not listening on ${paths.socketPath} — delete it`,
+		);
+		return;
+	}
+	report.ok(
+		`embedding daemon: serving on ${paths.socketPath} (pid ${holder.pid}, v${holder.version})`,
+	);
 }
 
 function checkModelDownloaded(report: DoctorReport): void {

@@ -1087,6 +1087,108 @@ describe("cortex install and agent instructions", () => {
 	});
 });
 
+// H17: a lock nobody can verify used to be invisible — every cortex on the
+// machine dropped to the private worker and none of them said why.
+describe("doctor's embedding daemon check", () => {
+	let projectDir: string;
+	let daemonDir: string;
+	let paths: DaemonPaths;
+
+	beforeAll(() => {
+		projectDir = realpathSync(
+			mkdtempSync(join(tmpdir(), "cortex-daemon-doc-")),
+		);
+		daemonDir = realpathSync(mkdtempSync(join(tmpdir(), "cortex-daemon-dir-")));
+		paths = daemonPathsFor(GEMMA_MODEL.modelId, daemonDir);
+		Bun.spawnSync(["bun", MAIN_PATH, "init"], {
+			cwd: projectDir,
+			env: { ...process.env, HOME: fakeHome },
+		});
+	});
+
+	afterAll(() => {
+		for (const path of [projectDir, daemonDir]) {
+			rmSync(path, { recursive: true, force: true });
+		}
+	});
+
+	function doctor(): { code: number; stdout: string } {
+		const result = Bun.spawnSync(["bun", MAIN_PATH, "doctor"], {
+			cwd: projectDir,
+			stdout: "pipe",
+			stderr: "pipe",
+			env: {
+				...process.env,
+				CORTEX_DISABLE_EMBEDDINGS: "1",
+				HOME: fakeHome,
+				CORTEX_DAEMON_DIR: daemonDir,
+			},
+		});
+		return { code: result.exitCode ?? 1, stdout: result.stdout.toString() };
+	}
+
+	function writeLock(lock: Record<string, unknown> | string): void {
+		writeFileSync(
+			paths.lockPath,
+			typeof lock === "string" ? lock : JSON.stringify(lock),
+		);
+	}
+
+	function liveLock(startedAt: number): Record<string, unknown> {
+		return {
+			pid: process.pid,
+			version: CORTEX_VERSION,
+			modelId: GEMMA_MODEL.modelId,
+			socketPath: paths.socketPath,
+			startedAt,
+		};
+	}
+
+	test("no lock reads as a daemon that has simply not been needed", () => {
+		expect(existsSync(paths.lockPath)).toBe(false);
+		expect(doctor().stdout).toContain(
+			"embedding daemon: not running (started on demand)",
+		);
+	});
+
+	test("a lock whose pid was reused is reported as stale", () => {
+		writeLock(liveLock(Date.now() - 10 * 60 * 1000));
+		try {
+			const result = doctor();
+			expect(result.code).toBe(1);
+			expect(result.stdout).toContain("embedding daemon lock is stale");
+			expect(result.stdout).toContain(paths.lockPath);
+		} finally {
+			unlinkSync(paths.lockPath);
+		}
+	});
+
+	test("an unreadable lock is named rather than silently obeyed", () => {
+		writeLock("{ not json");
+		try {
+			const result = doctor();
+			expect(result.code).toBe(1);
+			expect(result.stdout).toContain("embedding daemon lock unreadable");
+		} finally {
+			unlinkSync(paths.lockPath);
+		}
+	});
+
+	test("a lock whose socket answers is reported as serving", () => {
+		const listener = Bun.listen({
+			unix: paths.socketPath,
+			socket: { data: () => {} },
+		});
+		writeLock(liveLock(Date.now() - 10 * 60 * 1000));
+		try {
+			expect(doctor().stdout).toContain("embedding daemon: serving on");
+		} finally {
+			listener.stop(true);
+			unlinkSync(paths.lockPath);
+		}
+	});
+});
+
 describe("internal embed commands", () => {
 	test("embed-worker exits cleanly on end of input without loading a model", () => {
 		const result = Bun.spawnSync(["bun", MAIN_PATH, "embed-worker"], {
