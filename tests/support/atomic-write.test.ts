@@ -15,6 +15,7 @@ import { join } from "node:path";
 import {
 	stagingPath,
 	writeAtomically,
+	writeAtomicallyIfUnchanged,
 	writeAtomicallySync,
 } from "@/support/atomic-write";
 
@@ -212,3 +213,68 @@ for (const writer of WRITERS) {
 		});
 	});
 }
+
+// rename is atomic, which says nothing about a read-modify-write: what it
+// publishes can already be stale by the time it lands.
+describe("writeAtomicallyIfUnchanged", () => {
+	test("publishes when the destination still holds what the caller read", async () => {
+		const directory = scratchDirectory();
+		const target = join(directory, "config.json");
+		writeFileSync(target, "first");
+		expect(await writeAtomicallyIfUnchanged(target, "second", "first")).toBe(
+			true,
+		);
+		expect(readFileSync(target, "utf8")).toBe("second");
+		expect(readdirSync(directory)).toEqual(["config.json"]);
+	});
+
+	test("refuses and leaves nothing staged when another writer got there first", async () => {
+		const directory = scratchDirectory();
+		const target = join(directory, "config.json");
+		writeFileSync(target, "theirs");
+		expect(await writeAtomicallyIfUnchanged(target, "ours", "mine")).toBe(
+			false,
+		);
+		expect(readFileSync(target, "utf8")).toBe("theirs");
+		expect(readdirSync(directory)).toEqual(["config.json"]);
+	});
+
+	test("creates a file the caller expected to be absent", async () => {
+		const directory = scratchDirectory();
+		const target = join(directory, "config.json");
+		expect(await writeAtomicallyIfUnchanged(target, "fresh", null)).toBe(true);
+		expect(readFileSync(target, "utf8")).toBe("fresh");
+	});
+
+	test("refuses to create over a file that appeared meanwhile", async () => {
+		const directory = scratchDirectory();
+		const target = join(directory, "config.json");
+		writeFileSync(target, "theirs");
+		expect(await writeAtomicallyIfUnchanged(target, "ours", null)).toBe(false);
+		expect(readFileSync(target, "utf8")).toBe("theirs");
+	});
+
+	test("keeps the mode of the file it replaces", async () => {
+		const directory = scratchDirectory();
+		const target = join(directory, "config.json");
+		writeFileSync(target, "first");
+		chmodSync(target, 0o600);
+		expect(await writeAtomicallyIfUnchanged(target, "second", "first")).toBe(
+			true,
+		);
+		expect(permissions(target)).toBe(0o600);
+	});
+
+	test("writes through a symlink rather than over it", async () => {
+		const directory = scratchDirectory();
+		const target = join(directory, "real.json");
+		const link = join(directory, "link.json");
+		writeFileSync(target, "first");
+		symlinkSync(target, link);
+		expect(await writeAtomicallyIfUnchanged(link, "second", "first")).toBe(
+			true,
+		);
+		expect(lstatSync(link).isSymbolicLink()).toBe(true);
+		expect(readFileSync(target, "utf8")).toBe("second");
+	});
+});

@@ -33,6 +33,9 @@ export type HookRemovalPlan =
 	| { action: "skipped"; reason: string };
 
 const POSIX_SHEBANG = "#!/bin/sh\n";
+// Unindented on purpose: `exit` inside an `if` or a function is a branch, and
+// only a statement at the top level of the file is one the shell always takes.
+const TERMINATES = /^(exit|exec)\b/;
 const SHELL_INTERPRETERS = ["sh", "bash", "dash", "zsh", "ksh"];
 // Every word is emitted inside double quotes, so spaces and accented paths are
 // safe; what must never survive is anything the shell would reinterpret there.
@@ -106,12 +109,79 @@ export function parseHookEvent(value: string | undefined): HookEvent | null {
 
 function write(existing: string | null, body: string): HookPlan {
 	const blank = isBlank(existing);
-	const result = HOOK_BLOCK.upsert(blank ? POSIX_SHEBANG : existing, body);
+	const source = blank ? POSIX_SHEBANG : (existing ?? "");
+	const result = HOOK_BLOCK.upsert(source, body);
 	if (result.action === "skipped-malformed") {
 		return { action: "skipped", reason: malformedMarkers() };
 	}
+	const placed = placeAboveTerminal(source, body);
+	if (placed) return placed;
 	if (blank) return { action: "created", content: result.content };
 	return result;
+}
+
+// A hook whose last statement is `exit` or `exec` never reaches anything below
+// it: the shell leaves at that line, so a block appended after it is dead text
+// and the three green lines this prints are a lie — decisions would never
+// reconcile on commit again. Generated and husky-style hooks end that way
+// often enough that refusing them all would be the wrong trade, so the block
+// goes immediately above that final statement instead, which is where it would
+// have been written by hand. An `exit` anywhere else is a branch this cannot
+// read, and a block that is already installed is an arrangement to leave
+// alone; both fall through to the ordinary upsert, and only a hook that would
+// swallow a *new* block is refused.
+function placeAboveTerminal(source: string, body: string): HookPlan | null {
+	// The markers were read by the upsert above, so this cannot find them
+	// half-written; what it needs from the removal is only where they were.
+	const removal = HOOK_BLOCK.remove(source);
+	const installed = removal.action === "removed";
+	const lines = (
+		installed && "content" in removal ? removal.content : source
+	).split("\n");
+	const terminal = terminalStatementLine(lines);
+	if (terminal === null) {
+		return installed ? null : refusalWhenUnreachable(lines);
+	}
+	const content = insertBefore(lines, terminal, HOOK_BLOCK.fence(body));
+	if (content === source) return { action: "unchanged", content };
+	return { action: installed ? "updated" : "appended", content };
+}
+
+function terminalStatementLine(lines: readonly string[]): number | null {
+	const last = lastStatementLine(lines);
+	if (last === null) return null;
+	return TERMINATES.test(lines[last] ?? "") ? last : null;
+}
+
+function lastStatementLine(lines: readonly string[]): number | null {
+	for (let index = lines.length - 1; index >= 0; index -= 1) {
+		if (isStatement(lines[index] ?? "")) return index;
+	}
+	return null;
+}
+
+function isStatement(line: string): boolean {
+	const text = line.trim();
+	return text !== "" && !text.startsWith("#");
+}
+
+function refusalWhenUnreachable(lines: readonly string[]): HookPlan | null {
+	const statement = lines.find((line) => TERMINATES.test(line));
+	if (statement === undefined) return null;
+	return {
+		action: "skipped",
+		reason: `the existing hook runs \`${statement.trim()}\` before its end — the block would never run there, so add it yourself`,
+	};
+}
+
+function insertBefore(
+	lines: readonly string[],
+	at: number,
+	block: string,
+): string {
+	const head = [...lines.slice(0, at)];
+	while (head.length > 0 && head[head.length - 1]?.trim() === "") head.pop();
+	return [...head, "", block, "", ...lines.slice(at)].join("\n");
 }
 
 // Appending `if [ -x … ]` to a hook the user wrote in another language is a

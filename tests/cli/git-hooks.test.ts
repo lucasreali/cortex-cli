@@ -100,6 +100,37 @@ describe("cortex install --git-hooks", () => {
 		expect(statSync(hookPath("post-commit")).mode & 0o111).toBeGreaterThan(0);
 	});
 
+	// L7: the install chmodded 0755 unconditionally, publishing a hook its
+	// author had deliberately kept to themselves.
+	test("does not widen a hook the user kept private", () => {
+		writeFileSync(hookPath("post-commit"), MINE);
+		chmodSync(hookPath("post-commit"), 0o700);
+
+		expect(cli("install", "--git-hooks", "--yes").code).toBe(0);
+		expect(statSync(hookPath("post-commit")).mode & 0o777).toBe(0o700);
+	});
+
+	test("makes a hook git could not execute executable again", () => {
+		writeFileSync(hookPath("post-commit"), MINE);
+		chmodSync(hookPath("post-commit"), 0o640);
+
+		expect(cli("install", "--git-hooks", "--yes").code).toBe(0);
+		expect(statSync(hookPath("post-commit")).mode & 0o777).toBe(0o750);
+	});
+
+	// M36: the block used to go below the `exit 0`, where the shell never
+	// arrives, and the install still printed three green lines.
+	test("puts the block above a generated hook's trailing exit 0", () => {
+		writeFileSync(hookPath("post-commit"), `${MINE}exit 0\n`);
+
+		expect(cli("install", "--git-hooks", "--yes").code).toBe(0);
+		const content = readHook("post-commit");
+		expect(content.indexOf(CORTEX_HOOK_END)).toBeLessThan(
+			content.lastIndexOf("\nexit 0\n"),
+		);
+		expect(content).toEndWith("exit 0\n");
+	});
+
 	test("a second install is idempotent, byte for byte", () => {
 		cli("install", "--git-hooks", "--yes");
 		const first = readHook("post-commit");
@@ -186,6 +217,21 @@ describe("cortex install --git-hooks", () => {
 		mkdirSync(join(home, ".claude"));
 		expect(cli("install", "--yes").code).toBe(0);
 		expect(existsSync(hookPath("post-commit"))).toBe(false);
+	});
+
+	// M32: a config.toml that already defines the server in a shape the line
+	// splice cannot rewrite used to get a second definition appended, which
+	// stops the whole file parsing. It is named and left alone instead.
+	test("names a codex config it refuses to rewrite, and exits 1", () => {
+		const config = join(home, ".codex", "config.toml");
+		mkdirSync(join(home, ".codex"));
+		const existing = 'mcp_servers = { cortex = { command = "/old" } }\n';
+		writeFileSync(config, existing);
+
+		const result = cli("install", "--target", "codex", "--yes");
+		expect(result.code).toBe(1);
+		expect(result.stderr).toContain("mcp_servers.cortex");
+		expect(readFileSync(config, "utf8")).toBe(existing);
 	});
 });
 

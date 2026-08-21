@@ -3,11 +3,7 @@ import { dirname, join } from "node:path";
 import { writeAtomically } from "@/support/atomic-write";
 import { type UpsertOutcome, upsertJsonMcpServer } from "./json-mcp";
 import type { McpServerSpec } from "./server-spec";
-import {
-	buildCortexTable,
-	CORTEX_TABLE_HEADER,
-	upsertTomlTable,
-} from "./toml-mcp";
+import { upsertTomlTable } from "./toml-mcp";
 
 export type TargetId = "claude" | "codex" | "cursor" | "gemini";
 export type InstructionFile = "CLAUDE.md" | "AGENTS.md" | "GEMINI.md";
@@ -134,11 +130,10 @@ async function registerToml(
 ): Promise<UpsertOutcome> {
 	const file = Bun.file(filePath);
 	const existing = (await file.exists()) ? await file.text() : null;
-	const result = upsertTomlTable(
-		existing ?? "",
-		CORTEX_TABLE_HEADER,
-		buildCortexTable(spec),
-	);
+	const result = upsertTomlTable(existing ?? "", spec);
+	if (result.action === "conflict") {
+		return { path: filePath, action: "skipped", reason: result.reason };
+	}
 	if (result.action === "unchanged") {
 		return { path: filePath, action: "unchanged" };
 	}

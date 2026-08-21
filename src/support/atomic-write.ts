@@ -35,6 +35,35 @@ export async function writeAtomically(
 	source: WritableSource,
 ): Promise<void> {
 	const destination = linkTarget(targetPath);
+	publish(await stage(destination, source), destination);
+}
+
+// rename cannot compare-and-swap, so atomicity says nothing about a
+// read-modify-write: ~/.claude.json is rewritten continuously by the session
+// running the install, and publishing a copy rendered before that rewrite
+// reverts it. Re-reading the destination once the staging file is complete
+// narrows the window to the rename itself. `expected` is null for a file the
+// caller believes is not there yet, and a caller told false lost the race and
+// can read again and redo its merge.
+export async function writeAtomicallyIfUnchanged(
+	targetPath: string,
+	source: WritableSource,
+	expected: string | null,
+): Promise<boolean> {
+	const destination = linkTarget(targetPath);
+	const staging = await stage(destination, source);
+	if ((await contentOrNull(destination)) !== expected) {
+		unlinkSync(staging);
+		return false;
+	}
+	publish(staging, destination);
+	return true;
+}
+
+async function stage(
+	destination: string,
+	source: WritableSource,
+): Promise<string> {
 	const staging = stagingPath(destination);
 	const handle = createStagingFile(staging);
 	try {
@@ -42,7 +71,12 @@ export async function writeAtomically(
 	} finally {
 		closeSync(handle);
 	}
-	publish(staging, destination);
+	return staging;
+}
+
+async function contentOrNull(path: string): Promise<string | null> {
+	const file = Bun.file(path);
+	return (await file.exists()) ? await file.text() : null;
 }
 
 // The synchronous twin exists for callers that write inside a bun:sqlite

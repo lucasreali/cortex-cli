@@ -7,6 +7,7 @@ import { style, success, warning } from "@/cli/style";
 import { exportDecisionsIfNeeded } from "@/decisions/bootstrap";
 import { GEMMA_MODEL } from "@/embedding/model";
 import { getCanonicalProjectId, getRepoRoot } from "@/git";
+import { planGitignore } from "@/install/gitignore";
 import {
 	CORTEX_BLOCK_BEGIN,
 	CORTEX_BLOCK_END,
@@ -98,7 +99,17 @@ async function ensureGitignore(
 	const path = join(root, ".gitignore");
 	const file = Bun.file(path);
 	const current = (await file.exists()) ? await file.text() : "";
-	if (alreadyRuled(current)) return;
+	const plan = planGitignore(current, IGNORE_RULES);
+	if (plan.action === "satisfied") return;
+	if (plan.action === "conflict") {
+		console.log(
+			warning(
+				`Skipped .gitignore change — ${plan.missing.join(" and ")} would land ` +
+					"below a rule that overrides it; add them yourself.",
+			),
+		);
+		return;
+	}
 	const question = "Version .cortex/decisions/ and ignore the rest?";
 	if (consent(question, assumeYes) !== "granted") {
 		console.log(
@@ -109,16 +120,10 @@ async function ensureGitignore(
 		);
 		return;
 	}
-	const separator = current === "" || current.endsWith("\n") ? "" : "\n";
-	await Bun.write(path, `${current}${separator}${IGNORE_RULES.join("\n")}\n`);
+	await writeAtomically(path, plan.content);
 	console.log(
 		success("Decisions will be versioned; the SQLite cache stays local"),
 	);
-}
-
-function alreadyRuled(gitignore: string): boolean {
-	const entries = gitignore.split("\n").map((line) => line.trim());
-	return IGNORE_RULES.every((rule) => entries.includes(rule));
 }
 
 async function ensureInstructionFiles(
