@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import {
 	chmodSync,
 	existsSync,
@@ -13,7 +13,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { currentBinaryPath, installBinary } from "@/release/installer";
+import {
+	currentBinaryPath,
+	installBinary,
+	upgradeTargetPath,
+} from "@/release/installer";
 import { stagingPath } from "@/support/atomic-write";
 
 const OLD = "#!/bin/sh\necho 0.0.1\n";
@@ -189,5 +193,40 @@ describe("installBinary", () => {
 			chmodSync(guarded, 0o700);
 		}
 		expect(run(targetPath)).toBe("0.0.1");
+	});
+});
+
+// The seam that lets a source checkout drive the whole install path against a
+// file of its own. It follows CORTEX_RELEASE_BASE_URL's rule, and this is where
+// that rule is pinned: an installed binary replaces itself and nothing else.
+describe("upgradeTargetPath", () => {
+	const previous = process.env.CORTEX_UPGRADE_TARGET_PATH;
+
+	afterEach(() => {
+		if (previous === undefined) delete process.env.CORTEX_UPGRADE_TARGET_PATH;
+		else process.env.CORTEX_UPGRADE_TARGET_PATH = previous;
+	});
+
+	test("a compiled binary replaces itself", () => {
+		delete process.env.CORTEX_UPGRADE_TARGET_PATH;
+		expect(upgradeTargetPath(true)).toBe(currentBinaryPath());
+	});
+
+	test("a source checkout has nothing to replace", () => {
+		delete process.env.CORTEX_UPGRADE_TARGET_PATH;
+		expect(upgradeTargetPath(false)).toBeNull();
+	});
+
+	test("a source checkout takes the file the environment names", () => {
+		const dir = makeInstallDir();
+		process.env.CORTEX_UPGRADE_TARGET_PATH = join(dir, "cortex");
+		expect(upgradeTargetPath(false)).toBe(join(dir, "cortex"));
+	});
+
+	// Anything able to set an environment variable would otherwise choose what
+	// the download lands on, for every later cortex on the machine.
+	test("an installed binary ignores the environment entirely", () => {
+		process.env.CORTEX_UPGRADE_TARGET_PATH = join(makeInstallDir(), "cortex");
+		expect(upgradeTargetPath(true)).toBe(currentBinaryPath());
 	});
 });
