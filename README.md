@@ -260,7 +260,7 @@ install --git-hooks` makes it happen when the branch changes instead; see
 not parse, links whose target this store has never seen, and decisions
 superseded from two branches at once. A fresh clone has no vectors until
 `cortex embed --missing` runs; until then search answers on full text alone,
-which measures 0.896 recall@5 against 0.917 once the vectors join it. Those are
+which measures 0.885 recall@5 against 0.938 once the vectors join it. Those are
 this repository's numbers over 48 evaluation cases, printed by
 `bun run eval:search`, which stays the only authority on them.
 
@@ -389,14 +389,14 @@ through the same `search` path an agent takes, and charges the answer the full
 text of every decision file it names. Against that it puts two baselines: the
 whole decision corpus, and a naive `grep -il` over every tracked file outside
 `.cortex/`, one keyword at a time (their union would only measure the
-connectives). On this repository, at 126 active decisions:
+connectives). On this repository, at 131 active decisions:
 
 | what the agent reads per question | tokens | vs cortex |
 | --- | ---: | ---: |
-| whole decision corpus (126 decisions) | 61,493 | 25.1x |
-| repository grep, median keyword (50.6 files) | 119,090 | 48.6x |
-| repository grep, narrowest keyword (4.3 files) | 14,335 | 5.8x |
-| cortex answer (5.0 decisions) | 2,453 | 1.0x |
+| whole decision corpus (131 decisions) | 64,345 | 26.0x |
+| repository grep, median keyword (54.8 files) | 131,882 | 53.3x |
+| repository grep, narrowest keyword (4.6 files) | 15,895 | 6.4x |
+| cortex answer (5.0 decisions) | 2,476 | 1.0x |
 
 Token counts are a deterministic approximation, named in the output
 (`atoms-per-5-bytes/v1`) so they are never mistaken for another model's
