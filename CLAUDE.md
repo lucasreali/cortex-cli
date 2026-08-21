@@ -315,6 +315,11 @@ deletable. The rule that keeps it honest is that it reorders results already
 chosen, never chooses them — delete the sidecar and the ordering changes, the
 result set cannot.
 
+- A session here is a conversation, not a process. `SessionIdentity`
+  (`support/session-identity.ts`) rolls the id after `SESSION_IDLE_MS` with no
+  traffic, on a monotonic clock. Without that, an MCP server up for a week was
+  one session for the week — and since promoting needs two distinct sessions
+  while demoting needs one, it could only ever accrue the negative signal.
 - Recorded, at most once per decision per kind per session
   (`UsefulnessRecorder`): `shown` from `get_context` **with an intent** and
   from `search`; `used` from `get_impact`, and from every id a `save_decision`
@@ -336,8 +341,12 @@ result set cannot.
   by what proved useful here. `exact=true` is left alone; a literal lookup has
   no ties worth breaking.
 - `UsefulnessEventLog` never throws and never blocks: an unreadable or
-  unwritable log degrades to no signal, and compaction re-reads before
-  rewriting so a concurrent process's events are not what disappears.
+  unwritable log degrades to no signal. Compaction goes through
+  `support/append-only-log.ts`, shared with the query log: it re-reads before
+  publishing and puts the late tail back, so events another process appended
+  during the pass are merged rather than replaced. A window of microseconds
+  before the rename is left open on purpose, and the file says why no lock
+  closes it.
   `CORTEX_NO_USEFULNESS=1` stops the recording; deleting the directory is the
   reset, and `doctor` reports the counts as a fact, never as an issue.
 
@@ -406,8 +415,12 @@ contradicts the on-device posture, so it defaults off and says so.
   that is whatever the user typed, on every prompt, and logging it would make
   an evaluation aid into a keylogger.
 - `QueryLog` never throws and never reads on the write path: one short append
-  per query, with compaction — which re-reads before rewriting, so a concurrent
-  process's queries are not what disappears — paid once per hundred appends.
+  per query, and one `stat` to decide whether the file is over `MAXIMUM_BYTES`.
+  The ceiling is bytes rather than rows because the file holds the text of the
+  questions, and it is read off the file rather than counted per instance — a
+  CLI process makes one query and exits, so a counter would enforce nothing
+  anywhere but the server. Compaction trims to `COMPACTED_BYTES`, half the
+  ceiling, so it is amortized instead of firing on every later query.
 - Reading is not recording, so the log stays readable while recording is off:
   that is how `doctor` reports a log an earlier opt-in left behind instead of
   pretending nothing was ever written. Every state is a fact, never an issue.
