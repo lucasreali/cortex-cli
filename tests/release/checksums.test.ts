@@ -31,6 +31,35 @@ describe("Checksums", () => {
 		);
 	});
 
+	// install.sh's awk prints every matching line, so a duplicated asset makes
+	// its comparison fail. A Map here would take the last line instead, and a
+	// listing that installs one way and upgrades another is worse than one that
+	// is refused by both.
+	test("refuses a listing that names one asset twice", () => {
+		expect(
+			() =>
+				new Checksums(
+					listing([
+						["a".repeat(64), ASSET],
+						["b".repeat(64), ASSET],
+					]),
+				),
+		).toThrow(`${ASSET} is listed more than once in checksums.txt`);
+	});
+
+	test("refuses a duplicate even when both lines agree", () => {
+		const digest = sha256Hex(BYTES);
+		expect(
+			() =>
+				new Checksums(
+					listing([
+						[digest, ASSET],
+						[digest, ASSET],
+					]),
+				),
+		).toThrow("listed more than once");
+	});
+
 	// checksums.txt covers every platform plus the sourcemap, so the parser has
 	// to survive blank lines and pick the exact asset, not a prefix of one.
 	test("ignores blank lines and distinguishes assets sharing a prefix", () => {
