@@ -8,6 +8,7 @@ import {
 	exportExistingDecisions,
 } from "@/decisions/bootstrap";
 import { DecisionStore } from "@/decisions/decision-store";
+import type { DecisionFile } from "@/domain";
 import { openDecisionsDb } from "@/storage/connection";
 import { DecisionSyncRepository } from "@/storage/decision-sync-repository";
 import { migrate } from "@/storage/migrations";
@@ -120,9 +121,9 @@ function exportedIds(): string[] {
 		.sort();
 }
 
-function readExported(id: string) {
+function readExported(id: string): DecisionFile {
 	const parse = DecisionStore.at(cortexDir).read(id);
-	if (!parse.file) throw new Error(`${id} did not parse: ${parse.problem}`);
+	if (!parse.ok) throw new Error(`${id} did not parse: ${parse.reason}`);
 	return parse.file;
 }
 
