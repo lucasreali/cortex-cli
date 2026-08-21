@@ -62,9 +62,16 @@ detect_suffix() {
 	echo "$suffix"
 }
 
+# Every fetch is pinned to https on the first request and on every redirect
+# GitHub sends after it: -L would otherwise follow a downgrade to plain http,
+# and the checksum below is fetched over the same channel it verifies.
+CURL_PROTO="--proto =https --proto-redir =https"
+
 latest_version() {
-	url=$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
-		"https://github.com/$REPO/releases/latest")
+	# shellcheck disable=SC2086
+	url=$(curl -fsSLI $CURL_PROTO -o /dev/null -w '%{url_effective}' \
+		"https://github.com/$REPO/releases/latest") ||
+		die "could not reach https://github.com/$REPO/releases"
 	case "$url" in
 	*/releases/tag/*) echo "${url##*/tag/}" ;;
 	*) die "no published release found at https://github.com/$REPO/releases" ;;
@@ -124,13 +131,24 @@ install() {
 	asset="cortex-$version-$suffix.tar.gz"
 	base="https://github.com/$REPO/releases/download/$version"
 
+	mkdir -p "$INSTALL_DIR"
 	tmp=$(mktemp -d)
-	trap 'rm -rf "$tmp"' EXIT INT TERM
+	# mktemp lands in tmpfs while $INSTALL_DIR is usually on the root
+	# filesystem, so the final move has to start from a staging file inside
+	# $INSTALL_DIR: mv across filesystems unlinks the destination and copies
+	# into a fresh inode, which leaves an already-executable, half-written
+	# cortex on disk for the length of the copy — and Ctrl-C in that window
+	# leaves a broken binary that `cortex upgrade` cannot repair, because it is
+	# the broken binary. Same shape as src/release/installer.ts.
+	staging="$INSTALL_DIR/cortex.$$.partial"
+	trap 'rm -rf "$tmp"; rm -f "$staging"' EXIT INT TERM
 
 	echo "cortex: downloading $asset"
-	curl -fsSL "$base/$asset" -o "$tmp/$asset" ||
+	# shellcheck disable=SC2086
+	curl -fsSL $CURL_PROTO "$base/$asset" -o "$tmp/$asset" ||
 		die "failed to download $base/$asset"
-	curl -fsSL "$base/checksums.txt" -o "$tmp/checksums.txt" ||
+	# shellcheck disable=SC2086
+	curl -fsSL $CURL_PROTO "$base/checksums.txt" -o "$tmp/checksums.txt" ||
 		die "failed to download $base/checksums.txt"
 
 	verify "$tmp/$asset" "$asset" "$tmp/checksums.txt"
@@ -138,9 +156,13 @@ install() {
 	tar -xzf "$tmp/$asset" -C "$tmp"
 	[ -f "$tmp/cortex" ] || die "$asset did not contain a cortex executable"
 
-	mkdir -p "$INSTALL_DIR"
-	mv -f "$tmp/cortex" "$INSTALL_DIR/cortex"
-	chmod 755 "$INSTALL_DIR/cortex"
+	cp "$tmp/cortex" "$staging"
+	chmod 755 "$staging"
+	reported=$("$staging" --version 2>/dev/null) ||
+		die "the downloaded binary does not run here"
+	[ "v$reported" = "$version" ] ||
+		die "the downloaded binary reports v$reported, expected $version"
+	mv -f "$staging" "$INSTALL_DIR/cortex"
 
 	echo "cortex $version installed to $INSTALL_DIR/cortex"
 	path_hint
