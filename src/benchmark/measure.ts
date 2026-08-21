@@ -29,6 +29,14 @@ export interface QuestionMeasurement {
 	hit: boolean;
 }
 
+// Every question is the decision's own title, so a hit only says the decision
+// is retrievable by its own words — the friendliest query it will ever get.
+// The caveat travels with the number so that no surface can print the rate
+// without it; before, only the markdown carried it.
+export const HIT_RATE_CAVEAT =
+	"the question is the decision's own title, so this is a ceiling on " +
+	"retrieval, not a measurement of it";
+
 export interface BenchmarkReport {
 	project: string;
 	method: { id: string; description: string };
@@ -40,11 +48,12 @@ export interface BenchmarkReport {
 	grepBest: { meanFiles: number; meanTokens: number };
 	grepMedian: { meanFiles: number; meanTokens: number };
 	economy: {
-		corpusPerAnswer: number;
-		grepBestPerAnswer: number;
-		grepMedianPerAnswer: number;
+		corpusPerAnswer: number | null;
+		grepBestPerAnswer: number | null;
+		grepMedianPerAnswer: number | null;
 	};
 	hitRate: number;
+	hitRateCaveat: string;
 	cases: QuestionMeasurement[];
 }
 
@@ -86,6 +95,7 @@ export async function measureBenchmark(
 			grepMedianPerAnswer: ratio(median.meanTokens, answerTokens),
 		},
 		hitRate: mean(cases.map((one) => (one.hit ? 1 : 0))),
+		hitRateCaveat: HIT_RATE_CAVEAT,
 		cases,
 	};
 }
@@ -123,7 +133,10 @@ function mean(values: number[]): number {
 	return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
-function ratio(cost: number, answer: number): number {
-	if (answer === 0) return 0;
+// Nothing rather than zero when there is nothing to divide by: a run that
+// retrieved no text at all has no economy to report, and rendering that as
+// `0.0x` read as cortex costing infinitely more than the alternative it beats.
+function ratio(cost: number, answer: number): number | null {
+	if (answer === 0) return null;
 	return cost / answer;
 }

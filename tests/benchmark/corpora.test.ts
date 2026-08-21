@@ -88,4 +88,29 @@ describe("RepositoryCorpus", () => {
 		expect(costs.best).toEqual({ files: 0, tokens: TokenCount.zero() });
 		expect(costs.median.files).toBe(0);
 	});
+
+	// "Narrowest" is what the report has always called this number and what the
+	// file count printed beside it claims; ordering by tokens instead could name
+	// a term matching three files the narrowest of a pair.
+	test("the narrowest term is the one matching the fewest files", () => {
+		const spread = new RepositoryCorpus([
+			{ path: "one.ts", text: `solo ${"word ".repeat(200)}` },
+			{ path: "two.ts", text: "many" },
+			{ path: "three.ts", text: "many" },
+			{ path: "four.ts", text: "many" },
+		]);
+
+		expect(spread.grepCosts(["solo", "many"]).best.files).toBe(1);
+	});
+
+	test("terms matching the same number of files are ordered by what they cost", () => {
+		const tie = new RepositoryCorpus([
+			{ path: "long.ts", text: `wide ${"word ".repeat(200)}` },
+			{ path: "short.ts", text: "narrow" },
+		]);
+
+		expect(tie.grepCosts(["wide", "narrow"]).best.tokens.total).toBe(
+			TokenCount.of("narrow").total,
+		);
+	});
 });

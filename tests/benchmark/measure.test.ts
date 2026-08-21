@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { DecisionCorpus } from "@/benchmark/decision-corpus";
 import {
 	type BenchmarkReport,
+	HIT_RATE_CAVEAT,
 	measureBenchmark,
 	type RetrievalPath,
 } from "@/benchmark/measure";
@@ -9,6 +10,7 @@ import { questionsFromDecisions } from "@/benchmark/questions";
 import {
 	formatBenchmarkMarkdown,
 	formatBenchmarkTable,
+	generatedDate,
 } from "@/benchmark/report";
 import { RepositoryCorpus } from "@/benchmark/repository-corpus";
 import { TokenCount } from "@/benchmark/token-count";
@@ -94,13 +96,16 @@ describe("measureBenchmark", () => {
 		expect(report.hitRate).toBe(0.5);
 	});
 
-	test("an answer nobody can give is not an infinite saving", async () => {
+	// Not zero either: a ratio of zero renders as `0.0x`, which reads as cortex
+	// costing infinitely more than the alternative rather than as a run with
+	// nothing to divide by.
+	test("an answer nobody can give is no economy at all, not an infinite one", async () => {
 		const report = await measure({});
 
 		expect(report.answer.meanTokens).toBe(0);
-		expect(report.economy.corpusPerAnswer).toBe(0);
-		expect(report.economy.grepBestPerAnswer).toBe(0);
-		expect(report.economy.grepMedianPerAnswer).toBe(0);
+		expect(report.economy.corpusPerAnswer).toBeNull();
+		expect(report.economy.grepBestPerAnswer).toBeNull();
+		expect(report.economy.grepMedianPerAnswer).toBeNull();
 	});
 
 	test("no questions leaves every mean at zero", async () => {
@@ -175,5 +180,67 @@ describe("benchmark report", () => {
 		});
 
 		expect(markdown).toMatch(/^[\x20-\x7e\n]*$/);
+	});
+
+	// It used to live in the markdown alone, so the two surfaces that get read
+	// far more often published a ceiling as if it were a measurement.
+	test("the ceiling caveat reaches every surface, not just the markdown", async () => {
+		const report = await measure({ "search degrades to full text": ["d1"] });
+
+		expect(report.hitRateCaveat).toBe(HIT_RATE_CAVEAT);
+		expect(formatBenchmarkTable(report)).toContain(HIT_RATE_CAVEAT);
+		expect(
+			formatBenchmarkMarkdown(report, { date: "2026-08-15", version: "9.9.9" }),
+		).toContain(HIT_RATE_CAVEAT);
+	});
+
+	test("an economy with nothing to divide by reads as n/a, never as 0.0x", async () => {
+		const table = formatBenchmarkTable(await measure({}));
+
+		expect(table).toContain("n/a");
+		expect(table).not.toContain("0.0x");
+	});
+
+	test("cortex's own row is the one everything else is divided by", async () => {
+		const table = formatBenchmarkTable(
+			await measure({ "search degrades to full text": ["d1"] }),
+		);
+
+		expect(table).toMatch(/cortex answer.*1\.0x/);
+	});
+});
+
+describe("generatedDate", () => {
+	function markdownStampedOn(date: string): string {
+		return formatBenchmarkMarkdown(
+			{
+				project: "p",
+				method: { id: "m", description: "d" },
+				retrieval: "fts only",
+				questions: 0,
+				corpus: { decisions: 0, tokens: 0 },
+				repository: { files: 0, tokens: 0 },
+				answer: { meanDecisions: 0, meanTokens: 0 },
+				grepBest: { meanFiles: 0, meanTokens: 0 },
+				grepMedian: { meanFiles: 0, meanTokens: 0 },
+				economy: {
+					corpusPerAnswer: null,
+					grepBestPerAnswer: null,
+					grepMedianPerAnswer: null,
+				},
+				hitRate: 0,
+				hitRateCaveat: HIT_RATE_CAVEAT,
+				cases: [],
+			},
+			{ date, version: "9.9.9" },
+		);
+	}
+
+	test("reads back the date the previous run stamped", () => {
+		expect(generatedDate(markdownStampedOn("2026-08-15"))).toBe("2026-08-15");
+	});
+
+	test("a file this command did not write carries no date", () => {
+		expect(generatedDate("# Benchmarks\n\nhand written, thanks\n")).toBeNull();
 	});
 });

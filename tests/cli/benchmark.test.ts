@@ -3,8 +3,10 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	realpathSync,
 	rmSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -150,6 +152,48 @@ describe("cortex benchmark", () => {
 		expect(markdown).toContain("atoms-per-5-bytes/v1");
 		expect(markdown).toContain("2 decisions");
 		expect(markdown).toMatch(/on \d{4}-\d{2}-\d{2} with cortex /);
+	});
+
+	// The command owns this file only because it stamped it. A BENCHMARKS.md
+	// somebody wrote by hand is not a stale artifact to regenerate.
+	// A file the baseline cannot read is a file the baseline is not charged for,
+	// which quietly understates the alternative cortex is compared against.
+	test("a file the baseline could not read is said out loud", () => {
+		const broken = join(dir, "broken.txt");
+		symlinkSync("nowhere", broken);
+
+		const result = cli("benchmark");
+
+		expect(result.code).toBe(0);
+		expect(result.stderr).toContain("could not be read");
+		expect(result.stderr).toContain("broken.txt");
+		rmSync(broken);
+	});
+
+	test("--write refuses a BENCHMARKS.md it did not write", () => {
+		const path = join(dir, "BENCHMARKS.md");
+		const mine = "# Benchmarks\n\nmy own notes, please keep\n";
+		writeFileSync(path, mine);
+
+		const result = cli("benchmark", "--write");
+
+		expect(result.code).toBe(1);
+		expect(result.stderr).toContain("will not be replaced");
+		expect(readFileSync(path, "utf8")).toBe(mine);
+		rmSync(path);
+	});
+
+	test("a re-run that measured the same thing does not re-stamp the date", () => {
+		const path = join(dir, "BENCHMARKS.md");
+		rmSync(path, { force: true });
+		expect(cli("benchmark", "--write").code).toBe(0);
+		const first = readFileSync(path, "utf8");
+
+		const again = cli("benchmark", "--write");
+
+		expect(again.code).toBe(0);
+		expect(again.stdout).toContain("already current");
+		expect(readFileSync(path, "utf8")).toBe(first);
 	});
 
 	test("the generated file is excluded from the repository it measures", () => {

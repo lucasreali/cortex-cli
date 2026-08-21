@@ -22,7 +22,9 @@ interface IndexedFile {
 
 // The alternative cortex claims to replace: grep the repository for a word
 // from the question and read what comes back. Matching is a case-insensitive
-// substring over the whole file, as `grep -il` does.
+// substring over the whole file, as `grep -il` does, across everything git
+// would not ignore — tracked or merely untracked-and-not-ignored, which is the
+// working tree a person greps.
 //
 // One term at a time, never their union: half the words in any question are
 // connectives that match nearly every file, and charging their union would
@@ -52,7 +54,7 @@ export class RepositoryCorpus {
 		const costs = terms
 			.map((term) => this.costOf(term))
 			.filter((cost) => cost.files > 0)
-			.sort((left, right) => left.tokens.total - right.tokens.total);
+			.sort(byNarrowness);
 		return {
 			best: costs.at(0) ?? emptyCost(),
 			median: costs.at(Math.floor(costs.length / 2)) ?? emptyCost(),
@@ -68,6 +70,15 @@ export class RepositoryCorpus {
 			tokens: TokenCount.sum(matched.map((file) => file.tokens)),
 		};
 	}
+}
+
+// Narrowest means the fewest files, which is the term a person greping would
+// pick and what the report has always claimed this number is; sorting by tokens
+// answered a different question, and the file count printed beside it was then
+// not the smallest one. Two terms matching the same number of files are ordered
+// by what those files cost to read.
+function byNarrowness(left: GrepCost, right: GrepCost): number {
+	return left.files - right.files || left.tokens.total - right.tokens.total;
 }
 
 function emptyCost(): GrepCost {

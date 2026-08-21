@@ -6,7 +6,8 @@ import type { UsefulnessEventLog } from "./event-log";
 // queries of the same session is one impression, not ten, which keeps both the
 // score honest and the query path down to a rare short append.
 export class UsefulnessRecorder {
-	private readonly claimed = new ClaimsPerSession();
+	private claimed = new Set<string>();
+	private claimedFor = "";
 
 	constructor(
 		private readonly log: UsefulnessEventLog,
@@ -22,32 +23,30 @@ export class UsefulnessRecorder {
 	}
 
 	private record(kind: UsefulnessKind, decisionIds: string[]): void {
-		const session = this.session.current();
+		const session = this.currentSession();
 		const at = new Date().toISOString();
 		const fresh = decisionIds.filter((decision) =>
-			this.claimed.claim(session, `${kind}:${decision}`),
+			this.claim(`${kind}:${decision}`),
 		);
 		this.log.append(fresh.map((decision) => ({ session, decision, kind, at })));
 	}
-}
 
-// The claims belong to the session, not to the process holding them: a server
-// that rolls into a new conversation has to be able to record the same decision
-// again, and dropping the previous session's keys is also what keeps the set
-// from growing for as long as the server is up.
-class ClaimsPerSession {
-	private session = "";
-	private keys = new Set<string>();
-
-	claim(session: string, key: string): boolean {
-		if (session !== this.session) this.startOver(session);
-		if (this.keys.has(key)) return false;
-		this.keys.add(key);
-		return true;
+	// The claims belong to the session, not to the recorder holding them: one
+	// recorder is what a server keeps for as long as it is up, so a conversation
+	// that starts under it has to be able to record the same decision again.
+	// Dropping the previous session's keys is also what keeps the set from
+	// growing for the life of the process.
+	private currentSession(): string {
+		const session = this.session.current();
+		if (session === this.claimedFor) return session;
+		this.claimedFor = session;
+		this.claimed = new Set();
+		return session;
 	}
 
-	private startOver(session: string): void {
-		this.session = session;
-		this.keys = new Set();
+	private claim(key: string): boolean {
+		if (this.claimed.has(key)) return false;
+		this.claimed.add(key);
+		return true;
 	}
 }
