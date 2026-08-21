@@ -593,6 +593,15 @@ one budget.
   does not exist — `content_sha` is the standing example — goes in that
   test's exemption map with its reason, checked in both directions like the
   coverage audit.
+- Every number in `README.md` is a quote from a command's output, and
+  `tests/docs/readme.test.ts` is what keeps it one: the CLI block must document
+  every command `cortex --help` advertises and no hidden one, carrying every
+  flag and placeholder `USAGE` gives it; the benchmark table must equal
+  `BENCHMARKS.md` cell for cell; the recall claim must count the cases
+  `tests/evaluation/ground-truth.ts` actually holds; and the manual MCP snippet
+  must parse as strict JSON and name the command `resolveServerSpec` would.
+  `tests/docs/distribution.test.ts` does the same for `RELEASE_SUFFIXES`, the
+  one list `docs/distribution.md` describes in prose.
 
 ## Dogfooding
 
@@ -607,7 +616,9 @@ id it cites is still an active decision here, so deleting or superseding one
 breaks the suite on purpose.
 
 `BENCHMARKS.md` is generated, never edited: after a batch of decisions lands,
-run `bun run benchmark` and commit the file with them.
+run `bun run benchmark` and commit the file with them. The README repeats that
+table for readers who never open the file, so update its copy in the same
+commit — `tests/docs/readme.test.ts` fails until the two agree.
 
 <!-- cortex:begin -->
 ## Cortex — decision memory
