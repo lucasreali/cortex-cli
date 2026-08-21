@@ -42,6 +42,19 @@ tar -xzf "$asset"
 mv cortex ~/.local/bin/
 ```
 
+The tarball also carries `LICENSE` and `THIRD-PARTY-NOTICES.md`, which name
+every package bundled into the binary beside them.
+
+`checksums.txt` is served by the same origin as the download, so on its own it
+detects corruption rather than substitution. Every asset is also attested with
+Sigstore at build time, which binds the bytes to the workflow, commit and
+repository that produced them and is verified independently of GitHub
+Releases:
+
+```bash
+gh attestation verify "$asset" --repo lucasreali/cortex-cli
+```
+
 Builds are unsigned. Fetching through the installer is unaffected, but a
 tarball downloaded in a browser is quarantined by Gatekeeper — clear it with
 `xattr -d com.apple.quarantine ~/.local/bin/cortex`.
@@ -393,11 +406,16 @@ bun run smoke:compiled      # drives the binary end to end
 bun scripts/package-release.ts   # all 7 targets + checksums into dist/release
 ```
 
-Pushing a `v*` tag runs `.github/workflows/release.yml`, which re-runs the gate
-above and publishes `dist/release/*` to GitHub Releases. The tag must match
-`package.json`'s version — the workflow fails loudly if it does not, since
-`CORTEX_VERSION` is read from `package.json` and travels in the daemon
-handshake.
+Pushing a `v*` tag runs `.github/workflows/release.yml`, which publishes
+`dist/release/*` to GitHub Releases. The tag must match `package.json`'s
+version — the workflow fails loudly if it does not, since `CORTEX_VERSION` is
+read from `package.json` and travels in the daemon handshake.
+
+Before it publishes anything, the release calls `ci.yml` as a reusable
+workflow, so a tag passes the same gate a branch does rather than a subset of
+it. It then unpacks the tarball it is about to upload and drives *that* binary
+through the compiled smoke test, so the bytes proven to work are the bytes
+that ship, and attests their provenance with Sigstore.
 
 A newly installed binary can find a daemon from the previous version still
 listening — the socket is keyed by model, not by version. The handshake

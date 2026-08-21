@@ -14,7 +14,11 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { CORTEX_VERSION } from "@/version";
 import { DEFAULT_OUTFILE, ROOT } from "./compile";
 
-const BINARY = DEFAULT_OUTFILE;
+// The release job unpacks the tarball it is about to publish and points this
+// at the binary inside it, so the bytes that are smoke-tested are the bytes
+// that ship rather than a second compile of the same source.
+const PUBLISHED_BINARY = process.env.CORTEX_SMOKE_BINARY;
+const BINARY = PUBLISHED_BINARY ?? DEFAULT_OUTFILE;
 
 interface CommandResult {
 	code: number;
@@ -135,12 +139,16 @@ async function saveDecisionOverMcp(): Promise<void> {
 	console.log("✓ save_decision over MCP");
 }
 
-const build = Bun.spawnSync(["bun", join(ROOT, "scripts", "build.ts")], {
-	stdout: "inherit",
-	stderr: "inherit",
-});
-if (build.exitCode !== 0) process.exit(1);
+function compileUnlessPublished(): void {
+	if (PUBLISHED_BINARY) return;
+	const build = Bun.spawnSync(["bun", join(ROOT, "scripts", "build.ts")], {
+		stdout: "inherit",
+		stderr: "inherit",
+	});
+	if (build.exitCode !== 0) process.exit(1);
+}
 
+compileUnlessPublished();
 makeProject();
 try {
 	step("--version", cortex("--version"), CORTEX_VERSION);

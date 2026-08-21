@@ -5,6 +5,10 @@ on:
     branches: ["**"]
     tags-ignore: ["**"]
   pull_request:
+  # release.yml calls this workflow instead of restating a subset of it. The
+  # gate a tag has to pass is then the gate a branch has to pass, by
+  # construction — a job added here cannot be forgotten there.
+  workflow_call:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
