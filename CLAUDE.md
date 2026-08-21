@@ -576,6 +576,26 @@ one budget.
   the one list — `scripts/package-release.ts` compiles from it and
   `targetForHost` selects from it — and CI runs `install.sh`'s `detect_suffix`
   against `targetForHost` on the runner, so the two cannot drift silently.
+- A release tarball holds three members — `cortex` first, then `LICENSE` and
+  the third-party notices, which `scripts/notices.ts` derives from that
+  target's own `main.js.map` rather than from the dependency graph: 149
+  packages install here and 12 reach the binary. A `type: "file"` asset leaves
+  no sourcemap entry, so the packages behind those imports are read off `src/`
+  and unioned in. A bundled package that ships no license text is a build
+  failure unless its text is vendored under `scripts/licenses/`, and nothing
+  degrades to naming a license it cannot show. `release/archive.ts` already
+  scans past members it does not want, so the upgrade path is indifferent to
+  the two text files. Tests reach `scripts/notices.ts` through the
+  `tsconfig.json` path alias that mirrors the one `tests/` uses.
+- The gate a tag passes is the gate a branch passes: `release.yml` calls
+  `ci.yml` as a reusable workflow instead of restating a subset of it, then
+  unpacks the tarball it is about to publish and drives *that* binary through
+  `scripts/compiled-smoke.ts`, which takes `CORTEX_SMOKE_BINARY` and skips its
+  own compile. Assets are attested with Sigstore because `checksums.txt` is
+  served by the origin it verifies — it detects corruption, not substitution.
+  `tests/docs/` asserts both, and asserts the version in `package.json`
+  reaches `CHANGELOG.md`, the README's install pins and the `BENCHMARKS.md`
+  stamp — the drift that let 0.4.0 ship twice.
 - Coverage counts only files imported in-process: `src/cli` is exercised by
   spawning the CLI from `tests/cli/`, keeping it out of the coverage report.
   A file that never loads in-process is therefore invisible rather than 0%, so
