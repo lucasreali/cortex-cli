@@ -1,9 +1,19 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { probeDaemon } from "@/embedding/daemon/client";
-import { isProcessAlive, readDaemonLock } from "@/embedding/daemon/lock";
+import {
+	isProcessAlive,
+	REUSED_PID_LOCK_AGE_MS,
+	readDaemonLock,
+} from "@/embedding/daemon/lock";
 import { type DaemonPaths, daemonPathsFor } from "@/embedding/daemon/paths";
 import { GemmaProvider } from "@/embedding/gemma-provider";
 import { GEMMA_MODEL } from "@/embedding/model";
@@ -109,6 +119,42 @@ describe("detached daemon spawn (e2e)", () => {
 		const lock = readDaemonLock(paths.lockPath);
 		expect(lock).not.toBeNull();
 		expect(left.daemonConnected || right.daemonConnected).toBe(true);
+	}, 15_000);
+
+	// H17: the lock records "some process has this pid", which after a kill -9
+	// or a reboot is eventually an unrelated one. Every daemon then refused to
+	// start and the whole machine ran private-worker-only until a human
+	// deleted the file.
+	test("a lock whose pid was reused is reclaimed by the next daemon", async () => {
+		const paths = makePaths();
+		mkdirSync(paths.directory, { recursive: true, mode: 0o700 });
+		writeFileSync(
+			paths.lockPath,
+			JSON.stringify({
+				pid: process.pid,
+				version: CORTEX_VERSION,
+				modelId: GEMMA_MODEL.modelId,
+				socketPath: paths.socketPath,
+				startedAt: Date.now() - REUSED_PID_LOCK_AGE_MS - 1,
+			}),
+		);
+
+		const provider = makeProvider(paths);
+		expect([...(await provider.embedQuery("hello"))]).toEqual([5, 0, 1]);
+		expect(provider.daemonConnected).toBe(true);
+		expect(readDaemonLock(paths.lockPath)?.pid).not.toBe(process.pid);
+	}, 15_000);
+
+	// L10: the daemon appends its whole life to this file, the worker's
+	// model-download progress included, and nothing else ever prunes it.
+	test("an oversized daemon log is truncated at spawn", async () => {
+		const paths = makePaths();
+		mkdirSync(paths.directory, { recursive: true, mode: 0o700 });
+		writeFileSync(paths.logPath, "old\n".repeat(300_000));
+		expect(statSync(paths.logPath).size).toBeGreaterThan(1024 * 1024);
+
+		await makeProvider(paths).embedQuery("warm");
+		expect(statSync(paths.logPath).size).toBeLessThan(1024 * 1024);
 	}, 15_000);
 
 	test("SIGTERM cleans up the socket and the lock", async () => {

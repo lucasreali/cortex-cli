@@ -10,6 +10,15 @@ export function encodeNdjson(message: unknown): string {
 // decision passages, and a line beyond this is a stuck or hostile writer.
 const MAX_PENDING_LINE_LENGTH = 8 * 1024 * 1024;
 
+// The lines that did arrive whole are still answerable, and the same chunk that
+// overruns the cap can carry them, so they travel with the failure instead of
+// being thrown away with the writer.
+export class OverlongLineError extends Error {
+	constructor(readonly completed: string[]) {
+		super("line exceeds the maximum length without a newline");
+	}
+}
+
 export class LineBuffer {
 	private readonly decoder: TextDecoder;
 	private buffered: string;
@@ -26,10 +35,17 @@ export class LineBuffer {
 				: this.decoder.decode(chunk, { stream: true });
 		const lines = this.buffered.split("\n");
 		this.buffered = lines.pop() ?? "";
+		const completed = lines
+			.map((line) => line.trim())
+			.filter((line) => line.length > 0);
 		if (this.buffered.length > MAX_PENDING_LINE_LENGTH) {
 			this.buffered = "";
-			throw new Error("line exceeds the maximum length without a newline");
+			throw new OverlongLineError(completed);
 		}
-		return lines.map((line) => line.trim()).filter((line) => line.length > 0);
+		return completed;
 	}
+}
+
+export function linesSalvagedFrom(error: unknown): string[] {
+	return error instanceof OverlongLineError ? error.completed : [];
 }

@@ -1,11 +1,23 @@
-import { closeSync, mkdirSync, openSync } from "node:fs";
+import {
+	closeSync,
+	mkdirSync,
+	openSync,
+	statSync,
+	truncateSync,
+} from "node:fs";
 import type { Socket } from "bun";
-import { encodeNdjson, LineBuffer } from "@/embedding/ndjson";
+import {
+	encodeNdjson,
+	LineBuffer,
+	linesSalvagedFrom,
+} from "@/embedding/ndjson";
 import type { EmbedKind } from "@/embedding/protocol";
 import { VectorRequestLedger } from "@/embedding/request-ledger";
+import { SocketWriter } from "@/embedding/socket-writer";
 import { embedDaemonCommand } from "@/embedding/subprocess-command";
 import { withTimeout } from "@/embedding/with-timeout";
 import { type DaemonHello, helloAccepted, parseDaemonHello } from "./hello";
+import type { DaemonLock } from "./lock";
 import type { DaemonPaths } from "./paths";
 
 export interface DaemonEndpoint {
@@ -27,6 +39,12 @@ const HELLO_TIMEOUT_MS = 2000;
 const SPAWN_POLL_ATTEMPTS = 80;
 const SPAWN_POLL_DELAY_MS = 50;
 
+// The daemon appends its whole life to one file, the worker's model-download
+// progress included, and nothing ever rotates it. Truncating at spawn keeps the
+// run about to start — the one being debugged — diagnosable without a rotation
+// scheme.
+const MAX_DAEMON_LOG_BYTES = 1024 * 1024;
+
 // "unreachable" means nothing is listening (a spawn can fix it); "rejected"
 // means something answered but cannot serve us (wrong version or model, or a
 // non-daemon owner) — spawning would lose the lock race to the live holder.
@@ -38,6 +56,7 @@ export type DaemonProbe =
 interface LinkState {
 	lines: LineBuffer;
 	ledger: VectorRequestLedger;
+	writer: SocketWriter;
 	hello: PromiseWithResolvers<DaemonHello | null>;
 	helloSeen: boolean;
 	open: boolean;
@@ -54,10 +73,12 @@ export class DaemonConnection {
 		return this.state.open;
 	}
 
+	// The ledger owns the write, so a daemon that dies between a caller's
+	// liveness check and this line cannot leave a request nothing will answer.
 	embed(kind: EmbedKind, texts: string[]): Promise<number[][]> {
-		const { request, vectors } = this.state.ledger.open(kind, texts);
-		this.socket.write(encodeNdjson(request));
-		return vectors;
+		return this.state.ledger.dispatch(kind, texts, (request) =>
+			this.state.writer.write(this.socket, encodeNdjson(request)),
+		);
 	}
 
 	close(): void {
@@ -93,6 +114,7 @@ export async function probeDaemon(
 			unix: endpoint.paths.socketPath,
 			socket: {
 				data: (_socket, chunk) => deliver(state, chunk),
+				drain: (drained) => state.writer.flush(drained),
 				close: teardown,
 				error: teardown,
 			},
@@ -113,6 +135,35 @@ export async function probeDaemon(
 		status: "connected",
 		connection: new DaemonConnection(socket, state, hello),
 	};
+}
+
+// Whether a lock's holder is real is a connectivity question, not a
+// compatibility one: a daemon of any version answering here means the pid in
+// the lock file still belongs to it. A rejected handshake has already closed
+// the socket; an accepted one is closed here.
+export async function daemonSocketIsListening(
+	endpoint: DaemonEndpoint,
+	options: ConnectOptions = {},
+): Promise<boolean> {
+	const probe = await probeDaemon(endpoint, options);
+	if (probe.status === "connected") probe.connection.close();
+	return probe.status !== "unreachable";
+}
+
+// A daemon greets the moment it accepts, so a listener still silent after this
+// is not one — and the wait is paid only by a process that already found a
+// lock it cannot verify.
+const LISTENER_PROBE_TIMEOUT_MS = 500;
+
+export function listenerProbe(
+	paths: DaemonPaths,
+	holder: DaemonLock,
+): () => Promise<boolean> {
+	return () =>
+		daemonSocketIsListening(
+			{ paths, version: holder.version, modelId: holder.modelId },
+			{ helloTimeoutMs: LISTENER_PROBE_TIMEOUT_MS },
+		);
 }
 
 // A spawn that cannot even start (read-only home, EMFILE, full disk) means
@@ -170,14 +221,27 @@ function newLinkState(): LinkState {
 	return {
 		lines: new LineBuffer(),
 		ledger: new VectorRequestLedger(),
+		writer: new SocketWriter(),
 		hello: Promise.withResolvers<DaemonHello | null>(),
 		helloSeen: false,
 		open: false,
 	};
 }
 
+// A daemon that overruns the line cap is answering nothing further, but the
+// responses that shared its final chunk are settled before the link is torn
+// down — each one is a request whose caller is still waiting.
 function deliver(state: LinkState, chunk: Uint8Array): void {
-	for (const line of state.lines.push(chunk)) {
+	try {
+		accept(state, state.lines.push(chunk));
+	} catch (error) {
+		accept(state, linesSalvagedFrom(error));
+		disconnect(state);
+	}
+}
+
+function accept(state: LinkState, lines: string[]): void {
+	for (const line of lines) {
 		if (state.helloSeen) {
 			state.ledger.settle(line);
 			continue;
@@ -214,8 +278,16 @@ function daemonEnvironment(
 
 function openLogFile(logPath: string): number | null {
 	try {
+		truncateOversizedLog(logPath);
 		return openSync(logPath, "a", 0o600);
 	} catch {
 		return null;
 	}
+}
+
+function truncateOversizedLog(logPath: string): void {
+	try {
+		if (statSync(logPath).size <= MAX_DAEMON_LOG_BYTES) return;
+		truncateSync(logPath, 0);
+	} catch {}
 }

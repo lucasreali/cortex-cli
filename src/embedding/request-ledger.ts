@@ -1,3 +1,4 @@
+import { errorMessage } from "@/support/errors";
 import { parseJsonOrNull } from "@/support/json";
 import type { EmbedKind, WorkerRequest, WorkerResponse } from "./protocol";
 
@@ -6,45 +7,70 @@ interface PendingVectors {
 	reject(error: Error): void;
 }
 
-export interface OpenedRequest {
-	request: WorkerRequest;
-	vectors: Promise<number[][]>;
-}
+type SendRequest = (request: WorkerRequest) => void;
 
+// Nothing outside the ledger guarantees that a dispatched request settles, so
+// the ledger owns the write too: a peer can die between a caller's liveness
+// check and its write, and an entry recorded after rejectAll drained the map
+// would hang until an outer timeout — or forever, on a path that has none.
 export class VectorRequestLedger {
 	private readonly pending: Map<number, PendingVectors>;
 	private nextRequestId: number;
+	private closure: Error | null;
 
 	constructor() {
 		this.pending = new Map();
 		this.nextRequestId = 1;
+		this.closure = null;
 	}
 
-	open(kind: EmbedKind, texts: string[]): OpenedRequest {
+	dispatch(
+		kind: EmbedKind,
+		texts: string[],
+		send: SendRequest,
+	): Promise<number[][]> {
+		if (this.closure) return Promise.reject(this.closure);
 		const request: WorkerRequest = { id: this.nextRequestId++, kind, texts };
 		const vectors = new Promise<number[][]>((resolve, reject) => {
 			this.pending.set(request.id, { resolve, reject });
 		});
-		return { request, vectors };
+		this.write(request, send);
+		return vectors;
 	}
 
 	settle(line: string): void {
 		const response = parseJsonOrNull<WorkerResponse>(line);
 		if (!response) return;
-		const entry = this.pending.get(response.id);
-		if (!entry) return;
-		this.pending.delete(response.id);
 		if ("error" in response) {
-			entry.reject(new Error(response.error));
+			this.fail(response.id, new Error(response.error));
 			return;
 		}
-		entry.resolve(response.vectors);
+		this.take(response.id)?.resolve(response.vectors);
 	}
 
 	rejectAll(error: Error): void {
-		for (const entry of this.pending.values()) {
-			entry.reject(error);
+		this.closure = error;
+		for (const id of [...this.pending.keys()]) {
+			this.fail(id, error);
 		}
-		this.pending.clear();
+	}
+
+	private write(request: WorkerRequest, send: SendRequest): void {
+		try {
+			send(request);
+		} catch (error) {
+			this.fail(request.id, new Error(errorMessage(error)));
+		}
+	}
+
+	private fail(id: number, error: Error): void {
+		this.take(id)?.reject(error);
+	}
+
+	private take(id: number): PendingVectors | null {
+		const entry = this.pending.get(id);
+		if (!entry) return null;
+		this.pending.delete(id);
+		return entry;
 	}
 }

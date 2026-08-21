@@ -8,7 +8,7 @@ import { type DaemonPaths, daemonPathsFor } from "@/embedding/daemon/paths";
 import { CORTEX_VERSION } from "@/version";
 import type { GemmaProvider } from "./gemma-provider";
 import { KindEmbeddingProvider } from "./kind-provider";
-import type { EmbedKind } from "./protocol";
+import { type EmbedKind, isDaemonBusy } from "./protocol";
 
 export interface SharedEmbeddingProviderOptions extends ConnectOptions {
 	paths?: DaemonPaths;
@@ -17,7 +17,8 @@ export interface SharedEmbeddingProviderOptions extends ConnectOptions {
 
 // Multiplexes embedding onto the user-wide daemon so N concurrent sessions
 // share one model load, degrading to the private worker whenever the daemon
-// cannot be reached — sharing is an optimization, never a dependency.
+// cannot be reached or answers `busy` — sharing is an optimization, never a
+// dependency.
 export class SharedEmbeddingProvider extends KindEmbeddingProvider {
 	private connection: DaemonConnection | null = null;
 	private connecting: Promise<DaemonConnection | null> | null = null;
@@ -46,8 +47,24 @@ export class SharedEmbeddingProvider extends KindEmbeddingProvider {
 	): Promise<Float32Array[]> {
 		const connection = await this.ensureConnection();
 		if (!connection) return this.direct.embed(kind, texts);
-		const vectors = await connection.embed(kind, texts);
-		return vectors.map((values) => Float32Array.from(values));
+		return this.fromDaemonOrDirect(connection, kind, texts);
+	}
+
+	// A daemon that refuses admission is not a failure to report: its lane is
+	// already deeper than the deadline of everything waiting in it, so the
+	// private worker is the faster answer as well as the next rung down.
+	private async fromDaemonOrDirect(
+		connection: DaemonConnection,
+		kind: EmbedKind,
+		texts: string[],
+	): Promise<Float32Array[]> {
+		try {
+			const vectors = await connection.embed(kind, texts);
+			return vectors.map((values) => Float32Array.from(values));
+		} catch (error) {
+			if (!isDaemonBusy(error)) throw error;
+			return this.direct.embed(kind, texts);
+		}
 	}
 
 	private async ensureConnection(): Promise<DaemonConnection | null> {

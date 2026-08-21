@@ -12,6 +12,16 @@ export type WorkerResponse =
 	| { id: number; vectors: number[][] }
 	| { id: number; error: string };
 
+// A daemon whose lane is full answers this instead of enqueuing, so the caller
+// drops to its private worker rather than waiting behind a queue that already
+// outlives its deadline. It travels as an ordinary error string because that
+// is the only failure channel the wire has.
+export const DAEMON_BUSY = "embedding daemon busy";
+
+export function isDaemonBusy(error: unknown): boolean {
+	return error instanceof Error && error.message === DAEMON_BUSY;
+}
+
 // A peer that sends a line we cannot answer gets no answer: replying to an
 // unknown id would settle someone else's request, and throwing would take the
 // whole worker down over one bad line.

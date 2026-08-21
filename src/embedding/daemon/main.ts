@@ -1,16 +1,17 @@
 import { createDirectProvider } from "@/embedding/create-provider";
 import { GEMMA_MODEL } from "@/embedding/model";
 import { CORTEX_VERSION } from "@/version";
+import { listenerProbe } from "./client";
 import { EmbeddingDaemon } from "./embedding-daemon";
 import {
 	acquireDaemonLock,
-	clearDeadDaemonLock,
+	clearAbandonedDaemonLock,
 	type DaemonLock,
-	isProcessAlive,
+	daemonLockIsAbandoned,
 	readDaemonLock,
 	releaseDaemonLock,
 } from "./lock";
-import { daemonPathsFor } from "./paths";
+import { type DaemonPaths, daemonPathsFor } from "./paths";
 
 const ACQUIRE_ATTEMPTS = 5;
 const ACQUIRE_RETRY_DELAY_MS = 100;
@@ -18,10 +19,7 @@ const ACQUIRE_RETRY_DELAY_MS = 100;
 export async function runEmbeddingDaemon(modelId: string): Promise<number> {
 	const paths = daemonPathsFor(modelId);
 	if (
-		!(await acquireWithRetries(
-			paths.lockPath,
-			buildLock(modelId, paths.socketPath),
-		))
+		!(await acquireWithRetries(paths, buildLock(modelId, paths.socketPath)))
 	) {
 		console.error("[cortex daemon] another daemon holds the lock; exiting");
 		return 0;
@@ -65,17 +63,19 @@ function buildLock(modelId: string, socketPath: string): DaemonLock {
 }
 
 async function acquireWithRetries(
-	lockPath: string,
+	paths: DaemonPaths,
 	lock: DaemonLock,
 ): Promise<boolean> {
 	for (let attempt = 0; attempt < ACQUIRE_ATTEMPTS; attempt++) {
-		if (acquireDaemonLock(lockPath, lock)) return true;
-		const holder = readDaemonLock(lockPath);
+		if (acquireDaemonLock(paths.lockPath, lock)) return true;
+		const holder = readDaemonLock(paths.lockPath);
 		// An unreadable lock is treated as taken, never cleared: clearing it
 		// here could unlink a live daemon's lock mid-write and elect two daemons.
 		if (!holder) return false;
-		if (isProcessAlive(holder.pid)) return false;
-		clearDeadDaemonLock(lockPath, holder.pid);
+		if (!(await daemonLockIsAbandoned(holder, listenerProbe(paths, holder)))) {
+			return false;
+		}
+		clearAbandonedDaemonLock(paths.lockPath, holder);
 		await Bun.sleep(ACQUIRE_RETRY_DELAY_MS);
 	}
 	return false;

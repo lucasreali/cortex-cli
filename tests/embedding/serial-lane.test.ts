@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { SerialLane } from "@/embedding/serial-lane";
+import { DEFAULT_LANE_DEPTH, SerialLane } from "@/embedding/serial-lane";
 
 interface Unit {
 	started: boolean;
@@ -46,6 +46,48 @@ describe("SerialLane", () => {
 		second.resolve("b");
 		third.resolve("c");
 		expect(await Promise.all(results)).toEqual(["a", "b", "c"]);
+	});
+
+	// H16: an unbounded lane fills with requests whose callers timed out and
+	// retried, and the daemon spends the worker on every one of them.
+	test("reports itself full at its depth and empties as units settle", async () => {
+		const lane = new SerialLane(2);
+		const [first, second] = [makeUnit(), makeUnit()];
+		expect(lane.full).toBe(false);
+
+		const running = lane.run(first.run);
+		const queued = lane.run(second.run);
+		expect(lane.depth).toBe(2);
+		expect(lane.full).toBe(true);
+
+		first.resolve("a");
+		await running;
+		expect(lane.full).toBe(false);
+
+		second.resolve("b");
+		await queued;
+		expect(lane.depth).toBe(0);
+	});
+
+	test("a rejected unit still frees its place in the lane", async () => {
+		const lane = new SerialLane(1);
+		const failing = makeUnit();
+		const rejected = lane.run(failing.run);
+		expect(lane.full).toBe(true);
+
+		failing.reject(new Error("unit failed"));
+		expect(rejected).rejects.toThrow("unit failed");
+		await rejected.catch(() => {});
+		expect(lane.full).toBe(false);
+	});
+
+	test("the default depth is what an unconfigured lane uses", () => {
+		const lane = new SerialLane();
+		for (let unit = 0; unit < DEFAULT_LANE_DEPTH; unit++) {
+			expect(lane.full).toBe(false);
+			void lane.run(makeUnit().run).catch(() => {});
+		}
+		expect(lane.full).toBe(true);
 	});
 
 	test("a rejected unit reaches its caller without wedging the lane", async () => {

@@ -1,14 +1,21 @@
-import { chmodSync, unlinkSync } from "node:fs";
+import { chmodSync, mkdirSync, unlinkSync } from "node:fs";
+import { dirname } from "node:path";
 import type { Socket } from "bun";
 import type { GemmaProvider } from "@/embedding/gemma-provider";
 import { IdleTimer } from "@/embedding/idle-timer";
-import { encodeNdjson, LineBuffer } from "@/embedding/ndjson";
 import {
+	encodeNdjson,
+	LineBuffer,
+	linesSalvagedFrom,
+} from "@/embedding/ndjson";
+import {
+	DAEMON_BUSY,
 	decodeRequest,
 	type WorkerRequest,
 	type WorkerResponse,
 } from "@/embedding/protocol";
 import { SerialLane } from "@/embedding/serial-lane";
+import { SocketWriter } from "@/embedding/socket-writer";
 import { disposingOnTimeout } from "@/embedding/with-timeout";
 import { errorMessage } from "@/support/errors";
 import { DAEMON_PROTOCOL, encodeDaemonHello } from "./hello";
@@ -19,12 +26,14 @@ export interface EmbeddingDaemonOptions {
 	provider: GemmaProvider;
 	idleTimeoutMs?: number;
 	requestTimeoutMs?: number;
+	laneDepth?: number;
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 
 interface ClientState {
 	lines: LineBuffer;
+	writer: SocketWriter;
 }
 
 type ClientSocket = Socket<ClientState>;
@@ -35,7 +44,7 @@ interface SocketListener {
 
 export class EmbeddingDaemon {
 	private readonly clients = new Set<ClientSocket>();
-	private readonly lane = new SerialLane();
+	private readonly lane: SerialLane;
 	private readonly closedState = Promise.withResolvers<string>();
 	private readonly idleTimer: IdleTimer;
 	private listener: SocketListener | null = null;
@@ -43,9 +52,11 @@ export class EmbeddingDaemon {
 
 	constructor(private readonly options: EmbeddingDaemonOptions) {
 		this.idleTimer = new IdleTimer(options.idleTimeoutMs);
+		this.lane = new SerialLane(options.laneDepth);
 	}
 
 	start(): void {
+		restrictDirectoryToOwner(dirname(this.options.socketPath));
 		removeSocketFileIfPresent(this.options.socketPath);
 		const drop = (socket: ClientSocket) => this.dropClient(socket);
 		this.listener = Bun.listen<ClientState>({
@@ -53,11 +64,12 @@ export class EmbeddingDaemon {
 			socket: {
 				open: (socket) => this.acceptClient(socket),
 				data: (socket, chunk) => this.receive(socket, chunk),
+				drain: (socket) => socket.data.writer.flush(socket),
 				close: drop,
 				error: drop,
 			},
 		});
-		restrictToOwner(this.options.socketPath);
+		restrictSocketToOwner(this.options.socketPath);
 		this.armIdleTimer();
 	}
 
@@ -84,10 +96,11 @@ export class EmbeddingDaemon {
 	}
 
 	private acceptClient(socket: ClientSocket): void {
-		socket.data = { lines: new LineBuffer() };
+		socket.data = { lines: new LineBuffer(), writer: new SocketWriter() };
 		this.clients.add(socket);
 		this.idleTimer.clear();
-		socket.write(
+		socket.data.writer.write(
+			socket,
 			encodeDaemonHello({
 				cortex: this.options.version,
 				protocol: DAEMON_PROTOCOL,
@@ -103,36 +116,61 @@ export class EmbeddingDaemon {
 		if (this.clients.size === 0) this.armIdleTimer();
 	}
 
+	// One session must never fault the daemon serving every other session, so a
+	// client that overruns the line buffer or dies mid-write is simply dropped.
 	private receive(socket: ClientSocket, chunk: Uint8Array): void {
 		for (const line of this.buffer(socket, chunk)) {
 			void this.respond(socket, line);
 		}
 	}
 
-	// One session must never fault the daemon serving every other session, so a
-	// client that overruns the line buffer or dies mid-write is simply dropped.
 	private buffer(socket: ClientSocket, chunk: Uint8Array): string[] {
 		try {
 			return socket.data.lines.push(chunk);
-		} catch {
+		} catch (error) {
 			this.dropClient(socket);
-			return [];
+			return linesSalvagedFrom(error);
 		}
 	}
 
+	// Nobody awaits this promise, so it must not be able to reject: an unhandled
+	// rejection here would fault a process shared by every session. Each step
+	// answers instead of throwing — decodeRequest returns null on a line it
+	// cannot read, serve turns every failure into an error response, and deliver
+	// writes through a socket Bun reports refusals from rather than throwing.
 	private async respond(socket: ClientSocket, line: string): Promise<void> {
 		const request = decodeRequest(line);
 		if (!request) return;
-		this.deliver(socket, await this.serve(request));
+		if (this.lane.full) {
+			this.deliver(socket, { id: request.id, error: DAEMON_BUSY });
+			return;
+		}
+		this.deliver(socket, await this.serve(socket, request));
 	}
 
-	private async serve(request: WorkerRequest): Promise<WorkerResponse> {
+	private async serve(
+		socket: ClientSocket,
+		request: WorkerRequest,
+	): Promise<WorkerResponse> {
 		try {
-			const vectors = await this.lane.run(() => this.embedWithTimeout(request));
+			const vectors = await this.lane.run(() => this.embedFor(socket, request));
 			return { id: request.id, vectors: vectors.map((vector) => [...vector]) };
 		} catch (error) {
 			return { id: request.id, error: errorMessage(error) };
 		}
+	}
+
+	// The lane starts a unit only once it reaches the head, which is where a
+	// session that gave up is discovered before the worker spends an inference
+	// on an answer no one will read.
+	private embedFor(
+		socket: ClientSocket,
+		request: WorkerRequest,
+	): Promise<Float32Array[]> {
+		if (!this.clients.has(socket)) {
+			return Promise.reject(new Error("client disconnected"));
+		}
+		return this.embedWithTimeout(request);
 	}
 
 	// The worker embeds one request at a time, so the daemon queues instead of
@@ -149,7 +187,7 @@ export class EmbeddingDaemon {
 
 	private deliver(socket: ClientSocket, response: WorkerResponse): void {
 		if (!this.clients.has(socket)) return;
-		socket.write(encodeNdjson(response));
+		socket.data.writer.write(socket, encodeNdjson(response));
 	}
 
 	private armIdleTimer(): void {
@@ -166,10 +204,19 @@ function removeSocketFileIfPresent(socketPath: string): void {
 	} catch {}
 }
 
-function restrictToOwner(socketPath: string): void {
+// The socket is world-permissioned for the window between `listen` and its
+// chmod, so the containing directory is what actually keeps other users out —
+// and a daemon directory that already existed never got the 0o700 its creation
+// asked for.
+function restrictDirectoryToOwner(directory: string): void {
+	try {
+		mkdirSync(directory, { recursive: true, mode: 0o700 });
+		chmodSync(directory, 0o700);
+	} catch {}
+}
+
+function restrictSocketToOwner(socketPath: string): void {
 	try {
 		chmodSync(socketPath, 0o600);
-	} catch {
-		// Best-effort: the daemon directory is already user-only.
-	}
+	} catch {}
 }

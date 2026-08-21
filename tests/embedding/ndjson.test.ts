@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { encodeNdjson, LineBuffer } from "@/embedding/ndjson";
+import {
+	encodeNdjson,
+	LineBuffer,
+	linesSalvagedFrom,
+	OverlongLineError,
+} from "@/embedding/ndjson";
 
 describe("LineBuffer", () => {
 	test("splits complete lines and holds the partial tail", () => {
@@ -34,6 +39,24 @@ describe("LineBuffer", () => {
 		expect(() => lines.push("x".repeat(8 * 1024 * 1024 + 1))).toThrow(
 			"maximum length",
 		);
+	});
+
+	// L8: the lines that arrived whole in the same chunk are still answerable,
+	// and each one is a request whose caller is waiting.
+	test("the overlong-line failure carries the lines completed before it", () => {
+		const lines = new LineBuffer();
+		const chunk = `first\nsecond\n${"x".repeat(8 * 1024 * 1024 + 1)}`;
+		try {
+			lines.push(chunk);
+			throw new Error("expected an overlong line");
+		} catch (error) {
+			expect(error).toBeInstanceOf(OverlongLineError);
+			expect(linesSalvagedFrom(error)).toEqual(["first", "second"]);
+		}
+	});
+
+	test("an unrelated failure salvages nothing", () => {
+		expect(linesSalvagedFrom(new Error("something else"))).toEqual([]);
 	});
 
 	test("stays usable after rejecting an overlong line", () => {

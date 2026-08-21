@@ -34,11 +34,13 @@ class WorkerLink {
 		return this.subprocess.exitCode === null && !this.subprocess.killed;
 	}
 
+	// The ledger owns the write, so a worker that exits between the caller's
+	// liveness check and this line cannot leave a request nothing will answer.
 	send(kind: EmbedKind, texts: string[]): Promise<number[][]> {
-		const { request, vectors } = this.ledger.open(kind, texts);
-		this.subprocess.stdin.write(encodeNdjson(request));
-		this.subprocess.stdin.flush();
-		return vectors;
+		return this.ledger.dispatch(kind, texts, (request) => {
+			this.subprocess.stdin.write(encodeNdjson(request));
+			this.subprocess.stdin.flush();
+		});
 	}
 
 	kill(): void {

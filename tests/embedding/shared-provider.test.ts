@@ -27,12 +27,14 @@ function makePaths(): DaemonPaths {
 function startDaemon(
 	paths: DaemonPaths,
 	version = CORTEX_VERSION,
+	laneDepth?: number,
 ): EmbeddingDaemon {
 	const daemon = new EmbeddingDaemon({
 		socketPath: paths.socketPath,
 		version,
 		provider: new GemmaProvider({ workerPath: FAKE_WORKER }),
 		idleTimeoutMs: 60_000,
+		laneDepth,
 	});
 	daemon.start();
 	running.push(daemon);
@@ -144,6 +146,22 @@ describe("SharedEmbeddingProvider", () => {
 		expect([...(await shared.embedQuery("back"))]).toEqual([4, 0, 1]);
 		expect(shared.daemonConnected).toBe(true);
 		expect(direct.workerRunning).toBe(false);
+	});
+
+	// H16: a daemon that refuses admission is the ladder's second rung, not an
+	// error to surface — the private worker answers faster than a queue that
+	// already outlives the caller's deadline.
+	test("a busy daemon degrades to the private worker for that request", async () => {
+		const paths = makePaths();
+		startDaemon(paths, CORTEX_VERSION, 1);
+		const { shared, direct } = makeProvider(paths);
+
+		const holding = shared.embedPassages(["!slow:500"]);
+		await Bun.sleep(50);
+		expect([...(await shared.embedQuery("refused"))]).toEqual([7, 0, 1]);
+		expect(direct.workerRunning).toBe(true);
+		expect(shared.daemonConnected).toBe(true);
+		await holding;
 	});
 
 	test("dispose releases the daemon connection and the private worker", async () => {
