@@ -1,0 +1,30 @@
+name: Feature request
+description: Something cortex should be able to do.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you were trying to do
+      description: >
+        The situation, not the solution — what you and your agent were working
+        on when cortex fell short.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like instead
+      description: >
+        If it changes what a decision file holds, say so explicitly: decision
+        files are immutable and versioned with the code, so a new field is a
+        change every clone inherits.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried instead
+      description: Existing commands or tools that came close, and where they stopped.

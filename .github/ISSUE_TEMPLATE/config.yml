@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a vulnerability
+    url: https://github.com/lucasreali/cortex-cli/security/advisories/new
+    about: Privately, never as a public issue — see SECURITY.md.
+  - name: Ask a question
+    url: https://github.com/lucasreali/cortex-cli/discussions
+    about: Usage, setup and "is this supposed to happen" go here.

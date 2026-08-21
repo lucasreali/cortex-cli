@@ -1,0 +1,65 @@
+name: Bug report
+description: Something cortex does that it should not, or does not do that it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A vulnerability goes through
+        [private reporting](https://github.com/lucasreali/cortex-cli/security/advisories/new)
+        instead — see `SECURITY.md`.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you ran, what you expected, and what you got.
+      placeholder: |
+        $ cortex search "rate limiting"
+        ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: cortex doctor
+      description: >
+        The output of `cortex doctor` in the affected repository. It reports
+        the store, the index, the embedding backend and the daemon — most
+        reports are answered from it. It names paths and decision titles, so
+        redact whatever you would not publish.
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The output of `cortex --version`.
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: OS, architecture, and how cortex was installed.
+      placeholder: macOS 15 arm64, install.sh
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where it happens
+      options:
+        - The CLI
+        - The MCP server (an agent calling a tool)
+        - The prompt hook
+        - A git hook (post-commit, post-merge, post-checkout)
+        - Installing or upgrading
+        - Somewhere else
+    validations:
+      required: true
