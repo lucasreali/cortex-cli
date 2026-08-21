@@ -13,6 +13,7 @@ import type { DaemonLock } from "@/embedding/daemon/lock";
 import { daemonPathsFor } from "@/embedding/daemon/paths";
 import { GemmaProvider } from "@/embedding/gemma-provider";
 import { GEMMA_MODEL } from "@/embedding/model";
+import { markModelResident } from "@/embedding/model-cache";
 import { DAEMON_BUSY } from "@/embedding/protocol";
 import { CORTEX_VERSION } from "@/version";
 
@@ -24,7 +25,17 @@ const FAKE_WORKER = new URL(
 interface Harness {
 	daemon: EmbeddingDaemon;
 	endpoint: DaemonEndpoint;
+	provider: GemmaProvider;
 	socketPath: string;
+}
+
+// The fake worker downloads nothing, but the deadline the daemon applies now
+// depends on whether the model is resident — so each harness gets its own
+// models directory and says which of the two cases it is testing.
+function modelsDirectory(resident: boolean): string {
+	const directory = mkdtempSync(join(tmpdir(), "cortex-daemon-models-"));
+	if (resident) markModelResident(directory);
+	return directory;
 }
 
 const running: EmbeddingDaemon[] = [];
@@ -35,15 +46,20 @@ function makeDaemon(
 		requestTimeoutMs?: number;
 		version?: string;
 		laneDepth?: number;
+		modelResident?: boolean;
 	} = {},
 ): Harness {
 	const directory = mkdtempSync(join(tmpdir(), "cortex-daemon-"));
 	const paths = daemonPathsFor(GEMMA_MODEL.modelId, directory);
 	const version = overrides.version ?? CORTEX_VERSION;
+	const provider = new GemmaProvider({
+		workerPath: FAKE_WORKER,
+		modelsDir: modelsDirectory(overrides.modelResident !== false),
+	});
 	const daemon = new EmbeddingDaemon({
 		socketPath: paths.socketPath,
 		version,
-		provider: new GemmaProvider({ workerPath: FAKE_WORKER }),
+		provider,
 		idleTimeoutMs: overrides.idleTimeoutMs ?? 60_000,
 		requestTimeoutMs: overrides.requestTimeoutMs,
 		laneDepth: overrides.laneDepth,
@@ -52,6 +68,7 @@ function makeDaemon(
 	running.push(daemon);
 	return {
 		daemon,
+		provider,
 		socketPath: paths.socketPath,
 		endpoint: { paths, version: CORTEX_VERSION, modelId: GEMMA_MODEL.modelId },
 	};
@@ -218,10 +235,46 @@ describe("EmbeddingDaemon", () => {
 	test("a hung worker times out, heals, and the next request answers", async () => {
 		const { endpoint } = makeDaemon({ requestTimeoutMs: 200 });
 		const connection = await connect(endpoint);
-		expect(connection.embed("query", ["!hang"])).rejects.toThrow(
+		expect(connection.embed("passages", ["!hang"])).rejects.toThrow(
 			"timed out after 200 ms",
 		);
 		expect(await connection.embed("query", ["healed"])).toEqual([[6, 0, 1]]);
+		connection.close();
+	});
+
+	test("a query that overruns is not charged the worker", async () => {
+		const { endpoint, provider } = makeDaemon({ requestTimeoutMs: 200 });
+		const connection = await connect(endpoint);
+		expect(connection.embed("query", ["!slow:600"])).rejects.toThrow(
+			"timed out after 200 ms",
+		);
+		await Bun.sleep(100);
+		expect(provider.workerRunning).toBe(true);
+		connection.close();
+	});
+
+	test("a passage that overruns disposes the worker", async () => {
+		const { endpoint, provider } = makeDaemon({ requestTimeoutMs: 200 });
+		const connection = await connect(endpoint);
+		expect(connection.embed("passages", ["!slow:600"])).rejects.toThrow(
+			"timed out after 200 ms",
+		);
+		await Bun.sleep(100);
+		expect(provider.workerRunning).toBe(false);
+		connection.close();
+	});
+
+	// Without this the daemon re-downloads and re-kills once per request for as
+	// long as sessions keep asking, and the model never lands.
+	test("a model still being fetched outlives the inference deadline", async () => {
+		const { endpoint } = makeDaemon({
+			requestTimeoutMs: 200,
+			modelResident: false,
+		});
+		const connection = await connect(endpoint);
+		expect(await connection.embed("passages", ["!slow:400"])).toEqual([
+			[9, 0, 0],
+		]);
 		connection.close();
 	});
 
@@ -244,7 +297,7 @@ describe("EmbeddingDaemon", () => {
 		const { endpoint } = makeDaemon({ requestTimeoutMs: 200 });
 		const first = await connect(endpoint);
 		const second = await connect(endpoint);
-		const hung = first.embed("query", ["!hang"]);
+		const hung = first.embed("passages", ["!hang"]);
 		const queued = second.embed("query", ["queued"]);
 
 		expect(hung).rejects.toThrow("timed out after 200 ms");

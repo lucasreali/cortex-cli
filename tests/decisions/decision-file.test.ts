@@ -156,6 +156,30 @@ Corpo.
 			{ filePath: "src/a.ts", symbol: "" },
 		]);
 	});
+
+	// The pair is the primary key in the store, so two entries that spell the
+	// same pair are one anchor — a merge that duplicated a list entry says
+	// nothing the first entry did not, and must not brick the reconcile.
+	test("entries naming the same file and symbol collapse to one anchor", () => {
+		const parsed = parseDecisionFile(
+			ID,
+			`---
+title: "Uma decisão qualquer"
+keywords: ["a"]
+anchors: ["src/a.ts#Sym", "src/a.ts", "src/a.ts#Sym", "src/a.ts#"]
+provenance: "agent"
+created_at: "2026-07-22T14:03:11.204Z"
+---
+
+Corpo.
+`,
+		);
+
+		expect(parsed.ok && parsed.file.anchors).toEqual([
+			{ filePath: "src/a.ts", symbol: "Sym" },
+			{ filePath: "src/a.ts", symbol: "" },
+		]);
+	});
 });
 
 describe("parseDecisionFile rejects malformed files", () => {
@@ -166,6 +190,17 @@ created_at: "2026-07-22T14:03:11.204Z"`;
 
 	function withFrontmatter(frontmatter: string, body = "Corpo."): string {
 		return `---\n${frontmatter}\n---\n\n${body}\n`;
+	}
+
+	// Appending would repeat a key the fixture already carries, and a repeated
+	// key is its own rejection now — so a key the fixture has is swapped, and
+	// only a key it lacks is appended.
+	function replaced(line: string): string {
+		const key = line.slice(0, line.indexOf(":"));
+		return valid
+			.split("\n")
+			.map((existing) => (existing.startsWith(`${key}:`) ? line : existing))
+			.join("\n");
 	}
 
 	test("names what is wrong with the fence", () => {
@@ -187,7 +222,7 @@ created_at: "2026-07-22T14:03:11.204Z"`;
 		expect(reasonFor(withFrontmatter('title: "x"'))).toBe(
 			"keywords must be a list of strings",
 		);
-		expect(reasonFor(withFrontmatter(`${valid}\nkeywords: ["a", 7]`))).toBe(
+		expect(reasonFor(withFrontmatter(replaced('keywords: ["a", 7]')))).toBe(
 			"keywords must be a list of strings",
 		);
 		expect(reasonFor(withFrontmatter(`${valid}\nmodule: 7`))).toBe(
@@ -214,10 +249,10 @@ created_at: "2026-07-22T14:03:11.204Z"`;
 		expect(reasonFor(withFrontmatter(`${valid}\ndirty: "yes"`))).toBe(
 			"dirty must be a boolean",
 		);
-		expect(reasonFor(withFrontmatter(`${valid}\nprovenance: "robot"`))).toBe(
+		expect(reasonFor(withFrontmatter(replaced(`provenance: "robot"`)))).toBe(
 			"provenance must be one of agent, human",
 		);
-		expect(reasonFor(withFrontmatter(`${valid}\ncreated_at: 7`))).toBe(
+		expect(reasonFor(withFrontmatter(replaced(`created_at: 7`)))).toBe(
 			"created_at must be a non-empty string",
 		);
 	});
@@ -250,5 +285,46 @@ Corpo.
 		);
 
 		expect(parsed.ok && parsed.file.title).toBe("Uma decisão qualquer");
+	});
+});
+
+describe("parseDecisionFile and what a foreign editor writes", () => {
+	const source = formatDecisionFile(decisionFile());
+
+	test("a byte-order mark does not hide the fence", () => {
+		const parsed = parseDecisionFile(ID, `\uFEFF${source}`);
+
+		expect(parsed.ok && parsed.file).toEqual(decisionFile());
+	});
+
+	test("CRLF is folded out of the body, not only out of the fence", () => {
+		const parsed = parseDecisionFile(ID, source.replaceAll("\n", "\r\n"));
+
+		expect(parsed.ok && parsed.file).toEqual(decisionFile());
+	});
+
+	// The shape a badly resolved merge conflict leaves behind: YAML resolves it
+	// to the last one, silently indexing a title nobody chose.
+	test("a repeated key is refused instead of resolved", () => {
+		const conflicted = source.replace(
+			"keywords:",
+			'title: "Outro título por completo"\nkeywords:',
+		);
+
+		expect(parseDecisionFile(ID, conflicted)).toEqual({
+			ok: false,
+			reason: "duplicate frontmatter key: title",
+		});
+	});
+
+	test("a repeated anchor entry is not a repeated key", () => {
+		const file = decisionFile({
+			anchors: [
+				{ filePath: "src/a.ts", symbol: "" },
+				{ filePath: "src/b.ts", symbol: "" },
+			],
+		});
+
+		expect(reparse(file)).toEqual(file);
 	});
 });

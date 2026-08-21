@@ -15,7 +15,7 @@ import type { EmbedKind } from "@/embedding/protocol";
 import { VectorRequestLedger } from "@/embedding/request-ledger";
 import { SocketWriter } from "@/embedding/socket-writer";
 import { embedDaemonCommand } from "@/embedding/subprocess-command";
-import { withTimeout } from "@/embedding/with-timeout";
+import { withTimeout } from "@/support/with-timeout";
 import { type DaemonHello, helloAccepted, parseDaemonHello } from "./hello";
 import type { DaemonLock } from "./lock";
 import type { DaemonPaths } from "./paths";

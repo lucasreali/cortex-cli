@@ -86,6 +86,30 @@ describe("EmbedQueue", () => {
 		expect(embeddings.listMissingNodeIds("fake-model@4")).toEqual([]);
 	});
 
+	// A save that lands while the shutdown drain is running would be dropped
+	// if onIdle answered on the queue it saw when it was called.
+	test("onIdle waits for work enqueued while it is already draining", async () => {
+		const queue = new EmbedQueue({
+			nodes,
+			embeddings,
+			provider: workingProvider,
+		});
+		const first = seedDecision(dir, db, input, context);
+		const second = seedDecision(
+			dir,
+			db,
+			{ ...input, title: "Segunda" },
+			context,
+		);
+
+		queue.enqueue(first.id);
+		const draining = queue.onIdle();
+		queue.enqueue(second.id);
+		await draining;
+
+		expect(embeddings.getByNodeId(second.id)).not.toBeNull();
+	});
+
 	test("a broken provider leaves the decision pending without losing the save", async () => {
 		const queue = new EmbedQueue({
 			nodes,
@@ -155,6 +179,38 @@ describe("EmbedQueue", () => {
 		expect(embeddings.listMissingNodeIds("hung-model@4")).toEqual([
 			decision.id,
 		]);
+	});
+
+	// A worker fetching ~300 MB is not a hung worker: killing it at the
+	// inference deadline discards the download and the next run starts over,
+	// which is how a slow link makes embedding permanently impossible.
+	test("a model still being fetched outlives the inference deadline", async () => {
+		let disposed = false;
+		const fetchingProvider: EmbeddingProvider = {
+			modelId: "fetching-model@4",
+			embedQuery: () => Promise.reject(new Error("unused")),
+			embedPassages: async (texts) => {
+				await Bun.sleep(200);
+				return texts.map(() => Float32Array.from([1, 0, 0, 0]));
+			},
+			modelResident: () => false,
+			dispose: () => {
+				disposed = true;
+			},
+		};
+		const queue = new EmbedQueue(
+			{ nodes, embeddings, provider: fetchingProvider },
+			{ timeoutMs: 50 },
+		);
+		const decision = seedDecision(dir, db, input, context);
+
+		queue.enqueue(decision.id);
+		await queue.onIdle();
+
+		expect(disposed).toBe(false);
+		expect(embeddings.getByNodeId(decision.id)?.modelId).toBe(
+			"fetching-model@4",
+		);
 	});
 
 	test("ignores ids that no longer resolve to a decision", async () => {

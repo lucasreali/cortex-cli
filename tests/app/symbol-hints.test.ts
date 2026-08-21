@@ -24,7 +24,9 @@ beforeEach(() => {
 				lang: "ts",
 				hash: "a",
 				mtime: 1,
+				ctime: 1,
 				size: 1,
+				hasError: false,
 			},
 			symbols: [
 				{ name: "AuthService", kind: "class", line: 3 },

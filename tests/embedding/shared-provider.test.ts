@@ -164,6 +164,37 @@ describe("SharedEmbeddingProvider", () => {
 		await holding;
 	});
 
+	// The ladder is shared daemon → private worker → pure FTS, and a daemon
+	// that dies with a request in flight must not skip the middle rung.
+	test("a daemon lost mid-request falls back to the private worker", async () => {
+		const paths = makePaths();
+		const daemon = startDaemon(paths);
+		const { shared, direct } = makeProvider(paths);
+
+		await shared.embedQuery("warm");
+		const inFlight = shared.embedPassages(["!slow:300"]);
+		await Bun.sleep(50);
+		daemon.stop("crashed mid-request");
+
+		const vectors = await inFlight;
+		expect(vectors.map((vector) => [...vector])).toEqual([[9, 0, 0]]);
+		expect(shared.daemonConnected).toBe(false);
+		expect(direct.workerRunning).toBe(true);
+	});
+
+	// A daemon that answered is a daemon that ran the model; repeating the
+	// request locally would only pay for the same verdict twice.
+	test("an error the daemon returned is not retried locally", async () => {
+		const paths = makePaths();
+		startDaemon(paths);
+		const { shared, direct } = makeProvider(paths);
+
+		expect(shared.embedPassages(["!error"])).rejects.toThrow("boom");
+		await Bun.sleep(50);
+		expect(shared.daemonConnected).toBe(true);
+		expect(direct.workerRunning).toBe(false);
+	});
+
 	test("dispose releases the daemon connection and the private worker", async () => {
 		const paths = makePaths();
 		const daemon = startDaemon(paths);

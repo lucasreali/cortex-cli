@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { listedIds } from "@tests/fixtures/decision-listing";
 import { DecisionStore } from "@/decisions/decision-store";
 import { type DecisionSync, openDecisionSync } from "@/decisions/decision-sync";
 import type { ReconcileReport } from "@/decisions/reconcile";
@@ -82,7 +83,7 @@ describe("DecisionSync.save", () => {
 			context,
 		);
 
-		expect(store.listIds()).toEqual([saved.id]);
+		expect(listedIds(store)).toEqual([saved.id]);
 		const decision = nodes.getById(saved.id);
 		expect(decision?.module).toBe("auth");
 		expect(decision?.commitSha).toBe("ca43a65");
@@ -93,6 +94,47 @@ describe("DecisionSync.save", () => {
 		expect(parsed.ok && parsed.file.createdAt).toBe(
 			decision?.createdAt as string,
 		);
+	});
+
+	// The row and the file are two copies of one body, and only one of them is
+	// the product: a body that reads back differently after a rebuild would make
+	// a fresh clone disagree with the machine that saved it.
+	test("a CRLF body is stored exactly as the file parses back", () => {
+		const saved = sync.save(
+			decisionInput({
+				body: "Primeira linha da decisão.\r\nSegunda linha da decisão.\r\n",
+			}),
+			context,
+		);
+
+		const parsed = store.read(saved.id);
+
+		expect(parsed.ok && parsed.file.body).toBe(
+			nodes.getById(saved.id)?.body as string,
+		);
+		expect(nodes.getById(saved.id)?.body).toBe(
+			"Primeira linha da decisão.\nSegunda linha da decisão.",
+		);
+	});
+
+	// A decision file is immutable, so a duplicate anchor must never reach the
+	// disk: nothing would ever rewrite the file, and every command that reads
+	// the store afterwards would die on the anchors primary key.
+	test("an anchor named twice is written once and stored once", () => {
+		const anchor = { file_path: "src/auth/service.ts", symbol: "Auth.login" };
+
+		const saved = sync.save(
+			decisionInput({ anchors: [anchor, anchor] }),
+			context,
+		);
+
+		const parsed = store.read(saved.id);
+		expect(parsed.ok && parsed.file.anchors).toEqual([
+			{ filePath: "src/auth/service.ts", symbol: "Auth.login" },
+		]);
+		expect(nodes.getById(saved.id)?.anchors).toEqual([
+			{ filePath: "src/auth/service.ts", symbol: "Auth.login" },
+		]);
 	});
 
 	test("records where the decision was authored", () => {

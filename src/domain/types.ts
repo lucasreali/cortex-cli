@@ -20,6 +20,19 @@ export type ImportProvenance = (typeof IMPORT_PROVENANCES)[number];
 export const DECISION_STATUSES = ["active", "replaced", "archived"] as const;
 export type DecisionStatus = (typeof DECISION_STATUSES)[number];
 
+// How well the local code index and working tree corroborate an anchor, from
+// strongest to weakest — the order is the ranking, so `strongestConfidence`
+// reads it off this list. Never part of a decision file: the anchor is
+// versioned, its resolution is a fact about the checkout that reads it.
+export const ANCHOR_CONFIDENCES = [
+	"exact",
+	"name_only",
+	"file_only",
+	"unresolved",
+	"unknown",
+] as const;
+export type AnchorConfidence = (typeof ANCHOR_CONFIDENCES)[number];
+
 export interface Anchor {
 	filePath: string;
 	symbol: string;
@@ -81,7 +94,14 @@ export interface IndexedFile {
 	lang: string;
 	hash: string;
 	mtime: number;
+	// Inode change time. No userspace call can set it, which is what makes it
+	// the half of the staleness check that a mtime-preserving restore cannot
+	// forge.
+	ctime: number;
 	size: number;
+	// The grammar could not read the file end to end, so the symbols recorded
+	// for it are a prefix, not an inventory.
+	hasError: boolean;
 }
 
 export interface CodeSymbol {

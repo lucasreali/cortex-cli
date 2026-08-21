@@ -1,13 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { writeAtomically } from "@/support/atomic-write";
 import { userCortexDir } from "@/support/cortex-home";
 import { errnoCode, errorMessage } from "@/support/errors";
 import { sha256Hex } from "@/support/hash";
 import { parseJsonOrNull } from "@/support/json";
 import { truncate } from "@/support/text";
+import { tildify } from "@/support/tildify";
 
 describe("errorMessage", () => {
 	test("unwraps an Error and stringifies anything else", () => {
@@ -60,21 +57,12 @@ describe("userCortexDir", () => {
 	});
 });
 
-describe("writeAtomically", () => {
-	test("publishes the file under its final name with nothing left staged", async () => {
-		const directory = mkdtempSync(join(tmpdir(), "cortex-atomic-"));
-		const target = join(directory, "asset.bin");
-		await writeAtomically(target, "payload");
-		expect(readFileSync(target, "utf8")).toBe("payload");
-		expect(readdirSync(directory)).toEqual(["asset.bin"]);
+describe("tildify", () => {
+	test("shortens a path under the home directory", () => {
+		expect(tildify("/home/dev/.cortex", "/home/dev")).toBe("~/.cortex");
 	});
 
-	test("replaces an existing file in place", async () => {
-		const directory = mkdtempSync(join(tmpdir(), "cortex-atomic-"));
-		const target = join(directory, "asset.bin");
-		await writeAtomically(target, "first");
-		await writeAtomically(target, "second");
-		expect(readFileSync(target, "utf8")).toBe("second");
-		expect(readdirSync(directory)).toEqual(["asset.bin"]);
+	test("leaves a path elsewhere alone", () => {
+		expect(tildify("/opt/hooks", "/home/dev")).toBe("/opt/hooks");
 	});
 });

@@ -2,6 +2,7 @@ import type { Subprocess } from "bun";
 import { IdleTimer } from "./idle-timer";
 import { KindEmbeddingProvider } from "./kind-provider";
 import { GEMMA_MODEL } from "./model";
+import { modelIsResident } from "./model-cache";
 import { modelsDir } from "./models-dir";
 import { encodeNdjson, LineBuffer } from "./ndjson";
 import type { EmbedKind } from "./protocol";
@@ -71,6 +72,10 @@ export class GemmaProvider extends KindEmbeddingProvider {
 		return this.link?.alive ?? false;
 	}
 
+	modelResident(): boolean {
+		return modelIsResident(this.modelsDirectory());
+	}
+
 	dispose(): void {
 		this.idleTimer.clear();
 		this.link?.kill();
@@ -107,9 +112,13 @@ export class GemmaProvider extends KindEmbeddingProvider {
 			stderr: "inherit",
 			env: {
 				...process.env,
-				CORTEX_MODELS_DIR: this.options.modelsDir ?? modelsDir(),
+				CORTEX_MODELS_DIR: this.modelsDirectory(),
 			},
 		});
+	}
+
+	private modelsDirectory(): string {
+		return this.options.modelsDir ?? modelsDir();
 	}
 
 	private scheduleIdleKill(): void {

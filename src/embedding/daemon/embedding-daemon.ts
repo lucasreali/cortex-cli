@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import type { Socket } from "bun";
 import type { GemmaProvider } from "@/embedding/gemma-provider";
 import { IdleTimer } from "@/embedding/idle-timer";
+import { embedDeadlineMs } from "@/embedding/model-cache";
 import {
 	encodeNdjson,
 	LineBuffer,
@@ -18,6 +19,7 @@ import { SerialLane } from "@/embedding/serial-lane";
 import { SocketWriter } from "@/embedding/socket-writer";
 import { disposingOnTimeout } from "@/embedding/with-timeout";
 import { errorMessage } from "@/support/errors";
+import { withTimeout } from "@/support/with-timeout";
 import { DAEMON_PROTOCOL, encodeDaemonHello } from "./hello";
 
 export interface EmbeddingDaemonOptions {
@@ -177,12 +179,20 @@ export class EmbeddingDaemon {
 	// pipelining: the deadline starts when a request reaches the worker, never
 	// while it waits behind another session, and the dispose can only lose the
 	// single request the worker is holding.
+	//
+	// Which deadline, and whether it disposes, follow the same two rules the
+	// in-process paths follow: a query never costs the worker its life (the
+	// caller answers from FTS and the model keeps loading for the next query),
+	// and a model still being fetched is not a hung worker.
 	private embedWithTimeout(request: WorkerRequest): Promise<Float32Array[]> {
-		return disposingOnTimeout(
-			this.options.provider,
-			this.options.provider.embed(request.kind, request.texts),
+		const { provider } = this.options;
+		const work = provider.embed(request.kind, request.texts);
+		const timeoutMs = embedDeadlineMs(
+			provider,
 			this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
 		);
+		if (request.kind === "query") return withTimeout(work, timeoutMs);
+		return disposingOnTimeout(provider, work, timeoutMs);
 	}
 
 	private deliver(socket: ClientSocket, response: WorkerResponse): void {

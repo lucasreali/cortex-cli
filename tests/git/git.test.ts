@@ -8,7 +8,13 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getCanonicalProjectId, getHead, getRepoRoot } from "@/git";
+import {
+	getCanonicalProjectId,
+	getHead,
+	getHooksPath,
+	getRepoRoot,
+	listRepoFiles,
+} from "@/git";
 
 let dir: string;
 
@@ -59,6 +65,70 @@ describe("getRepoRoot", () => {
 		const outside = mkdtempSync(join(tmpdir(), "cortex-no-git-"));
 		try {
 			expect(getRepoRoot(outside)).toBeNull();
+		} finally {
+			rmSync(outside, { recursive: true, force: true });
+		}
+	});
+
+	// Bun.spawnSync throws rather than returning a failed result when the cwd
+	// is gone, and every caller here documents that it answers null instead.
+	test("returns null when the working directory no longer exists", () => {
+		const vanished = mkdtempSync(join(tmpdir(), "cortex-gone-"));
+		rmSync(vanished, { recursive: true, force: true });
+
+		expect(getRepoRoot(vanished)).toBeNull();
+		expect(getHooksPath(vanished)).toBeNull();
+		expect(getHead(vanished)).toBeNull();
+		expect(getCanonicalProjectId(vanished)).toBeNull();
+		expect(listRepoFiles(vanished)).toBeNull();
+	});
+
+	// The same throw, from the other end: a PATH without git used to kill
+	// `cortex log` with `Executable not found in $PATH: "git"`. It has to be a
+	// subprocess — the lookup does not read a PATH this process reassigns.
+	test("returns null when git is not on PATH", () => {
+		const probe = Bun.spawnSync(
+			[
+				process.execPath,
+				"-e",
+				'import { getRepoRoot, getHead } from "@/git";' +
+					"console.log(JSON.stringify([getRepoRoot(process.cwd()), getHead(process.cwd())]));",
+			],
+			{
+				cwd: process.cwd(),
+				env: { PATH: join(tmpdir(), "cortex-path-that-is-not-there") },
+				stdout: "pipe",
+				stderr: "pipe",
+			},
+		);
+
+		expect(probe.stderr.toString()).toBe("");
+		expect(probe.stdout.toString().trim()).toBe("[null,null]");
+	});
+});
+
+describe("getHooksPath", () => {
+	test("is absolute, and the same from a nested directory", () => {
+		const nested = join(dir, "src", "auth");
+		mkdirSync(nested, { recursive: true });
+		expect(getHooksPath(dir)).toBe(join(dir, ".git", "hooks"));
+		expect(getHooksPath(nested)).toBe(join(dir, ".git", "hooks"));
+	});
+
+	test("follows a relative core.hooksPath", () => {
+		run("git", "config", "core.hooksPath", ".husky");
+		expect(getHooksPath(dir)).toBe(join(dir, ".husky"));
+	});
+
+	test("follows an absolute core.hooksPath", () => {
+		run("git", "config", "core.hooksPath", "/opt/shared-hooks");
+		expect(getHooksPath(dir)).toBe("/opt/shared-hooks");
+	});
+
+	test("returns null outside a repository", () => {
+		const outside = mkdtempSync(join(tmpdir(), "cortex-no-git-"));
+		try {
+			expect(getHooksPath(outside)).toBeNull();
 		} finally {
 			rmSync(outside, { recursive: true, force: true });
 		}

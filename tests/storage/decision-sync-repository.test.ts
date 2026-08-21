@@ -104,6 +104,53 @@ describe("DecisionSyncRepository.insertDecision", () => {
 		});
 	});
 
+	// The five writes are one fact. A node row that lost its FTS row is
+	// invisible to every search and nothing ever repairs it, because the
+	// reconciler only inserts ids it has never seen — so a half-written decision
+	// would be on disk, listed by `cortex log`, and unfindable forever.
+	test("a refused anchor leaves no node, no search row and no edges", () => {
+		const duplicated = {
+			filePath: "src/auth/service.ts",
+			symbol: "Auth.login",
+		};
+
+		expect(() =>
+			sync.insertDecision(decisionFile({ anchors: [duplicated, duplicated] }), {
+				projectId: PROJECT_ID,
+				sessionId: SESSION_ID,
+			}),
+		).toThrow(/UNIQUE constraint failed/);
+
+		expect(nodes.getById(FIRST)).toBeNull();
+		expect(sync.listPresence()).toEqual([]);
+		expect(db.query("SELECT count(*) AS n FROM nodes_fts").get()).toEqual({
+			n: 0,
+		});
+		expect(db.query("SELECT count(*) AS n FROM anchors").get()).toEqual({
+			n: 0,
+		});
+		expect(edgeRows("BELONGS_TO")).toEqual([]);
+	});
+
+	test("a decision refused inside a reconcile rolls back alone", () => {
+		const duplicated = { filePath: "src/auth/jwt.ts", symbol: "sign" };
+
+		sync.transaction(() => {
+			expect(() =>
+				sync.insertDecision(
+					decisionFile({ anchors: [duplicated, duplicated] }),
+					null,
+				),
+			).toThrow(/UNIQUE constraint failed/);
+			sync.insertDecision(decisionFile({ id: SECOND }), null);
+		});
+
+		expect(sync.listPresence()).toEqual([{ id: SECOND, present: true }]);
+		expect(db.query("SELECT count(*) AS n FROM nodes_fts").get()).toEqual({
+			n: 1,
+		});
+	});
+
 	test("without local links it records no session, as on someone else's branch", () => {
 		sync.insertDecision(decisionFile(), null);
 

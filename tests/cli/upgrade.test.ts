@@ -49,7 +49,7 @@ beforeEach(() => {
 				if (!published) return new Response("gone", { status: 404 });
 				return new Response(null, {
 					status: 302,
-					headers: { location: `https://host/releases/tag/${TAG}` },
+					headers: { location: `/releases/tag/${TAG}` },
 				});
 			}
 			if (path.endsWith("/checksums.txt")) {

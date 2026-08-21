@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { FileIndexEntry } from "@/domain";
-import { CodeRepository } from "@/storage/code-repository";
+import { CodeRepository, IMPORTERS_ROW_LIMIT } from "@/storage/code-repository";
 import { openCodeDb } from "@/storage/connection";
 import { migrateCode } from "@/storage/migrations";
 
@@ -40,7 +40,9 @@ function entryFixture(overrides: Partial<FileIndexEntry> = {}): FileIndexEntry {
 			lang: "ts",
 			hash: "abc123",
 			mtime: 1700000000,
+			ctime: 1700000000,
 			size: 2048,
+			hasError: false,
 		},
 		symbols: [
 			{ name: "AuthService", kind: "class", line: 3 },
@@ -65,7 +67,9 @@ function importerFixture(): FileIndexEntry {
 			lang: "ts",
 			hash: "def456",
 			mtime: 1700000100,
+			ctime: 1700000100,
 			size: 512,
+			hasError: false,
 		},
 		symbols: [{ name: "login", kind: "function", line: 5 }],
 		imports: [
@@ -103,6 +107,7 @@ describe("code.db migrations", () => {
 		expect(rows).toEqual([
 			{ id: 1, name: "code-schema" },
 			{ id: 2, name: "code-meta" },
+			{ id: 3, name: "code-file-facts" },
 		]);
 	});
 
@@ -111,7 +116,7 @@ describe("code.db migrations", () => {
 		db = openCodeDb(dir);
 		migrateCode(db);
 		expect(db.query("SELECT count(*) AS n FROM _migrations").get()).toEqual({
-			n: 2,
+			n: 3,
 		});
 	});
 
@@ -142,9 +147,39 @@ describe("code.db migrations", () => {
 
 	test("creates the indexes", () => {
 		const indexes = schemaNames("index");
-		expect(indexes).toContain("idx_symbols_name");
 		expect(indexes).toContain("idx_symbols_file");
 		expect(indexes).toContain("idx_imports_to");
+	});
+
+	// Dropped for want of a reader: suggestions match with a leading wildcard,
+	// which SQLite cannot serve from an index, and every exact lookup goes
+	// through the in-process symbol table.
+	test("drops the symbol-name index nothing reads", () => {
+		expect(schemaNames("index")).not.toContain("idx_symbols_name");
+	});
+
+	// The pair (mtime, size) is forgeable by an ordinary mtime-preserving
+	// restore; an inode change time is not, and a half-parsed file must not have
+	// its missing symbols read as deletions.
+	test("records ctime and the parse outcome per file", () => {
+		repository.wipeAndRebuild([
+			entryFixture({
+				file: {
+					path: "src/broken.ts",
+					lang: "ts",
+					hash: "h",
+					mtime: 5,
+					ctime: 9,
+					size: 12,
+					hasError: true,
+				},
+			}),
+		]);
+
+		expect(repository.getFile("src/broken.ts")).toMatchObject({
+			ctime: 9,
+			hasError: true,
+		});
 	});
 
 	test("imports.provenance defaults to heuristic", () => {
@@ -185,7 +220,15 @@ function chainEntry(
 	imports: FileIndexEntry["imports"],
 ): FileIndexEntry {
 	return {
-		file: { path, lang: "ts", hash: `h-${path}`, mtime: 1, size: 10 },
+		file: {
+			path,
+			lang: "ts",
+			hash: `h-${path}`,
+			mtime: 1,
+			ctime: 1,
+			size: 10,
+			hasError: false,
+		},
 		symbols: [],
 		imports,
 	};
@@ -210,22 +253,26 @@ describe("CodeRepository.transitiveImporters", () => {
 	});
 
 	test("walks importers transitively, chaining provenance pessimistically", () => {
-		expect(repository.transitiveImporters(["src/core.ts"], 5)).toEqual([
-			{ path: "src/mid.ts", depth: 1, provenance: "exact" },
-			{ path: "src/top.ts", depth: 2, provenance: "heuristic" },
-			{ path: "src/loop.ts", depth: 3, provenance: "heuristic" },
-		]);
+		expect(repository.transitiveImporters(["src/core.ts"], 5)).toEqual({
+			importers: [
+				{ path: "src/mid.ts", depth: 1, provenance: "exact" },
+				{ path: "src/top.ts", depth: 2, provenance: "heuristic" },
+				{ path: "src/loop.ts", depth: 3, provenance: "heuristic" },
+			],
+			truncated: false,
+		});
 	});
 
 	test("respects maxDepth", () => {
-		expect(repository.transitiveImporters(["src/core.ts"], 1)).toEqual([
-			{ path: "src/mid.ts", depth: 1, provenance: "exact" },
-		]);
+		expect(repository.transitiveImporters(["src/core.ts"], 1)).toEqual({
+			importers: [{ path: "src/mid.ts", depth: 1, provenance: "exact" }],
+			truncated: false,
+		});
 	});
 
 	test("cycles terminate and seeds never appear in the result", () => {
-		const importers = repository.transitiveImporters(["src/core.ts"], 10);
-		expect(importers.map((importer) => importer.path)).not.toContain(
+		const walk = repository.transitiveImporters(["src/core.ts"], 10);
+		expect(walk.importers.map((importer) => importer.path)).not.toContain(
 			"src/core.ts",
 		);
 	});
@@ -233,10 +280,70 @@ describe("CodeRepository.transitiveImporters", () => {
 	test("multiple seeds merge at the shortest depth", () => {
 		expect(
 			repository.transitiveImporters(["src/core.ts", "src/mid.ts"], 5),
-		).toEqual([
-			{ path: "src/top.ts", depth: 1, provenance: "heuristic" },
-			{ path: "src/loop.ts", depth: 2, provenance: "heuristic" },
+		).toEqual({
+			importers: [
+				{ path: "src/top.ts", depth: 1, provenance: "heuristic" },
+				{ path: "src/loop.ts", depth: 2, provenance: "heuristic" },
+			],
+			truncated: false,
+		});
+	});
+
+	// L13: MIN(depth) and MIN(provenance) taken independently would report
+	// depth 1 with the exact provenance of the two-hop chain.
+	test("depth and provenance come from the same chain", () => {
+		repository.wipeAndRebuild([
+			chainEntry("src/hub.ts", []),
+			chainEntry("src/near.ts", [
+				{ specifier: "./hub", toPath: "src/hub.ts", provenance: "heuristic" },
+			]),
+			chainEntry("src/far.ts", [
+				{ specifier: "./hub", toPath: "src/hub.ts", provenance: "exact" },
+			]),
+			chainEntry("src/both.ts", [
+				{ specifier: "./near", toPath: "src/near.ts", provenance: "exact" },
+				{ specifier: "./far", toPath: "src/far.ts", provenance: "exact" },
+			]),
 		]);
+
+		const walk = repository.transitiveImporters(["src/hub.ts"], 5);
+
+		expect(walk.importers).toContainEqual({
+			path: "src/both.ts",
+			depth: 2,
+			provenance: "exact",
+		});
+	});
+});
+
+describe("CodeRepository.transitiveImporters row cap", () => {
+	test("reports the walk as truncated once the cap is reached", () => {
+		repository.wipeAndRebuild([
+			chainEntry("src/hub.ts", []),
+			...Array.from({ length: IMPORTERS_ROW_LIMIT + 1 }, (_, index) =>
+				chainEntry(`src/importer-${index}.ts`, [
+					{ specifier: "./hub", toPath: "src/hub.ts", provenance: "exact" },
+				]),
+			),
+		]);
+
+		const walk = repository.transitiveImporters(["src/hub.ts"], 5);
+
+		expect(walk.truncated).toBe(true);
+		expect(walk.importers).toHaveLength(IMPORTERS_ROW_LIMIT);
+	});
+
+	test("a walk that fits under the cap is not reported as truncated", () => {
+		repository.wipeAndRebuild([
+			chainEntry("src/hub.ts", []),
+			chainEntry("src/only.ts", [
+				{ specifier: "./hub", toPath: "src/hub.ts", provenance: "exact" },
+			]),
+		]);
+
+		expect(repository.transitiveImporters(["src/hub.ts"], 5).truncated).toBe(
+			false,
+		);
 	});
 });
 
@@ -259,16 +366,88 @@ describe("CodeRepository symbol lookups", () => {
 		expect(repository.findSymbol("Ghost.method")).toEqual([]);
 	});
 
+	// findSymbol is the single-name shorthand for the same read: one table, one
+	// recipe, so a caller with many names to look up cannot disagree with one.
+	test("the symbol table answers the same lookup findSymbol does", () => {
+		expect(
+			repository.symbolTable().locationsOf("AuthService.validateToken"),
+		).toEqual(repository.findSymbol("AuthService.validateToken"));
+	});
+
 	test("suggestSymbols prefers same-file matches via the owner prefix", () => {
 		expect(
 			repository.suggestSymbols("src/auth/service.ts", "AuthService.login", 3),
 		).toEqual(["AuthService.validateToken"]);
 	});
 
+	// L21: a name that normalizes away entirely left LIKE '%%' behind, which
+	// matches every symbol in the index — a suggestion list that is a random
+	// sample reads as authoritative.
+	test("suggestSymbols returns nothing for a name that normalizes away", () => {
+		expect(repository.suggestSymbols("src/auth/service.ts", "???", 3)).toEqual(
+			[],
+		);
+		expect(repository.suggestSymbols("src/ghost.ts", "  ", 3)).toEqual([]);
+	});
+
 	test("suggestSymbols falls back to a global substring match", () => {
 		expect(repository.suggestSymbols("src/ghost.ts", "login", 3)).toEqual([
 			"login",
 		]);
+	});
+
+	test("lookups compare normalized keys, not raw spellings", () => {
+		expect(
+			repository.hasSymbol("src/auth/service.ts", "authservice.validateToken"),
+		).toBe(true);
+		expect(
+			repository.hasSymbol(
+				"src/auth/service.ts",
+				" AuthService . validateToken",
+			),
+		).toBe(true);
+		expect(repository.findSymbol("AUTHSERVICE.VALIDATETOKEN")).toEqual([
+			{ filePath: "src/auth/service.ts", kind: "method", line: 10 },
+		]);
+	});
+});
+
+// The store is what the extractor and an LLM's anchors have to agree on, so the
+// normalizer runs on the way in as well as on every comparison.
+describe("CodeRepository symbol normalization", () => {
+	beforeEach(() => {
+		repository.wipeAndRebuild([
+			entryFixture({
+				symbols: [
+					{ name: "ﬁlterTokens", kind: "function", line: 2 },
+					{ name: "İstanbulService.İşlem", kind: "method", line: 7 },
+				],
+			}),
+		]);
+	});
+
+	test("stores the canonical spelling with its case intact", () => {
+		expect(
+			repository.symbolsIn("src/auth/service.ts").map((symbol) => symbol.name),
+		).toEqual(["filterTokens", "IstanbulService.Islem"]);
+	});
+
+	test("matches an anchor written with the source's own spelling", () => {
+		expect(repository.hasSymbol("src/auth/service.ts", "ﬁlterTokens")).toBe(
+			true,
+		);
+		expect(
+			repository.hasSymbol("src/auth/service.ts", "İstanbulService.İşlem"),
+		).toBe(true);
+		expect(
+			repository.hasSymbol("src/auth/service.ts", "istanbulservice.islem"),
+		).toBe(true);
+	});
+
+	test("suggests the stored spelling back, not the key", () => {
+		expect(
+			repository.suggestSymbols("src/auth/service.ts", "filtertokens", 3),
+		).toEqual(["filterTokens"]);
 	});
 });
 
@@ -333,7 +512,9 @@ describe("CodeRepository", () => {
 			lang: "ts",
 			hash: "abc123",
 			mtime: 1700000000,
+			ctime: 1700000000,
 			size: 2048,
+			hasError: false,
 		});
 		expect(repository.getFile("ghost.ts")).toBeNull();
 	});
@@ -381,13 +562,20 @@ describe("CodeRepository", () => {
 				fromPath: "src/api/login.ts",
 				specifier: "../auth/service",
 				toPath: "src/auth/service.ts",
+				provenance: "heuristic",
 			},
 			{
 				fromPath: "src/auth/service.ts",
 				specifier: "./token.ts",
 				toPath: "src/auth/token.ts",
+				provenance: "exact",
 			},
-			{ fromPath: "src/auth/service.ts", specifier: "zod", toPath: null },
+			{
+				fromPath: "src/auth/service.ts",
+				specifier: "zod",
+				toPath: null,
+				provenance: "heuristic",
+			},
 		]);
 	});
 
@@ -398,7 +586,9 @@ describe("CodeRepository", () => {
 			lang: "ts",
 			hash: "abc123",
 			mtime: 1700009999,
+			ctime: 1700009999,
 			size: 2048,
+			hasError: false,
 		});
 
 		expect(repository.getFile("src/auth/service.ts")?.mtime).toBe(1700009999);

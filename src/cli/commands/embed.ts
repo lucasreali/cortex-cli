@@ -3,8 +3,13 @@ import type { CortexRuntime } from "@/app/runtime";
 import { withRuntime } from "@/cli/open-runtime";
 import { failure, style, success } from "@/cli/style";
 import { usageError } from "@/cli/usage";
+import { createDirectProvider } from "@/embedding/create-provider";
+import { GEMMA_MODEL } from "@/embedding/model";
+import { modelIsResident } from "@/embedding/model-cache";
+import { modelsDir } from "@/embedding/models-dir";
 import { readConfig, writeConfig } from "@/storage/config";
 import { SCHEMA_VERSION } from "@/storage/migrations";
+import { errorMessage } from "@/support/errors";
 import { embedAll } from "./embed-all";
 
 export async function runEmbed(args: string[], cwd: string): Promise<number> {
@@ -14,12 +19,43 @@ export async function runEmbed(args: string[], cwd: string): Promise<number> {
 			missing: { type: "boolean", default: false },
 			rebuild: { type: "boolean", default: false },
 			yes: { type: "boolean", default: false },
+			"fetch-model": { type: "boolean", default: false },
 		},
 	});
+	if (values["fetch-model"]) {
+		if (values.missing || values.rebuild) return usageError("embed");
+		return fetchModel();
+	}
 	if (values.missing === values.rebuild) return usageError("embed");
 	return withRuntime(cwd, (runtime) =>
 		values.missing ? embedMissing(runtime) : rebuild(runtime, values.yes),
 	);
+}
+
+// Acquisition is a fact about this machine, not about a project, so it skips
+// the runtime entirely and runs outside any store. It also runs without a
+// deadline: the embed timeouts exist to catch a wedged worker, and a person
+// who no longer wants to wait for 300 MB can interrupt a command they invoked
+// themselves — where a background embed cannot.
+async function fetchModel(): Promise<number> {
+	if (modelIsResident()) {
+		console.log(style.dim(`Model already available: ${GEMMA_MODEL.modelId}`));
+		return 0;
+	}
+	console.log(
+		`Downloading ${GEMMA_MODEL.huggingFaceId} (about 300 MB) into ${modelsDir()}`,
+	);
+	const provider = createDirectProvider(GEMMA_MODEL.modelId);
+	try {
+		await provider.embedQuery("cortex model acquisition");
+		console.log(success(`Embedding model ready: ${GEMMA_MODEL.modelId}`));
+		return 0;
+	} catch (error) {
+		console.error(failure(`Model download failed: ${errorMessage(error)}`));
+		return 1;
+	} finally {
+		provider.dispose();
+	}
 }
 
 async function embedMissing(runtime: CortexRuntime): Promise<number> {

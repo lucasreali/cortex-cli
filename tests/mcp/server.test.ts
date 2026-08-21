@@ -170,8 +170,16 @@ describe("cortex MCP server e2e", () => {
 			decision_id: decisionA,
 		});
 		expect(payload.decision.anchors).toEqual([
-			{ filePath: "src/auth/missing.ts", symbol: "" },
-			{ filePath: "src/auth/service.ts", symbol: "AuthService.login" },
+			{
+				filePath: "src/auth/missing.ts",
+				symbol: "",
+				confidence: "unresolved",
+			},
+			{
+				filePath: "src/auth/service.ts",
+				symbol: "AuthService.login",
+				confidence: "unresolved",
+			},
 		]);
 		expect(payload.impacted).toEqual([
 			{
@@ -450,6 +458,27 @@ describe("cortex MCP server e2e", () => {
 		expect(isError).toBe(false);
 		expect(payload.results).toEqual([]);
 		expect(payload.guidance).toContain("get_context");
+	});
+
+	// A NUL truncates the FTS MATCH expression mid-quote inside SQLite, which
+	// used to surface as isError: "unterminated string".
+	test("search with a NUL inside a term answers with guidance, not an error", async () => {
+		const { isError, payload } = await callTool("search", {
+			terms: ["kuber\u0000netes"],
+			exact: true,
+		});
+		expect(isError).toBe(false);
+		expect(payload.results).toEqual([]);
+		expect(payload.guidance).toContain("get_context");
+	});
+
+	test("a term that is nothing but NULs matches nothing without erroring", async () => {
+		const { isError, payload } = await callTool("search", {
+			terms: ["\u0000"],
+			exact: true,
+		});
+		expect(isError).toBe(false);
+		expect(payload.results).toEqual([]);
 	});
 
 	test("get_context with an unmatched intent returns guidance", async () => {

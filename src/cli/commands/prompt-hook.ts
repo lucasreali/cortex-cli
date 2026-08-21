@@ -9,10 +9,20 @@ import { NodeRepository } from "@/storage/node-repository";
 import { ProjectRoot } from "@/storage/project-root";
 import { SearchRepository } from "@/storage/search-repository";
 import { parseJsonOrNull } from "@/support/json";
+import {
+	fenceSafe,
+	PROMPT_FENCE_CLOSE,
+	PROMPT_FENCE_OPEN,
+} from "@/support/prompt-fence";
 import { truncate } from "@/support/text";
 
 const BODY_LIMIT = 700;
 const BUSY_TIMEOUT_MS = 1000;
+// The caller is a program that writes one JSON object and closes. A pipe that
+// stays open is therefore never a slow prompt, it is a caller that will never
+// finish — and this hook runs in front of a person waiting to type.
+const STDIN_TIMEOUT_MS = 2000;
+const STDIN_LIMIT_CHARACTERS = 1024 * 1024;
 
 const HIGH_NOTE =
 	"Decisions from this project's persistent memory (Cortex) match this " +
@@ -34,7 +44,7 @@ export async function runPromptHook(
 	try {
 		if (process.env.CORTEX_NO_PROMPT_HOOK === "1") return 0;
 		if (process.stdin.isTTY) return printInstallHint();
-		const payload = parsePayload(await Bun.stdin.text());
+		const payload = parsePayload(await readStdin());
 		if (payload.prompt === "") return 0;
 		injectContext(payload.cwd ?? cwd, payload.prompt);
 	} catch {}
@@ -51,6 +61,38 @@ function injectContext(startDir: string, prompt: string): void {
 	}
 }
 
+// Whatever a timeout or the size cap leaves behind is handed to the parser
+// unchanged: a truncated payload is not valid JSON, and every unparseable
+// payload already exits 0 in silence.
+async function readStdin(): Promise<string> {
+	const reader = Bun.stdin.stream().getReader();
+	const deadline = setTimeout(() => void reader.cancel(), STDIN_TIMEOUT_MS);
+	try {
+		return await readUntilLimit(reader);
+	} finally {
+		clearTimeout(deadline);
+	}
+}
+
+interface ByteReader {
+	read(): Promise<{ done?: boolean; value?: Uint8Array }>;
+	cancel(): Promise<unknown>;
+}
+
+async function readUntilLimit(reader: ByteReader): Promise<string> {
+	const decoder = new TextDecoder();
+	let text = "";
+	while (text.length < STDIN_LIMIT_CHARACTERS) {
+		const chunk = await reader.read();
+		if (chunk.done || !chunk.value) {
+			return text + decoder.decode(new Uint8Array());
+		}
+		text += decoder.decode(chunk.value, { stream: true });
+	}
+	await reader.cancel();
+	return text;
+}
+
 function parsePayload(raw: string): { prompt: string; cwd: string | null } {
 	const data = parseJsonOrNull<{ prompt?: unknown; cwd?: unknown }>(raw);
 	return {
@@ -64,6 +106,11 @@ type HookStore = PromptGateStore & { close(): void };
 function openNearestStore(startDir: string): HookStore | null {
 	const project = ProjectRoot.nearest(startDir);
 	if (!project) return null;
+	// Read-only to SQLite is not read-only to the filesystem: reading a WAL
+	// database still creates `-shm` (and `-wal`), so a `.cortex` the user cannot
+	// write is a store this hook cannot open. That throws, and the caller exits
+	// 0 in silence — deliberately. A hook that runs in front of every prompt has
+	// no channel to complain on that would not become noise on every prompt.
 	const db = new Database(project.decisionsDbPath, { readonly: true });
 	db.run(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS};`);
 	return {
@@ -81,22 +128,25 @@ function render(gate: PromptGate): void {
 			? gate.decisions.map(fullEntry).join("\n\n")
 			: gate.decisions.map(titleEntry).join("\n");
 	process.stdout.write(
-		`<cortex_context note="${note}">\n${entries}\n</cortex_context>\n`,
+		`${PROMPT_FENCE_OPEN} note="${note}">\n${entries}\n${PROMPT_FENCE_CLOSE}\n`,
 	);
 }
 
+// Every string that came out of a decision file is escaped, including the ones
+// too short to spell a tag on their own: one rule a reader can check beats four
+// per-field arguments about which length is safe.
 function fullEntry(decision: Decision): string {
-	const module = decision.module ? `[${decision.module}] ` : "";
-	const date = decision.createdAt.slice(0, 10);
+	const module = decision.module ? `[${fenceSafe(decision.module)}] ` : "";
+	const date = fenceSafe(decision.createdAt.slice(0, 10));
 	return (
-		`## ${module}${decision.title}\n` +
+		`## ${module}${fenceSafe(decision.title)}\n` +
 		`(id ${decision.id}, ${date})\n` +
-		truncate(decision.body, BODY_LIMIT)
+		truncate(fenceSafe(decision.body), BODY_LIMIT)
 	);
 }
 
 function titleEntry(decision: Decision): string {
-	return `- ${decision.title} (${decision.id})`;
+	return `- ${fenceSafe(decision.title)} (${decision.id})`;
 }
 
 function printInstallHint(): number {

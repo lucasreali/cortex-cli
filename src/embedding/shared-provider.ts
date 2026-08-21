@@ -35,34 +35,35 @@ export class SharedEmbeddingProvider extends KindEmbeddingProvider {
 		return this.connection?.alive ?? false;
 	}
 
+	modelResident(): boolean {
+		return this.direct.modelResident();
+	}
+
 	dispose(): void {
 		this.connection?.close();
 		this.connection = null;
 		this.direct.dispose();
 	}
 
+	// The ladder has three rungs, and a daemon that dies mid-request must not
+	// skip the middle one. Which failure this is, the connection already knows:
+	// a daemon that answered `error` is still open and returned a verdict the
+	// private worker would only repeat, while a transport failure closes the
+	// link before rejecting — that one is retried locally, once. `busy` is the
+	// one answer a live daemon gives that is not a verdict: its lane is already
+	// deeper than the deadline of everything waiting in it, so the private
+	// worker is the faster answer as well as the next rung down.
 	private async sendToDaemon(
 		kind: EmbedKind,
 		texts: string[],
 	): Promise<Float32Array[]> {
 		const connection = await this.ensureConnection();
 		if (!connection) return this.direct.embed(kind, texts);
-		return this.fromDaemonOrDirect(connection, kind, texts);
-	}
-
-	// A daemon that refuses admission is not a failure to report: its lane is
-	// already deeper than the deadline of everything waiting in it, so the
-	// private worker is the faster answer as well as the next rung down.
-	private async fromDaemonOrDirect(
-		connection: DaemonConnection,
-		kind: EmbedKind,
-		texts: string[],
-	): Promise<Float32Array[]> {
 		try {
 			const vectors = await connection.embed(kind, texts);
 			return vectors.map((values) => Float32Array.from(values));
 		} catch (error) {
-			if (!isDaemonBusy(error)) throw error;
+			if (connection.alive && !isDaemonBusy(error)) throw error;
 			return this.direct.embed(kind, texts);
 		}
 	}

@@ -1,14 +1,17 @@
-import type { Database } from "bun:sqlite";
+import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDecisionsDb } from "@/storage/connection";
-import { migrate } from "@/storage/migrations";
+import { openCodeDb, openDecisionsDb } from "@/storage/connection";
+import { migrate, migrateCode, SCHEMA_VERSION } from "@/storage/migrations";
 import decisionsSchema from "@/storage/migrations/001-decisions-schema.sql" with {
 	type: "text",
 };
 import decisionsPresent from "@/storage/migrations/004-decisions-present.sql" with {
+	type: "text",
+};
+import decisionsGraphVocabulary from "@/storage/migrations/005-decisions-graph-vocabulary.sql" with {
 	type: "text",
 };
 import migrationsTable from "@/storage/migrations/migrations-table.sql" with {
@@ -46,6 +49,41 @@ describe("connection", () => {
 		expect(db.query("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
 		expect(db.query("PRAGMA busy_timeout").get()).toEqual({ timeout: 5000 });
 	});
+
+	// Switching a store to WAL takes it exclusively, and SQLite does not run
+	// the busy handler for that switch — verified: it throws in 0 ms with
+	// busy_timeout at 5 s. Opening retries instead, and only a lock nobody ever
+	// releases gets to be an error.
+	test("opening retries the WAL switch while another writer holds the store", () => {
+		const heldDir = mkdtempSync(join(tmpdir(), "cortex-held-"));
+		const holder = new Database(join(heldDir, "decisions.db"), {
+			create: true,
+		});
+		try {
+			holder.run("PRAGMA journal_mode = DELETE;");
+			holder.run("CREATE TABLE placeholder (x)");
+			holder.run("BEGIN IMMEDIATE");
+			holder.run("INSERT INTO placeholder VALUES (1)");
+
+			const started = Bun.nanoseconds();
+			expect(() => openDecisionsDb(heldDir)).toThrow(/database is locked/);
+			expect(Bun.nanoseconds() - started).toBeGreaterThan(100_000_000);
+		} finally {
+			holder.close();
+			rmSync(heldDir, { recursive: true, force: true });
+		}
+	});
+
+	test("opening a store another process already put in WAL leaves it alone", () => {
+		const shared = openDecisionsDb(dir);
+		try {
+			expect(shared.query("PRAGMA journal_mode").get()).toEqual({
+				journal_mode: "wal",
+			});
+		} finally {
+			shared.close();
+		}
+	});
 });
 
 describe("migrations", () => {
@@ -56,6 +94,8 @@ describe("migrations", () => {
 			{ id: 1, name: "decisions-schema" },
 			{ id: 2, name: "decisions-present" },
 			{ id: 3, name: "decisions-graph-vocabulary" },
+			{ id: 4, name: "decisions-project-identity" },
+			{ id: 5, name: "decisions-no-self-edges" },
 		]);
 	});
 
@@ -64,7 +104,7 @@ describe("migrations", () => {
 		db = openDecisionsDb(dir);
 		expect(migrate(db)).toEqual([]);
 		expect(db.query("SELECT count(*) AS n FROM _migrations").get()).toEqual({
-			n: 3,
+			n: 5,
 		});
 	});
 
@@ -75,6 +115,8 @@ describe("migrations", () => {
 				"decisions-schema",
 				"decisions-present",
 				"decisions-graph-vocabulary",
+				"decisions-project-identity",
+				"decisions-no-self-edges",
 			]);
 		} finally {
 			fresh.close();
@@ -201,7 +243,11 @@ describe("migrations", () => {
 				)
 				.run();
 
-			expect(migrate(pre)).toEqual(["decisions-graph-vocabulary"]);
+			expect(migrate(pre)).toEqual([
+				"decisions-graph-vocabulary",
+				"decisions-project-identity",
+				"decisions-no-self-edges",
+			]);
 			expect(
 				pre.query("SELECT status, present FROM nodes WHERE id = 'n1'").get(),
 			).toEqual({ status: "replaced", present: 0 });
@@ -249,6 +295,155 @@ describe("migrations", () => {
 		} finally {
 			pre.close();
 			rmSync(preDir, { recursive: true, force: true });
+		}
+	});
+
+	// The reconciler drops a self-edge before it is offered, and this is what
+	// makes it unrepresentable for anything else that writes.
+	test("an edge from a decision to itself is refused", () => {
+		db.query(
+			"INSERT INTO nodes (id, kind, title) VALUES ('n1', 'decision', 'Alone')",
+		).run();
+
+		expect(() =>
+			db
+				.query(
+					"INSERT INTO edges (from_id, to_id, kind) VALUES ('n1', 'n1', 'REPLACED_BY')",
+				)
+				.run(),
+		).toThrow(/CHECK constraint failed/);
+	});
+
+	test("self-edges an older binary wrote are dropped by the upgrade", () => {
+		const preDir = mkdtempSync(join(tmpdir(), "cortex-pre008-"));
+		const pre = openDecisionsDb(preDir);
+		try {
+			pre.run(migrationsTable);
+			pre.run(decisionsSchema);
+			pre.run(decisionsPresent);
+			for (const [id, name] of [
+				[1, "decisions-schema"],
+				[2, "decisions-present"],
+			] as const) {
+				pre
+					.query("INSERT INTO _migrations (id, name) VALUES (?, ?)")
+					.run(id, name);
+			}
+			pre
+				.query(
+					"INSERT INTO nodes (id, kind, title) VALUES ('n1', 'decision', 'Kept')",
+				)
+				.run();
+			pre
+				.query(
+					"INSERT INTO nodes (id, kind, title) VALUES ('n2', 'decision', 'Other')",
+				)
+				.run();
+			pre
+				.query(
+					"INSERT INTO edges (from_id, to_id, kind) VALUES ('n1', 'n1', 'REPLACED_BY')",
+				)
+				.run();
+			pre
+				.query(
+					"INSERT INTO edges (from_id, to_id, kind) VALUES ('n1', 'n2', 'DEPENDS_ON')",
+				)
+				.run();
+
+			migrate(pre);
+
+			expect(pre.query("SELECT from_id, to_id, kind FROM edges").all()).toEqual(
+				[{ from_id: "n1", to_id: "n2", kind: "DEPENDS_ON" }],
+			);
+			expect(pre.query("PRAGMA foreign_key_check").all()).toEqual([]);
+		} finally {
+			pre.close();
+			rmSync(preDir, { recursive: true, force: true });
+		}
+	});
+
+	test("split project identities are merged onto the oldest row", () => {
+		const preDir = mkdtempSync(join(tmpdir(), "cortex-pre006-"));
+		const pre = openDecisionsDb(preDir);
+		try {
+			pre.run(migrationsTable);
+			pre.run(decisionsSchema);
+			pre.run(decisionsPresent);
+			pre.run(decisionsGraphVocabulary);
+			for (const [id, name] of [
+				[1, "decisions-schema"],
+				[2, "decisions-present"],
+				[3, "decisions-graph-vocabulary"],
+			] as Array<[number, string]>) {
+				pre
+					.query("INSERT INTO _migrations (id, name) VALUES (?, ?)")
+					.run(id, name);
+			}
+			for (const id of ["p1", "p2"]) {
+				pre
+					.query("INSERT INTO nodes (id, kind, title) VALUES (?, 'project', ?)")
+					.run(id, "github.com/acme/app");
+			}
+			for (const id of ["s1", "s2"]) {
+				pre.query("INSERT INTO nodes (id, kind) VALUES (?, 'session')").run(id);
+			}
+			pre
+				.query(
+					"INSERT INTO edges (from_id, to_id, kind) VALUES ('s1', 'p1', 'BELONGS_TO')",
+				)
+				.run();
+			pre
+				.query(
+					"INSERT INTO edges (from_id, to_id, kind) VALUES ('s2', 'p2', 'BELONGS_TO')",
+				)
+				.run();
+
+			expect(migrate(pre)).toEqual([
+				"decisions-project-identity",
+				"decisions-no-self-edges",
+			]);
+			expect(
+				pre.query("SELECT id FROM nodes WHERE kind = 'project'").all(),
+			).toEqual([{ id: "p1" }]);
+			expect(
+				pre
+					.query(
+						"SELECT from_id FROM edges WHERE to_id = 'p1' ORDER BY from_id",
+					)
+					.all(),
+			).toEqual([{ from_id: "s1" }, { from_id: "s2" }]);
+			expect(pre.query("PRAGMA foreign_key_check").all()).toEqual([]);
+		} finally {
+			pre.close();
+			rmSync(preDir, { recursive: true, force: true });
+		}
+	});
+
+	test("a store written by a newer cortex is refused, not written to", () => {
+		db.query(
+			"INSERT INTO _migrations (id, name) VALUES (99, 'from-the-future')",
+		).run();
+
+		expect(() => migrate(db)).toThrow(
+			"decisions.db is at schema v99, newer than the v" +
+				`${SCHEMA_VERSION} this cortex knows — run: cortex upgrade`,
+		);
+	});
+
+	test("code.db names itself when it is the one from the future", () => {
+		const codeDir = mkdtempSync(join(tmpdir(), "cortex-code-future-"));
+		const code = openCodeDb(codeDir);
+		try {
+			migrateCode(code);
+			code
+				.query(
+					"INSERT INTO _migrations (id, name) VALUES (99, 'from-the-future')",
+				)
+				.run();
+			expect(() => migrateCode(code)).toThrow(/^code\.db is at schema v99/);
+		} finally {
+			code.close();
+			rmSync(codeDir, { recursive: true, force: true });
 		}
 	});
 

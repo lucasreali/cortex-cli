@@ -12,15 +12,31 @@ import {
 	resolveTargets,
 } from "@/install/targets";
 import { currentBinaryPath } from "@/release/installer";
+import { tildify } from "@/support/tildify";
+import { installGitHooks, removeGitHooks } from "./install-git-hooks";
 
-export async function runInstall(args: string[]): Promise<number> {
+export async function runInstall(args: string[], cwd: string): Promise<number> {
 	const { values } = parseArgs({
 		args,
 		options: {
 			yes: { type: "boolean", default: false },
 			target: { type: "string", default: "auto" },
+			"git-hooks": { type: "boolean", default: false },
+			uninstall: { type: "boolean", default: false },
 		},
 	});
+	// Registering the MCP server is user-scoped and hooks are repo-scoped, so
+	// --git-hooks is exclusive: a bare `cortex install` must keep writing no
+	// repository files, and must keep working outside a git repository.
+	if (values["git-hooks"]) {
+		return values.uninstall
+			? removeGitHooks(cwd, values.yes)
+			: installGitHooks(cwd, values.yes);
+	}
+	if (values.uninstall) {
+		console.error(failure("--uninstall only applies to --git-hooks"));
+		return usageError("install");
+	}
 	const home = homedir();
 	const resolution = resolveTargets(values.target, home);
 	if ("error" in resolution) {
@@ -96,8 +112,4 @@ function report(
 		unchanged: "already registered",
 	}[outcome.action];
 	console.log(success(`${target.displayName} — ${verb} (${path})`));
-}
-
-function tildify(path: string, home: string): string {
-	return path.startsWith(home) ? `~${path.slice(home.length)}` : path;
 }

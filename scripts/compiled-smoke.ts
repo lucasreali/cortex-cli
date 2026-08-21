@@ -25,7 +25,14 @@ interface CommandResult {
 let projectDir = "";
 
 function cortex(...argv: string[]): CommandResult {
-	const environment = { ...process.env };
+	return runCortex(argv, {});
+}
+
+function runCortex(
+	argv: string[],
+	extraEnvironment: Record<string, string>,
+): CommandResult {
+	const environment = { ...process.env, ...extraEnvironment };
 	delete environment.CORTEX_DISABLE_EMBEDDINGS;
 	const result = Bun.spawnSync([BINARY, ...argv], {
 		cwd: projectDir,
@@ -42,6 +49,21 @@ function cortex(...argv: string[]): CommandResult {
 
 function step(name: string, result: CommandResult, expected: string): void {
 	if (result.code !== 0 || !result.stdout.includes(expected)) {
+		console.error(`✗ ${name}`);
+		console.error(`  exit ${result.code}`);
+		console.error(`  stdout: ${result.stdout.trim()}`);
+		console.error(`  stderr: ${result.stderr.trim()}`);
+		process.exit(1);
+	}
+	console.log(`✓ ${name}`);
+}
+
+// releaseOrigin decides whether it is running from an installed binary by
+// looking for Bun's embedded filesystem in its own module URL — a property only
+// the compiled binary has, and therefore the one thing the test suite, which
+// always runs from source, cannot prove.
+function refuses(name: string, result: CommandResult, expected: string): void {
+	if (result.code === 0 || !result.stderr.includes(expected)) {
 		console.error(`✗ ${name}`);
 		console.error(`  exit ${result.code}`);
 		console.error(`  stdout: ${result.stdout.trim()}`);
@@ -122,6 +144,16 @@ if (build.exitCode !== 0) process.exit(1);
 makeProject();
 try {
 	step("--version", cortex("--version"), CORTEX_VERSION);
+	for (const origin of [
+		"http://localhost:9",
+		"https://github.com.attacker.tld",
+	]) {
+		refuses(
+			`upgrade refuses ${origin}`,
+			runCortex(["upgrade", "--check"], { CORTEX_RELEASE_BASE_URL: origin }),
+			"refusing to upgrade from",
+		);
+	}
 	step("init --yes", cortex("init", "--yes"), "Cortex initialized");
 	step("index (embedded tree-sitter)", cortex("index"), "Indexed 1 file(s)");
 	await saveDecisionOverMcp();

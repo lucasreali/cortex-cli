@@ -1,8 +1,10 @@
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { errnoCode } from "@/support/errors";
 
 export const CORTEX_DIRECTORY = ".cortex";
 export const DECISIONS_DIRECTORY = "decisions";
+export const LOCAL_DIRECTORY = "local";
 
 // The project a store belongs to, so a repo root and a .cortex directory stop
 // being two interchangeable strings: buildRuntime takes one and buildRuntimeAt
@@ -34,11 +36,33 @@ export class ProjectRoot {
 		return join(this.cortexDir, DECISIONS_DIRECTORY);
 	}
 
+	// Derived, per-machine and never versioned: what proved useful here says
+	// nothing about the decisions themselves, so it cannot live beside them.
+	get usefulnessLogPath(): string {
+		return join(this.cortexDir, LOCAL_DIRECTORY, "usefulness.jsonl");
+	}
+
 	// A fresh clone carries the decision files and none of the derived caches,
 	// and it is every bit as initialized as the machine it was cloned from —
 	// the first command rebuilds the database from what git brought.
 	isInitialized(): boolean {
 		return existsSync(this.decisionsDbPath) || existsSync(this.decisionsPath);
+	}
+
+	// Not the negation of isInitialized: EACCES, ENOTCONN or an unmounted
+	// volume make both paths unreadable without either one being gone. Only a
+	// confirmed ENOENT on both may justify forgetting a project.
+	isProvablyAbsent(): boolean {
+		return isMissing(this.decisionsDbPath) && isMissing(this.decisionsPath);
+	}
+}
+
+function isMissing(path: string): boolean {
+	try {
+		statSync(path);
+		return false;
+	} catch (error) {
+		return errnoCode(error) === "ENOENT";
 	}
 }
 

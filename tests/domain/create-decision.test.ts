@@ -55,6 +55,23 @@ describe("createDecisionSchema", () => {
 		test("accepts exactly 30 characters", () => {
 			expect(parse({ body: "a".repeat(30) }).success).toBe(true);
 		});
+
+		// The file format trims the body back out, and its parser rejects an
+		// empty one — so a body that only counts because of its whitespace would
+		// save, return an id, and be malformed on disk from that moment on.
+		test("rejects a body that is only whitespace", () => {
+			expect(parse({ body: " ".repeat(40) }).success).toBe(false);
+		});
+
+		test("counts the trimmed body, and stores it trimmed", () => {
+			const result = parse({ body: `  ${"a".repeat(29)}  ` });
+
+			expect(result.success).toBe(false);
+			expect(parse({ body: `  ${"a".repeat(30)}  ` })).toMatchObject({
+				success: true,
+				data: { body: "a".repeat(30) },
+			});
+		});
 	});
 
 	describe("keywords", () => {
@@ -111,6 +128,26 @@ describe("createDecisionSchema", () => {
 		test("rejects unknown anchor keys", () => {
 			const anchors = [{ file_path: "src/a.ts", line: 10 }];
 			expect(parse({ anchors }).success).toBe(false);
+		});
+
+		// The anchor is written into a file that is immutable once committed, so
+		// a path pointing outside the repository stays there for good.
+		test("rejects a path that escapes the repository", () => {
+			for (const file_path of [
+				"/etc/passwd",
+				"~/.ssh/id_rsa",
+				"../../../etc/passwd",
+				"src/../../outside.ts",
+				"C:\\Windows\\System32\\drivers\\etc\\hosts",
+				"src\\..\\..\\outside.ts",
+			]) {
+				expect(parse({ anchors: [{ file_path }] }).success).toBe(false);
+			}
+		});
+
+		test("accepts a dot in a name that is not a segment of its own", () => {
+			const anchors = [{ file_path: "src/..hidden/a.test.ts" }];
+			expect(parse({ anchors }).success).toBe(true);
 		});
 	});
 

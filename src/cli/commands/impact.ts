@@ -4,6 +4,7 @@ import {
 	type DecisionImpact,
 	decisionImpact,
 } from "@/app/decision-impact";
+import { confidenceTag } from "@/cli/anchor-tag";
 import { printJson } from "@/cli/json";
 import { withRuntime } from "@/cli/open-runtime";
 import { failure, style, warning } from "@/cli/style";
@@ -39,6 +40,8 @@ export async function runImpact(args: string[], cwd: string): Promise<number> {
 			return 0;
 		}
 		printDependsOnTree(impact);
+		printConflicts(impact);
+		printAnchors(impact);
 		printCodeImpact(impact);
 		return 0;
 	});
@@ -62,10 +65,34 @@ function printDependsOnTree(impact: DecisionImpact): void {
 	}
 }
 
+function printConflicts(impact: DecisionImpact): void {
+	if (impact.conflicts.length === 0) return;
+	console.log(`\n${style.bold("Conflicts with:")}`);
+	for (const conflict of impact.conflicts) {
+		console.log(`  ${conflict.title}  ${style.dim(conflict.id)}`);
+	}
+}
+
+function printAnchors(impact: DecisionImpact): void {
+	if (impact.root.anchors.length === 0) return;
+	console.log(`\n${style.bold("Anchors:")}`);
+	for (const anchor of impact.root.anchors) {
+		const target = anchor.symbol
+			? `${anchor.filePath}#${anchor.symbol}`
+			: anchor.filePath;
+		console.log(`  ${style.cyan(target)} ${confidenceTag(anchor.confidence)}`);
+	}
+}
+
 function printCodeImpact(impact: DecisionImpact): void {
 	if (impact.codeWarning) {
 		console.log(`\n${warning(impact.codeWarning)}`);
 		return;
+	}
+	if (impact.codeTruncated) {
+		console.log(
+			`\n${warning("import walk truncated: showing the shallowest hops only; lower --depth for a complete answer")}`,
+		);
 	}
 	if (impact.codeImpacted.length === 0) return;
 	console.log(`\n${style.bold("Via code (imports):")}`);

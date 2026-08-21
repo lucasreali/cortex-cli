@@ -5,6 +5,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
+	readFileSync,
 	realpathSync,
 	rmSync,
 	symlinkSync,
@@ -13,6 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { currentBinaryPath, installBinary } from "@/release/installer";
+import { stagingPath } from "@/support/atomic-write";
 
 const OLD = "#!/bin/sh\necho 0.0.1\n";
 
@@ -31,6 +33,14 @@ function makeInstallDir(): string {
 
 function run(path: string): string {
 	return Bun.spawnSync([path], { stdout: "pipe" }).stdout.toString().trim();
+}
+
+// A pid the kernel has already reaped: spawning and awaiting one is the only
+// way to name a process that is certainly gone.
+async function deadPid(): Promise<number> {
+	const child = Bun.spawn(["true"], { stdout: "ignore", stderr: "ignore" });
+	await child.exited;
+	return child.pid;
 }
 
 function leftovers(dir: string): string[] {
@@ -100,6 +110,63 @@ describe("installBinary", () => {
 		).rejects.toThrow("does not run here");
 		await Bun.sleep(0);
 		expect(run(targetPath)).toBe("0.0.1");
+	});
+
+	// The staging path is the target plus this process's pid, so anyone who can
+	// write to the install directory can guess it. Following a symlink left
+	// there would chmod 0755 whatever it points at and then rename the link
+	// itself over cortex.
+	test("refuses a symlink planted at the staging path", async () => {
+		const dir = makeInstallDir();
+		const targetPath = join(dir, "cortex");
+		const victim = join(dir, "victim");
+		writeFileSync(victim, "untouched", { mode: 0o600 });
+		symlinkSync(victim, stagingPath(targetPath));
+
+		await installBinary({
+			binary: script("9.9.9"),
+			version: "9.9.9",
+			targetPath,
+		});
+
+		expect(readFileSync(victim, "utf8")).toBe("untouched");
+		expect(run(targetPath)).toBe("9.9.9");
+		expect(leftovers(dir)).toEqual(["victim"]);
+	});
+
+	test("reclaims the staging files an interrupted upgrade left behind", async () => {
+		const dir = makeInstallDir();
+		const targetPath = join(dir, "cortex");
+		const abandoned = await deadPid();
+		writeFileSync(join(dir, `cortex.${abandoned}.partial`), "abandoned");
+		writeFileSync(join(dir, "cortex.1.partial"), "another upgrade running");
+		writeFileSync(join(dir, "cortex.notapid.partial"), "not ours");
+		writeFileSync(join(dir, "cortex.bak"), "not staging at all");
+
+		await installBinary({
+			binary: script("9.9.9"),
+			version: "9.9.9",
+			targetPath,
+		});
+
+		expect(leftovers(dir).sort()).toEqual([
+			"cortex.1.partial",
+			"cortex.bak",
+			"cortex.notapid.partial",
+		]);
+	});
+
+	test("installs into a directory that is not there yet", async () => {
+		const dir = makeInstallDir();
+		const targetPath = join(dir, "made-up", "cortex");
+
+		await installBinary({
+			binary: script("9.9.9"),
+			version: "9.9.9",
+			targetPath,
+		});
+
+		expect(run(targetPath)).toBe("9.9.9");
 	});
 
 	test("explains an install directory this user cannot write to", async () => {

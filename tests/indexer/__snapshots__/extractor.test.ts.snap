@@ -3,6 +3,7 @@
 exports[`TsxExtractor extracts symbols and imports from every fixture 1`] = `
 {
   "app.tsx": {
+    "hasError": false,
     "imports": [
       "./user-service",
     ],
@@ -20,6 +21,7 @@ exports[`TsxExtractor extracts symbols and imports from every fixture 1`] = `
     ],
   },
   "arrows.ts": {
+    "hasError": false,
     "imports": [],
     "symbols": [
       {
@@ -37,9 +39,15 @@ exports[`TsxExtractor extracts symbols and imports from every fixture 1`] = `
         "line": 5,
         "name": "noop",
       },
+      {
+        "kind": "variable",
+        "line": 7,
+        "name": "identifiers",
+      },
     ],
   },
   "default-export.ts": {
+    "hasError": false,
     "imports": [],
     "symbols": [
       {
@@ -50,6 +58,7 @@ exports[`TsxExtractor extracts symbols and imports from every fixture 1`] = `
     ],
   },
   "imports.ts": {
+    "hasError": false,
     "imports": [
       "./default-export",
       "./user-service",
@@ -66,6 +75,7 @@ exports[`TsxExtractor extracts symbols and imports from every fixture 1`] = `
     ],
   },
   "legacy-require.js": {
+    "hasError": false,
     "imports": [
       "./database",
       "node:path",
@@ -79,6 +89,7 @@ exports[`TsxExtractor extracts symbols and imports from every fixture 1`] = `
     ],
   },
   "mixed.js": {
+    "hasError": false,
     "imports": [
       "./legacy-require",
       "./settings",
@@ -97,6 +108,7 @@ exports[`TsxExtractor extracts symbols and imports from every fixture 1`] = `
     ],
   },
   "nested.ts": {
+    "hasError": false,
     "imports": [],
     "symbols": [
       {
@@ -127,6 +139,7 @@ exports[`TsxExtractor extracts symbols and imports from every fixture 1`] = `
     ],
   },
   "re-exports.ts": {
+    "hasError": false,
     "imports": [
       "./user-service",
       "./arrows",
@@ -135,10 +148,23 @@ exports[`TsxExtractor extracts symbols and imports from every fixture 1`] = `
     "symbols": [],
   },
   "types-only.ts": {
+    "hasError": false,
     "imports": [],
-    "symbols": [],
+    "symbols": [
+      {
+        "kind": "interface",
+        "line": 1,
+        "name": "User",
+      },
+      {
+        "kind": "type",
+        "line": 6,
+        "name": "UserId",
+      },
+    ],
   },
   "user-service.ts": {
+    "hasError": false,
     "imports": [
       "./nested",
     ],
