@@ -9,8 +9,11 @@ Each decision is one markdown file under `.cortex/decisions/`, versioned with
 your code: it merges between branches, reviews as a diff, and arrives with the
 pull. SQLite is the search index built from those files, and stays local.
 Semantic search runs fully local: EmbeddingGemma-300m quantized, via WASM in
-a dedicated subprocess — no native dependencies, no runtime network calls
-beyond the one-time model download to `~/.cortex/models/`.
+a dedicated subprocess — no native dependencies. Two things are fetched once
+and cached under `~/.cortex/`: the embedding model (~300 MB, from HuggingFace,
+into `models/`) and the tree-sitter grammars the code index parses with (~3 MB,
+from github.com, into `grammars/`). Both are sha256-verified before they are
+cached, and nothing else leaves the machine.
 
 ## Install
 
@@ -130,12 +133,17 @@ cortex install --git-hooks --uninstall  # remove them again
 
 See [Automatic reconcile](#automatic-reconcile-git-hooks) for what they do.
 
-Manual registration remains possible; the equivalent entries are:
+Manual registration remains possible. Give `command` the absolute path of the
+binary, spelled out: MCP clients spawn the server without a shell, so `~` and
+`$HOME` arrive at `execve` literally and the spawn fails with ENOENT. This is
+the entry for `~/.claude.json` and `~/.cursor/mcp.json`, which are strict JSON —
+no comments, no trailing commas:
 
-```jsonc
-// ~/.claude.json, ~/.cursor/mcp.json (~/.gemini/settings.json omits "type")
-{ "mcpServers": { "cortex": { "type": "stdio", "command": "$HOME/.local/bin/cortex", "args": ["serve", "--mcp"] } } }
+```json
+{ "mcpServers": { "cortex": { "type": "stdio", "command": "/home/you/.local/bin/cortex", "args": ["serve", "--mcp"] } } }
 ```
+
+`~/.gemini/settings.json` takes the same entry with `"type"` omitted.
 
 ```toml
 # ~/.codex/config.toml
@@ -176,13 +184,15 @@ The registry is a cache and can be deleted, but never silently: if
 `projects.json.corrupt.<timestamp>` before anything writes over it, and
 `cortex doctor` reports both the backup and how many projects are registered.
 
-Every tool accepts an optional `projectPath` (any directory inside the target
-project): the nearest `.cortex/` store is resolved walking up on each call and
-its runtime is cached per resolved root, so one server answers for as many
-repositories as the session touches. Without it, tools hit the project the
-server started in; if the server started outside any initialized project, the
-schema makes `projectPath` required. Paths without a store return guidance
-(`cortex init`) instead of an error.
+Every scoped tool — all of them but `search_all_projects` — accepts an optional
+`projectPath` (any directory inside the target project): the nearest `.cortex/`
+store is resolved walking up on each call and its runtime is cached per resolved
+root, so one server answers for as many repositories as the session touches.
+Without it, tools hit the project the server started in; if the server started
+outside any initialized project, the schema makes `projectPath` required. Paths
+without a store return guidance (`cortex init`) instead of an error. The sweep
+takes no `projectPath` on purpose: it is the one unscoped read, and scoping it
+would make it a different tool.
 
 Saving writes the markdown file first, then the row that mirrors it. Embeddings
 happen asynchronously off the save path and degrade to full-text search
@@ -249,26 +259,33 @@ install --git-hooks` makes it happen when the branch changes instead; see
 `cortex sync` forces the full pass and reports what it found: files that will
 not parse, links whose target this store has never seen, and decisions
 superseded from two branches at once. A fresh clone has no vectors until
-`cortex embed --missing` runs; until then search answers on full text, which
-measures 0.978 recall@5 against 1.000 with vectors.
+`cortex embed --missing` runs; until then search answers on full text alone,
+which measures 0.896 recall@5 against 0.917 once the vectors join it. Those are
+this repository's numbers over 48 evaluation cases, printed by
+`bun run eval:search`, which stays the only authority on them.
 
 ## CLI
 
 ```bash
-cortex install [--yes] [--target T]     # register the MCP server with detected agents
-cortex install --git-hooks              # reconcile on commit, checkout and merge
-cortex log [--module M] [--since SHA]   # active decisions, newest first
-cortex why <path>                       # decisions anchored to a file or directory
-cortex search <terms...> [--exact]      # search with score and origin
-cortex impact <id>                      # indented dependency tree
-cortex index [--force]                  # (re)build the code index incrementally
-cortex sync                             # reconcile the store with this branch's files
-cortex embed --missing | --rebuild      # fill or rebuild the vector index
-cortex embed --fetch-model              # download the embedding model, no deadline
-cortex doctor                           # config, anchors, embeddings, model, code index
-cortex benchmark [--write] [--json]     # tokens read per question vs corpus and grep
-cortex upgrade [--check]                # replace this binary with the latest release
+cortex init [--yes]                                   # create .cortex/ and register the project
+cortex install [--yes] [--target T]                   # register the MCP server with detected agents
+cortex install --git-hooks [--uninstall]              # reconcile on commit, checkout and merge
+cortex serve --mcp                                    # start the MCP server (stdio)
+cortex log [--module M] [--since SHA] [--json]        # active decisions, newest first
+cortex why <path|symbol> [--json]                     # decisions anchored to a path or a symbol
+cortex search <terms...> [--exact] [--all-projects] [--json]   # search with score and origin
+cortex impact <id> [--depth N] [--json]               # indented dependency tree
+cortex index [--force]                                # (re)build the code index incrementally
+cortex sync [--json]                                  # reconcile the store with this branch's files
+cortex embed --missing | --rebuild [--yes]            # fill or rebuild the vector index
+cortex embed --fetch-model                            # download the embedding model, no deadline
+cortex doctor [--json]                                # config, anchors, embeddings, model, code index
+cortex benchmark [--limit N] [--write] [--json]       # tokens read per question vs corpus and grep
+cortex upgrade [--check [--json]] [--version V] [--force]      # replace this binary with the latest release
 ```
+
+`--json` prints the same answer machine-readably, on the error paths too, and
+every command repeats its own usage under `--help`.
 
 ## Passive recall (Claude Code hook)
 
@@ -338,6 +355,15 @@ only files whose size/mtime changed are re-read, and a content hash skips
 touch-only changes. MCP sessions reconcile it lazily on the first query that
 needs it, catching up on edits made while the server was down.
 
+The grammars it parses with — `tree-sitter-typescript` and `tree-sitter-tsx`,
+~3 MB — are downloaded from github.com the first time an index runs, verified
+against a pinned sha256 and cached in `~/.cortex/grammars/`
+(`CORTEX_GRAMMARS_DIR` moves it). There is no bundled fallback, so on a host
+that cannot reach github.com the code index never builds and `cortex index`
+reports the failed download. Nothing else needs it: decisions, search, impact
+and passive recall all work without a code index, and anchors stay at the file
+level.
+
 Only TypeScript/JavaScript (`ts`, `tsx`, `js`, `jsx`, `mts`, `cts`, `mjs`,
 `cjs`) is indexed. Files in other languages degrade gracefully: they get no
 symbol or import rows, so decisions about them anchor at the file level and
@@ -363,14 +389,14 @@ through the same `search` path an agent takes, and charges the answer the full
 text of every decision file it names. Against that it puts two baselines: the
 whole decision corpus, and a naive `grep -il` over every tracked file outside
 `.cortex/`, one keyword at a time (their union would only measure the
-connectives). On this repository, at 59 active decisions:
+connectives). On this repository, at 115 active decisions:
 
 | what the agent reads per question | tokens | vs cortex |
 | --- | ---: | ---: |
-| whole decision corpus (59 decisions) | 24,783 | 11.6x |
-| repository grep, median keyword (32.3 files) | 69,999 | 32.9x |
-| repository grep, narrowest keyword (3.1 files) | 7,689 | 3.6x |
-| cortex answer (5.0 decisions) | 2,128 | 1.0x |
+| whole decision corpus (115 decisions) | 56,336 | 23.1x |
+| repository grep, median keyword (48.3 files) | 142,735 | 58.5x |
+| repository grep, narrowest keyword (4.4 files) | 26,138 | 10.7x |
+| cortex answer (5.0 decisions) | 2,442 | 1.0x |
 
 Token counts are a deterministic approximation, named in the output
 (`atoms-per-5-bytes/v1`) so they are never mistaken for another model's
