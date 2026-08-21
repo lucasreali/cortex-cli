@@ -104,6 +104,10 @@ describe("detached daemon spawn (e2e)", () => {
 		probe.connection.close();
 	}, 15_000);
 
+	// "Converge" is the claim, so one lock is not enough to assert: the loser of
+	// the race is allowed to answer from its private worker, but there must be
+	// exactly one daemon and it must be the process the lock names — and the
+	// session that arrives after the race has to find that same one.
 	test("racing cold starts converge on a single daemon", async () => {
 		const paths = makePaths();
 		const left = makeProvider(paths);
@@ -119,7 +123,27 @@ describe("detached daemon spawn (e2e)", () => {
 		const lock = readDaemonLock(paths.lockPath);
 		expect(lock).not.toBeNull();
 		expect(left.daemonConnected || right.daemonConnected).toBe(true);
+		expect(await pidListeningOn(paths)).toBe(lock?.pid ?? -1);
+
+		const late = makeProvider(paths);
+		expect([...(await late.embedQuery("cccc"))]).toEqual([4, 0, 1]);
+		expect(late.daemonConnected).toBe(true);
+		expect(readDaemonLock(paths.lockPath)?.pid).toBe(lock?.pid ?? -1);
 	}, 15_000);
+
+	// Whoever answers on the socket says who it is in its hello, which is the
+	// only way to tell one daemon from two sharing a lock file.
+	async function pidListeningOn(paths: DaemonPaths): Promise<number> {
+		const probe = await probeDaemon({
+			paths,
+			version: CORTEX_VERSION,
+			modelId: GEMMA_MODEL.modelId,
+		});
+		if (probe.status !== "connected") return -1;
+		const pid = probe.connection.hello.pid;
+		probe.connection.close();
+		return pid;
+	}
 
 	// H17: the lock records "some process has this pid", which after a kill -9
 	// or a reboot is eventually an unrelated one. Every daemon then refused to
@@ -157,10 +181,17 @@ describe("detached daemon spawn (e2e)", () => {
 		expect(statSync(paths.logPath).size).toBeLessThan(1024 * 1024);
 	}, 15_000);
 
+	// terminateDaemon early-returns when there is no lock, so a daemon that never
+	// spawned used to leave this asserting "lock null ✓, socket absent ✓" and
+	// passing on nothing at all. What it is about is the cleanup, so there has to
+	// be something to clean up first.
 	test("SIGTERM cleans up the socket and the lock", async () => {
 		const paths = makePaths();
 		const provider = makeProvider(paths);
 		await provider.embedQuery("warm");
+		expect(provider.daemonConnected).toBe(true);
+		expect(readDaemonLock(paths.lockPath)).not.toBeNull();
+		expect(existsSync(paths.socketPath)).toBe(true);
 		provider.dispose();
 
 		await terminateDaemon(paths);
