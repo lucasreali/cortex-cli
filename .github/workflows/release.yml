@@ -197,5 +197,12 @@ jobs:
           git commit -m init --no-gpg-sign
           & $cortex init --yes
           & $cortex index
+          # The one part of the hook path no Linux job can exercise: git runs
+          # these through the sh it bundles on Windows, which reads a
+          # backslash as an escape.
           & $cortex install --git-hooks --yes
-          & $cortex doctor
+          # No `doctor` here, and none in verify-darwin either. A runner that
+          # has never embedded has no model on disk, which doctor reports as a
+          # finding and exits non-zero for — correctly. Asserting a clean
+          # doctor would mean downloading 300 MB of weights to verify a
+          # download this job is not testing.
