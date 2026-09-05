@@ -147,3 +147,55 @@ jobs:
           git commit -m init --no-gpg-sign
           "$cortex" init --yes
           "$cortex" index
+
+  # The Windows mirror of verify-darwin: the asset that was just published,
+  # installed by the script a user actually runs, and driven end to end on the
+  # platform it was cross-compiled for.
+  verify-windows:
+    needs: release
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      attestations: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the way a user would
+        shell: pwsh
+        env:
+          CORTEX_VERSION: ${{ github.ref_name }}
+          CORTEX_INSTALL_DIR: ${{ github.workspace }}\bin
+        run: ./install.ps1
+
+      - name: Verify the published attestation
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $asset = "cortex-$env:GITHUB_REF_NAME-windows-x64.tar.gz"
+          gh release download $env:GITHUB_REF_NAME `
+            --repo $env:GITHUB_REPOSITORY --pattern $asset --dir attestation
+          gh attestation verify "attestation/$asset" --repo $env:GITHUB_REPOSITORY
+
+      - name: Run the Windows binary
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cortex = "$env:GITHUB_WORKSPACE\bin\cortex.exe"
+          & $cortex --version
+          & $cortex upgrade --check --json
+          $repo = Join-Path $env:RUNNER_TEMP 'windows-smoke'
+          New-Item -ItemType Directory -Force -Path $repo | Out-Null
+          Set-Location $repo
+          git init -b main
+          git config user.email ci@example.com
+          git config user.name CI
+          git remote add origin git@github.com:acme/windows-smoke.git
+          New-Item -ItemType Directory -Force -Path src | Out-Null
+          'export class A { b(): boolean { return true } }' | Set-Content src/a.ts
+          git add .
+          git commit -m init --no-gpg-sign
+          & $cortex init --yes
+          & $cortex index
+          & $cortex install --git-hooks --yes
+          & $cortex doctor

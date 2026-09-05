@@ -17,18 +17,31 @@ cached, and nothing else leaves the machine.
 
 ## Install
 
+macOS and Linux:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/lucasreali/cortex-cli/main/install.sh | sh
 ```
 
-A self-contained binary lands in `~/.local/bin/cortex` — no Bun, no Node, no
-`node_modules`. The installer never uses `sudo`, and prints the line to add to
-your shell rc if the directory is not already on `PATH`.
+Windows (PowerShell):
 
-- macOS and Linux, x64 and arm64 (glibc and musl). Windows is not supported yet.
+```powershell
+irm https://raw.githubusercontent.com/lucasreali/cortex-cli/main/install.ps1 | iex
+```
+
+A self-contained binary lands in `~/.local/bin/cortex` — or in
+`%LOCALAPPDATA%\Programs\cortex\cortex.exe` — with no Bun, no Node and no
+`node_modules`. The installer never uses `sudo`, prints the line to add to your
+shell rc if the directory is not already on `PATH`, and on Windows writes the
+directory to your user `PATH` itself.
+
+- macOS and Linux, x64 and arm64 (glibc and musl); Windows 10 1803 or later,
+  x64 and ARM64 (the x64 binary, which Windows on ARM runs under emulation).
 - git is the only runtime dependency (project identity and head tracking).
-- `CORTEX_VERSION=v0.5.0` pins a release; `CORTEX_INSTALL_DIR=/somewhere/bin`
-  changes the destination.
+  On Windows that means Git for Windows, whose bundled `sh` is what runs the
+  hooks `cortex install --git-hooks` writes.
+- `CORTEX_VERSION=v0.6.0` pins a release; `CORTEX_INSTALL_DIR=/somewhere/bin`
+  changes the destination. Both work the same way in PowerShell.
 
 Prefer not to pipe a URL into a shell? Download the tarball for your platform
 from the [releases page](https://github.com/lucasreali/cortex-cli/releases),
@@ -38,7 +51,7 @@ verify it, and move the binary yourself:
 what you downloaded instead of the whole file:
 
 ```bash
-asset=cortex-v0.5.0-darwin-arm64.tar.gz
+asset=cortex-v0.6.0-darwin-arm64.tar.gz
 
 grep " $asset\$" checksums.txt | sha256sum -c -   # shasum -a 256 -c - on macOS
 tar -xzf "$asset"
@@ -389,14 +402,14 @@ through the same `search` path an agent takes, and charges the answer the full
 text of every decision file it names. Against that it puts two baselines: the
 whole decision corpus, and a naive `grep -il` over every tracked file outside
 `.cortex/`, one keyword at a time (their union would only measure the
-connectives). On this repository, at 131 active decisions:
+connectives). On this repository, at 136 active decisions:
 
 | what the agent reads per question | tokens | vs cortex |
 | --- | ---: | ---: |
-| whole decision corpus (131 decisions) | 64,345 | 26.0x |
-| repository grep, median keyword (54.8 files) | 131,882 | 53.3x |
-| repository grep, narrowest keyword (4.6 files) | 15,895 | 6.4x |
-| cortex answer (5.0 decisions) | 2,476 | 1.0x |
+| whole decision corpus (136 decisions) | 67,498 | 26.9x |
+| repository grep, median keyword (56.5 files) | 137,209 | 54.7x |
+| repository grep, narrowest keyword (4.7 files) | 17,113 | 6.8x |
+| cortex answer (5.0 decisions) | 2,507 | 1.0x |
 
 Token counts are a deterministic approximation, named in the output
 (`atoms-per-5-bytes/v1`) so they are never mistaken for another model's

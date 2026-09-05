@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+
 export interface SubprocessCommand {
 	executable: string;
 	argv: string[];
@@ -34,7 +36,7 @@ export function embedWorkerCommand(
 	if (compiled) return { executable: process.execPath, argv: ["embed-worker"] };
 	return {
 		executable: process.execPath,
-		argv: [new URL("./worker.ts", import.meta.url).pathname],
+		argv: [fileURLToPath(new URL("./worker.ts", import.meta.url))],
 	};
 }
 
@@ -47,6 +49,9 @@ export function embedDaemonCommand(
 	}
 	return {
 		executable: process.execPath,
-		argv: [new URL("./daemon/main.ts", import.meta.url).pathname, modelId],
+		argv: [
+			fileURLToPath(new URL("./daemon/main.ts", import.meta.url)),
+			modelId,
+		],
 	};
 }

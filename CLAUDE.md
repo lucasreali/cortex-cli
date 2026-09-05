@@ -28,7 +28,8 @@ Dependency direction, no cycles:
   invariants (e.g. `MINIMUM_KEYWORDS`) are defined here, nowhere else.
 - `support/` — dependency-free leaf helpers (`errorMessage`, `errnoCode`,
   `parseJsonOrNull`, `sha256Hex`, `symbolKey`, `truncate`, `fenceSafe`,
-  `withTimeout`, `writeAtomically`, `userCortexDir`). Anything may import it,
+  `withTimeout`, `writeAtomically`, `userCortexDir`, `RUNS_ON_WINDOWS`).
+  Anything may import it,
   including
   `release/`; it imports nothing. Put a helper here only once a third call site wants it — `symbolKey`
   arrived with exactly three. `prompt-fence.ts` is the exception that earned its
@@ -139,6 +140,7 @@ Dependency direction, no cycles:
   unpack the ustar member, replace the running binary by atomic rename. It
   imports nothing from the other `src/` directories except `support/`, on
   purpose: the upgrade path must not drag the store or the model in behind it.
+  `replaceBinary` is the one place that rename is not one call — see below.
 - `app/` — use cases; `runtime.ts` is the composition root. Use cases narrow
   `CortexRuntime` with `Pick<>` instead of introducing interfaces.
 - `cli/` — hand-rolled dispatch table in `main.ts` (deliberate, no CLI
@@ -549,6 +551,65 @@ one budget.
   only while acquiring: transformers.js reports the same progress for a file it
   streams out of the cache as for one it fetches, so a resident model would
   otherwise print a progress bar on every cold start.
+
+## Windows is a platform, not a port
+
+Packaging Windows was one more entry in `RELEASE_SUFFIXES`. Everything that
+took work is somewhere the platform does not have the primitive the code was
+written against, and each of those places takes the answer as a **default
+parameter** rather than reading `process.platform` inline: the branch a host
+cannot reach is still a branch the suite has to drive, and `RUNS_ON_WINDOWS`
+(`src/support/platform.ts`) is the value they default to.
+
+- **The daemon has no socket file.** A named pipe is a name in a namespace the
+  kernel owns, created and removed with the process listening on it, so
+  `daemonPathsFor` answers a pipe there and keeps the lock and the log as
+  files — they are what a second process reads to find the daemon at all. That
+  namespace is machine-wide, so the owner is part of the pipe's name; without
+  it two accounts would race for one daemon and the loser would be handed the
+  other's. Nothing about the degradation ladder changes: a pipe that cannot be
+  reached is `unreachable`, which is the rung the private worker already
+  answers.
+- **A running image cannot be renamed over.** The loader holds it open without
+  delete sharing, so `replaceBinary` renames the running binary *away* first
+  and puts the new one in its place — both renames or neither, because a
+  failure between them leaves the install directory with no cortex at all.
+  Deleting what it retired is the one step the process running that image
+  cannot take; the next upgrade sweeps it, through the same `LEFTOVER` scan
+  that reclaims an interrupted upgrade's staging file. The staging name keeps
+  an `.exe` tail there, because the version probe runs that file before
+  anything is replaced and Windows only launches a path it will treat as an
+  image.
+- **The tarball carries `cortex.exe`.** Which name arrives is a fact about the
+  asset and not about the host reading it — an upgrade unpacks whatever it was
+  handed — so `readCortexBinary` accepts either, and `executableNameFor` in
+  `scripts/compile.ts` spells the name from the target rather than from the
+  builder.
+- **git's `sh` reads a backslash as an escape.** Git for Windows runs hooks
+  through the shell it bundles, and that shell takes a drive-letter path as
+  long as it is spelled with forward slashes. `selfCommand` produces that
+  spelling — the conversion belongs where the path is made, not at every place
+  that quotes it — and `isShellSafeCommandWord` accepts a drive as a root
+  beside the empty one an absolute POSIX path leaves.
+- **`import.meta.url` is not a path.** Its `.pathname` hands back a leading
+  slash before the drive letter, which no `spawn` and no `fs` call will
+  accept, so every site that derives a path from a module URL goes through
+  `fileURLToPath`.
+- **One asset, both architectures.** Bun cross-compiles no Windows arm64 build
+  and Windows on ARM runs an x64 image under emulation, so `targetForHost`
+  answers the same suffix for both — and there is no baseline variant, because
+  neither side can read a CPU feature list there and a suffix nothing can
+  select would only ever be wrong.
+- **`install.ps1` is the second implementation of the same rule**, the way
+  `install.sh` is on POSIX, and it drifts the same way: CI runs its `Get-Suffix`
+  against `targetForHost` on a Windows runner. That job lives in the gate and
+  not after the release, because PowerShell is the only thing that parses that
+  file — a syntax error found after the tag is a published release nobody can
+  install.
+
+Linux stays the platform the suite runs on. macOS and Windows get the compiled
+artifact driven end to end instead, which is what a cross-compiled binary
+actually has to prove.
 
 ## Conventions
 

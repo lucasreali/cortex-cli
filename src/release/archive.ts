@@ -4,6 +4,11 @@ const SIZE_OFFSET = 124;
 const SIZE_LENGTH = 12;
 const TYPEFLAG_OFFSET = 156;
 const BASE_256_MARKER = 0x80;
+// A Windows tarball carries cortex.exe and every other target carries cortex.
+// Which one arrives is a fact about the asset, not about the host reading it:
+// the same reader has to unpack a tarball fetched for any target, so both names
+// are accepted and the first one found is the executable.
+const MEMBERS = new Set(["cortex", "cortex.exe"]);
 const MEMBER = "cortex";
 
 // ustar spells a plain file "0", and the original tar format spells it with a
@@ -41,7 +46,7 @@ function findMember(tar: Uint8Array<ArrayBuffer>): Uint8Array<ArrayBuffer> {
 		if (content + size > tar.length) {
 			throw new Error("the release archive ends inside one of its members");
 		}
-		if (name === MEMBER) return regularFile(tar, offset, content, size);
+		if (MEMBERS.has(name)) return regularFile(tar, offset, content, size);
 		offset = content + Math.ceil(size / BLOCK_SIZE) * BLOCK_SIZE;
 	}
 	throw new Error(

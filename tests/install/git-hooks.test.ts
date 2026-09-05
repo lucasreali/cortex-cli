@@ -38,6 +38,11 @@ describe("isShellSafeCommandWord", () => {
 		"/Users/First Last/bin/cortex",
 		"/home/josé/bin/cortex",
 		"/opt/cortex-1.2+3@edge/cortex",
+		// git runs hooks through the sh it ships on Windows too, and that shell
+		// takes a drive-letter path spelled with forward slashes — which is the
+		// spelling selfCommand hands over.
+		"C:/Users/dev/AppData/Local/Programs/cortex/cortex.exe",
+		"D:/cortex/cortex.exe",
 	];
 	for (const word of safe) {
 		test(`accepts ${word}`, () => {
@@ -60,6 +65,12 @@ describe("isShellSafeCommandWord", () => {
 		"/bin\\cortex",
 		"/bin/cortex\nrm",
 		"/bin/cortex\t",
+		// A root that names no program, and a Windows path still spelled with
+		// the separator sh reads as an escape.
+		"C:",
+		"C:/",
+		"CC:/cortex/cortex.exe",
+		"C:\\cortex\\cortex.exe",
 		"/home/dev/../root/cortex",
 		"/home//cortex",
 		"/home/dev/",

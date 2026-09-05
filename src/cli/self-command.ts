@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { RUNS_FROM_COMPILED_BINARY } from "@/embedding/subprocess-command";
 import type { HookCommand } from "@/install/git-hooks";
 import { currentBinaryPath } from "@/release/installer";
@@ -8,9 +9,18 @@ import { currentBinaryPath } from "@/release/installer";
 export function selfCommand(
 	args: readonly string[] = [],
 	compiled: boolean = RUNS_FROM_COMPILED_BINARY,
-	entryPath: string = new URL("./main.ts", import.meta.url).pathname,
+	entryPath: string = fileURLToPath(new URL("./main.ts", import.meta.url)),
 ): HookCommand {
-	const executable = currentBinaryPath();
+	const executable = portable(currentBinaryPath());
 	if (compiled) return { executable, args };
-	return { executable, args: [entryPath, ...args] };
+	return { executable, args: [portable(entryPath), ...args] };
+}
+
+// One of the two consumers is a git hook, which git runs through the sh it
+// ships on Windows as well, and that shell reads a backslash as an escape
+// rather than a separator. Forward slashes are the one spelling both it and the
+// Win32 API accept, so the conversion belongs here — where the path is produced
+// — rather than in each place that has to quote it.
+function portable(path: string): string {
+	return path.replaceAll("\\", "/");
 }

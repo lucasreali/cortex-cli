@@ -32,4 +32,17 @@ describe("selfCommand", () => {
 			expect(isShellSafeCommandWord(word)).toBe(true);
 		}
 	});
+
+	// The conversion belongs here, where the path is produced, rather than in
+	// each place that has to quote it: git runs hooks through the sh it ships
+	// on Windows too, and that shell reads a backslash as an escape.
+	test("a Windows entrypoint is handed over with forward slashes", () => {
+		const command = selfCommand(
+			["git-hook"],
+			false,
+			"C:\\repo\\src\\cli\\main.ts",
+		);
+		expect(command.args[0]).toBe("C:/repo/src/cli/main.ts");
+		expect(isShellSafeCommandWord(command.args[0] ?? "")).toBe(true);
+	});
 });

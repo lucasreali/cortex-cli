@@ -1,8 +1,26 @@
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { BunPlugin } from "bun";
 
-export const ROOT = new URL("..", import.meta.url).pathname;
-export const DEFAULT_OUTFILE = join(ROOT, "dist", "cortex");
+// A file URL is not a path on Windows: `.pathname` hands back "/C:/repo",
+// which no fs call and no spawn will accept.
+export const ROOT = fileURLToPath(new URL("..", import.meta.url));
+
+// Bun appends ".exe" to a Windows --compile outfile whether or not it was
+// asked for, so the name is spelled from the target rather than guessed after
+// the fact: package-release.ts has to chmod, stat and tar exactly the file
+// that was written.
+export function executableNameFor(suffix: string): string {
+	return suffix.startsWith("windows-") ? "cortex.exe" : "cortex";
+}
+
+const HOST_SUFFIX = process.platform === "win32" ? "windows-x64" : "host";
+
+export const DEFAULT_OUTFILE: string = join(
+	ROOT,
+	"dist",
+	executableNameFor(HOST_SUFFIX),
+);
 
 export function sizeInMegabytes(path: string): string {
 	return (Bun.file(path).size / 1024 / 1024).toFixed(1);

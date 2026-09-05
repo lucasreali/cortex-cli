@@ -8,6 +8,46 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 handshake, so the version here, the version there and the git tag are one fact
 in three places — the release workflow refuses a tag that disagrees.
 
+## [0.6.0] - 2026-09-05
+
+Windows. The packaging was one more Bun target; everything else in this release
+is the part that was not — a socket that has no file, a binary that cannot be
+renamed over, a shell that reads a backslash as an escape, and an installer
+written against what PowerShell ships with rather than against curl and tar.
+
+### Added
+
+- **Windows support**, x64 and ARM64 (the x64 binary, which Windows on ARM runs
+  under emulation). Windows 10 1803 or later.
+- **`install.ps1`**, the Windows half of `install.sh`: `Invoke-WebRequest`,
+  `Get-FileHash` and the bundled `tar.exe`, same checksum discipline, same
+  `CORTEX_VERSION` and `CORTEX_INSTALL_DIR`. It writes the install directory to
+  the user `PATH` rather than printing a hint, because Windows has one to write.
+- A `windows` job inside the CI gate that drives the compiled binary end to end
+  and asserts `install.ps1`'s `Get-Suffix` agrees with `targetForHost` — the
+  check that already exists for `install.sh` — and a `verify-windows` release
+  job that installs the published asset the way a user would.
+
+### Changed
+
+- **The shared embedding daemon listens on a named pipe on Windows**, where
+  there is no socket file to place beside the lock. The pipe namespace is
+  machine-wide, so the owner's name is part of the pipe's; the lock and the log
+  stay files. Nothing about the degradation ladder changes.
+- **`cortex upgrade` replaces the running binary with two renames on Windows**
+  rather than one. The loader holds a running image open, so it is renamed away
+  first and the pair is undone if the second rename fails. What it retires
+  cannot be deleted by the process running it; the next upgrade sweeps it,
+  alongside the staging files an interrupted one leaves behind.
+- The release tarball for Windows carries `cortex.exe`. `src/release/archive.ts`
+  accepts either name: an upgrade unpacks whatever asset it was handed.
+- Git hooks accept a drive-letter path spelled with forward slashes — what
+  Git for Windows' bundled `sh` reads — and `selfCommand` produces that
+  spelling, so the conversion happens where the path is made rather than at
+  every place that quotes it.
+- Paths derived from `import.meta.url` go through `fileURLToPath`: `.pathname`
+  hands back `/C:/repo`, which no `spawn` and no `fs` call will accept.
+
 ## [0.5.0] - 2026-08-21
 
 The release that follows a full pre-release audit: 123 findings across store
@@ -142,6 +182,7 @@ First release: decisions in SQLite, a tree-sitter code index over TS/JS,
 local semantic search through a WASM embedding worker, the CLI, and an MCP
 server.
 
+[0.6.0]: https://github.com/lucasreali/cortex-cli/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/lucasreali/cortex-cli/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/lucasreali/cortex-cli/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/lucasreali/cortex-cli/compare/v0.2.1...v0.3.0

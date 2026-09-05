@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { assetName, RELEASE_SUFFIXES } from "@/release/target";
 import { sha256Hex } from "@/support/hash";
 import { CORTEX_VERSION } from "@/version";
-import { compile, ROOT, sizeInMegabytes } from "./compile";
+import { compile, executableNameFor, ROOT, sizeInMegabytes } from "./compile";
 import { bundledPackages, readNotice, renderNotices } from "./notices";
 
 const TARGETS = RELEASE_SUFFIXES.map((suffix) => ({
@@ -18,12 +18,16 @@ const MODULES_DIR = join(ROOT, "node_modules");
 const VENDORED_LICENSES_DIR = join(ROOT, "scripts", "licenses");
 const NOTICES = "THIRD-PARTY-NOTICES.md";
 
-// cortex is read first by src/release/archive.ts, which scans members until it
-// finds the executable and never needs the two text files behind it.
-const MEMBERS = ["cortex", "LICENSE", NOTICES];
+// The executable is read first by src/release/archive.ts, which scans members
+// until it finds it and never needs the two text files behind it. Its name is
+// the target's, not the builder's: a Windows tarball carries cortex.exe.
+function membersOf(executable: string): string[] {
+	return [executable, "LICENSE", NOTICES];
+}
 
 function createTar(
 	stageDir: string,
+	members: string[],
 	ownerFlags: string[],
 ): Bun.SyncSubprocess<"pipe", "pipe"> {
 	return Bun.spawnSync(
@@ -36,7 +40,7 @@ function createTar(
 			"-",
 			"-C",
 			stageDir,
-			...MEMBERS,
+			...members,
 		],
 		{ stdout: "pipe", stderr: "pipe" },
 	);
@@ -46,14 +50,19 @@ function createTar(
 // so the tar binary is left with flags GNU tar and bsdtar both accept. --owner
 // is the exception: libarchive gained it late enough that the version macOS
 // ships may reject it, so it degrades to the builder's uid rather than failing.
-async function archive(stageDir: string, outfile: string): Promise<void> {
-	chmodSync(join(stageDir, "cortex"), 0o755);
-	for (const member of MEMBERS) {
+async function archive(
+	stageDir: string,
+	executable: string,
+	outfile: string,
+): Promise<void> {
+	const members = membersOf(executable);
+	chmodSync(join(stageDir, executable), 0o755);
+	for (const member of members) {
 		utimesSync(join(stageDir, member), 0, 0);
 	}
-	let tar = createTar(stageDir, ["--owner=0", "--group=0"]);
+	let tar = createTar(stageDir, members, ["--owner=0", "--group=0"]);
 	if (tar.exitCode !== 0) {
-		tar = createTar(stageDir, []);
+		tar = createTar(stageDir, members, []);
 	}
 	if (tar.exitCode !== 0) {
 		console.error(tar.stderr.toString().trim());
@@ -90,11 +99,12 @@ async function packageTarget(
 	suffix: string,
 ): Promise<{ asset: string; stageDir: string }> {
 	const stageDir = join(STAGE_DIR, suffix);
+	const executable = executableNameFor(suffix);
 	mkdirSync(stageDir, { recursive: true });
-	await compile({ outfile: join(stageDir, "cortex"), target, suffix });
+	await compile({ outfile: join(stageDir, executable), target, suffix });
 	await stageNotices(stageDir);
 	const asset = assetName(TAG, suffix);
-	await archive(stageDir, join(RELEASE_DIR, asset));
+	await archive(stageDir, executable, join(RELEASE_DIR, asset));
 	console.log(`${asset} (${sizeInMegabytes(join(RELEASE_DIR, asset))} MB)`);
 	return { asset, stageDir };
 }

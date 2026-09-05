@@ -59,6 +59,17 @@ describe("readCortexBinary", () => {
 		expect(readCortexBinary(tarball)).toEqual(BINARY);
 	});
 
+	// The Windows tarball carries cortex.exe. Which name arrives is a fact
+	// about the asset and not about the host reading it: an upgrade unpacks
+	// whatever it was handed.
+	test("reads the Windows member as readily as the POSIX one", () => {
+		const tarball = makeTarball([
+			{ name: "cortex.exe", bytes: BINARY },
+			{ name: "LICENSE", bytes: new TextEncoder().encode("MIT\n") },
+		]);
+		expect(readCortexBinary(tarball)).toEqual(BINARY);
+	});
+
 	// A 100-byte name fills the field with no room for a terminator.
 	test("reads names that fill the whole name field", () => {
 		const tarball = makeTarball([

@@ -9,7 +9,7 @@ import type { BlockUpsert } from "@/install/marked-block";
 
 const ROOT = new URL("../../", import.meta.url).pathname;
 
-const FILE_EXTENSION = /\.(ts|sql|md|toml|json|sh|db|info)$/;
+const FILE_EXTENSION = /\.(ts|sql|md|toml|json|sh|ps1|db|info)$/;
 const NOT_A_REPO_PATH = /^(?:~|@\/|\.\.?\/)|^\.[a-z]+$/;
 
 const PASCAL_CASE = /^[A-Z][a-z0-9]+(?:[A-Z][a-zA-Z0-9]*)*$/;

@@ -32,4 +32,28 @@ describe("daemon paths", () => {
 		delete process.env.CORTEX_DAEMON_DIR;
 		expect(defaultDaemonDirectory()).toBe(join(homedir(), ".cortex", "daemon"));
 	});
+
+	// Windows has no socket file to place beside the lock: a named pipe is a
+	// name in a namespace the kernel owns. The lock and the log stay files,
+	// because those are what a second process reads to find the daemon at all.
+	describe("on Windows", () => {
+		process.env.USERNAME = "Ada Lovelace";
+		const paths = daemonPathsFor("embeddinggemma-300m-q8@256", "/tmp/d", true);
+
+		test("the socket becomes a named pipe", () => {
+			expect(paths.socketPath).toStartWith("\\\\.\\pipe\\cortex-");
+			expect(paths.socketPath).toEndWith("-embeddinggemma-300m-q8-256");
+		});
+
+		test("the lock and the log stay files in the daemon directory", () => {
+			expect(paths.lockPath).toBe("/tmp/d/embeddinggemma-300m-q8-256.lock");
+			expect(paths.logPath).toBe("/tmp/d/embeddinggemma-300m-q8-256.log");
+		});
+
+		// The pipe namespace is shared by every account on the machine, so two
+		// users must not resolve to one name and be handed each other's daemon.
+		test("the owner is part of the pipe name, spelled file-safe", () => {
+			expect(paths.socketPath).toContain("-Ada-Lovelace-");
+		});
+	});
 });

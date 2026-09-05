@@ -104,3 +104,49 @@ jobs:
             console.log(buildTarget());')
           echo "install.sh=$from_shell target.ts=$from_typescript"
           test "$from_shell" = "$from_typescript"
+
+  # Linux is where the suite runs; macOS and Windows get the artifact driven end
+  # to end instead, because that is what a cross-compiled binary has to prove.
+  # This job is inside the gate rather than after the release: install.ps1 is
+  # only parsed by PowerShell, so a syntax error in it would otherwise be found
+  # by verify-windows — after the tag has already published.
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - run: bun install --frozen-lockfile
+
+      - name: Cache the grammar, model and onnxruntime downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cortex/grammars
+            ~/.cortex/models
+            ~/.cortex/onnxruntime
+          key: assets-${{ runner.os }}-${{ hashFiles('src/indexer/grammar.ts', 'src/embedding/model.ts', 'src/embedding/onnxruntime-assets.ts') }}
+
+      - run: bun run typecheck
+
+      - name: Compiled binary smoke test
+        run: bun run smoke:compiled
+
+      # The same agreement ci already enforces between install.sh and
+      # target.ts, on the platform whose installer is a second implementation
+      # of the same rule. A disagreement here is an install that upgrades
+      # itself to an asset it is not.
+      - name: install.ps1 and target.ts agree on this host
+        shell: pwsh
+        run: |
+          $env:CORTEX_SOURCE_ONLY = '1'
+          . ./install.ps1
+          $fromShell = Get-Suffix
+          $fromTypescript = bun -e 'import { buildTarget } from "./src/release/target";
+            delete process.env.CORTEX_BUILD_TARGET;
+            console.log(buildTarget());'
+          Write-Host "install.ps1=$fromShell target.ts=$fromTypescript"
+          if ($fromShell -ne $fromTypescript.Trim()) { exit 1 }

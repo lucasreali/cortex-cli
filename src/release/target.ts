@@ -30,6 +30,7 @@ export const RELEASE_SUFFIXES = [
 	"linux-x64-musl",
 	"linux-arm64-musl",
 	"linux-x64-baseline",
+	"windows-x64",
 ] as const;
 
 export interface Host {
@@ -92,6 +93,10 @@ export function currentHost(cpuinfoPath: string = CPUINFO_PATH): Host {
 export function targetForHost(host: Host): string {
 	const cpu = supportedCpu(host.cpu);
 	if (host.platform === "darwin") return `darwin-${cpu}`;
+	// Bun cross-compiles no windows-arm64, and Windows on ARM runs an x64
+	// binary under emulation, so both architectures resolve to the one asset —
+	// which is also what install.ps1 answers, and the two may not disagree.
+	if (host.platform === "win32") return "windows-x64";
 	if (host.platform !== "linux") {
 		throw new Error(`unsupported platform: ${host.platform}`);
 	}

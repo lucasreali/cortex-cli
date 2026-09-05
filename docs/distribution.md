@@ -1,12 +1,16 @@
 # Distribution
 
 How a commit becomes a binary on a user's machine. Four pieces carry it, and
-they are separate on purpose: `scripts/` builds and packages, `install.sh`
-brings the first binary in, `src/release/` replaces one that is already there,
-and `.github/workflows/` runs the whole thing from a tag.
+they are separate on purpose: `scripts/` builds and packages, `install.sh` and
+`install.ps1` bring the first binary in, `src/release/` replaces one that is
+already there, and `.github/workflows/` runs the whole thing from a tag.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/lucasreali/cortex-cli/main/install.sh | sh
+```
+
+```powershell
+irm https://raw.githubusercontent.com/lucasreali/cortex-cli/main/install.ps1 | iex
 ```
 
 GitHub Releases is the only source of artifacts. Every later channel — a
@@ -26,14 +30,20 @@ and everything else compiles from it or selects out of it:
 | `bun-linux-x64-musl` | `linux-x64-musl` | Alpine, distroless |
 | `bun-linux-arm64-musl` | `linux-arm64-musl` | Alpine, distroless |
 | `bun-linux-x64-baseline` | `linux-x64-baseline` | x64 CPUs without AVX2 |
+| `bun-windows-x64` | `windows-x64` | Windows 10 1803+, x64 and ARM64 |
 
-A release therefore carries 15 files: one `cortex-vX.Y.Z-<suffix>.tar.gz` and
+A release therefore carries 17 files: one `cortex-vX.Y.Z-<suffix>.tar.gz` and
 one `cortex-vX.Y.Z-<suffix>.js.map` per target, plus a single `checksums.txt`
-in `sha256sum -c` format covering the other fourteen.
+in `sha256sum -c` format covering the other sixteen.
 
-Windows is not among them. The shared embedding daemon binds a Unix socket
-(`src/embedding/daemon/paths.ts`), which is a verification pass of its own
-rather than one more packaging flag.
+Windows is one asset, not two. Bun cross-compiles no `windows-arm64`, and
+Windows on ARM runs an x64 image under emulation, so both architectures resolve
+to the same suffix — and there is no baseline variant because neither
+`install.ps1` nor `targetForHost` can read a CPU feature list there, and a
+suffix nothing can select is a suffix that would only ever be wrong. The
+tarball carries `cortex.exe`; `src/release/archive.ts` accepts either name,
+because the reader unpacking an asset is not always running on the platform it
+was built for.
 
 ## Build
 
@@ -53,7 +63,9 @@ it. Two things there are not defaults:
   host through `targetForHost(currentHost())`.
 
 `scripts/package-release.ts` compiles each target into `dist/stage/<suffix>/`
-and archives exactly one entry — `cortex`, mode 0755, mtime 0, `--format=ustar`
+and archives three entries — the executable (`cortex`, or `cortex.exe` for the
+Windows target) first, then `LICENSE` and `THIRD-PARTY-NOTICES.md`, all mode
+0755/0644, mtime 0, `--format=ustar`
 with `--numeric-owner`. Bun writes the gzip wrapper, so the `tar` binary is
 left with flags GNU tar and bsdtar both accept; `--owner`/`--group` are the
 exception, tried first and dropped if the libarchive on the builder rejects
@@ -70,6 +82,7 @@ tar -tzf cortex-v0.4.0-linux-x64.tar.gz   # exactly: cortex
 ## install.sh
 
 POSIX `sh`, `set -eu`, never `sudo`, and `curl` plus `tar` are all it needs.
+It is the POSIX half; `install.ps1` below is the Windows one.
 `CORTEX_VERSION` pins a release (with or without the `v`),
 `CORTEX_INSTALL_DIR` moves the destination from `$HOME/.local/bin`.
 
@@ -99,6 +112,29 @@ Sourcing it with `CORTEX_SOURCE_ONLY=1` exposes the functions without
 installing anything, which is how CI compares `detect_suffix` against
 `buildTarget()`.
 
+## install.ps1
+
+The same contract in Windows PowerShell 5.1, which is what ships in the box —
+no `curl`, no `sha256sum`, no `mktemp`. `Invoke-WebRequest` fetches,
+`Get-FileHash` verifies, and `tar.exe` (bundled since Windows 10 1803) unpacks
+the same ustar tarball the POSIX side reads. `CORTEX_VERSION` and
+`CORTEX_INSTALL_DIR` mean exactly what they mean there; the default
+destination is `%LOCALAPPDATA%\Programs\cortex`, and the script adds it to the
+user `PATH` rather than printing a hint, because Windows has a per-user `PATH`
+to write and no rc file to point at.
+
+Two differences are the platform's, not choices:
+
+- **The swap.** Windows refuses a rename *onto* a running image, so the
+  installer renames the existing `cortex.exe` out of the way first and puts the
+  new one in its place — the same two-step `src/release/installer.ts` performs
+  for `cortex upgrade`. What it retires cannot be deleted by the process that
+  is running it; the next upgrade sweeps it.
+- **Suffix detection** has nothing to detect. `Get-Suffix` answers
+  `windows-x64` for both x64 and ARM64 hosts, which is what `targetForHost`
+  answers for `win32`, and CI compares the two on a `windows-latest` runner the
+  way it already does for `install.sh` on Linux.
+
 ## cortex upgrade
 
 The same contract, re-expressed in TypeScript against the binary that is
@@ -115,14 +151,16 @@ currently running. It imports nothing from the rest of `src/` except
   `checksums.txt`.
 - `release/checksums.ts` — verifies the one line naming the asset that was
   downloaded, the same discipline install.sh applies with `awk`.
-- `release/archive.ts` — gunzip plus a ustar reader for the single member named
-  `cortex`. Reading it in-process rather than shelling out to `tar` keeps the
-  "no runtime dependencies" promise, and it can only ever extract that one
-  member, so a hostile archive has nowhere else to write.
+- `release/archive.ts` — gunzip plus a ustar reader for the member named
+  `cortex` or `cortex.exe`. Reading it in-process rather than shelling out to
+  `tar` keeps the "no runtime dependencies" promise, and it can only ever
+  extract that one member, so a hostile archive has nowhere else to write.
 - `release/installer.ts` — the running executable cannot be written into
   (`ETXTBSY`), so the replacement is staged beside the target on the same
   filesystem, chmodded, and made to prove it runs by answering `--version`
-  before the old one is given up.
+  before the old one is given up. On Windows the last step is two renames
+  rather than one: the loader holds the destination open, so the running image
+  is renamed away first and the pair is undone if the second rename fails.
 
 `--version` accepts a downgrade; the explicit flag is the consent. `--check`
 never writes and works from a source checkout, which is what lets the CLI tests
@@ -152,14 +190,15 @@ worlds; this is the check that keeps them from disagreeing about the host.
 1. **verify** — asserts the tag matches `package.json`'s version (a mismatch
    would ship a binary that reports the wrong version in the daemon handshake),
    then `typecheck`, `bun test` and `smoke:compiled`.
-2. **release** — `bun scripts/package-release.ts` builds all seven targets in
+2. **release** — `bun scripts/package-release.ts` builds all eight targets in
    one job, then `gh release create "$GITHUB_REF_NAME" dist/release/*
    --generate-notes` publishes them with the built-in `GITHUB_TOKEN`.
-3. **verify-darwin** — on `macos-latest`, downloads its own `darwin-arm64`
-   asset from the release that was just published, verifies its checksum line,
-   and runs `--version`, `upgrade --check --json`, `init --yes` and `index` in
-   a throwaway git repo. Everything is cross-compiled on Linux, and this is the
-   one artifact that gets executed on the platform it was built for.
+3. **verify-darwin** and **verify-windows** — on `macos-latest` and
+   `windows-latest`, each installs its own asset from the release that was just
+   published, through the installer a user would run, and drives `--version`,
+   `upgrade --check --json`, `init --yes` and `index` in a throwaway git repo.
+   Everything is cross-compiled on Linux, and these are the artifacts that get
+   executed on the platform they were built for.
 
 Both workflows cache `~/.cortex/grammars` — and the model and onnxruntime
 assets for the smoke job — keyed on the files that pin them.
@@ -203,6 +242,7 @@ their editor keeps the old binary in memory until the client restarts it.
    `optionalDependencies` carrying the same binaries. Requires dropping
    `private: true` and confirming the name on npm; if `cortex-cli` is taken,
    scope it and keep the command `cortex`.
-3. **Windows** — packaging is one more Bun target; the work is the Unix socket
-   in the shared daemon.
+3. **Windows on ARM, natively** — Bun publishes no `windows-arm64` build, so
+   ARM64 hosts run the x64 asset under emulation. A native one is a Bun
+   upstream question, not a packaging flag here.
 4. **Notarization** — see Signing above.

@@ -76,9 +76,26 @@ describe("targetForHost", () => {
 		);
 	});
 
+	// Bun cross-compiles no windows-arm64 and Windows on ARM runs an x64 image
+	// under emulation, so both architectures resolve to the one asset — which
+	// is also what install.ps1's Get-Suffix answers.
+	test("both Windows architectures resolve to the one published asset", () => {
+		expect(targetForHost(host({ platform: "win32" }))).toBe("windows-x64");
+		expect(targetForHost(host({ platform: "win32", cpu: "arm64" }))).toBe(
+			"windows-x64",
+		);
+	});
+
+	// musl and baseline are linux facts; neither may reach the Windows asset.
+	test("Windows ignores the musl and baseline probes", () => {
+		expect(
+			targetForHost(host({ platform: "win32", musl: true, baseline: true })),
+		).toBe("windows-x64");
+	});
+
 	test("rejects platforms and architectures with no published asset", () => {
-		expect(() => targetForHost(host({ platform: "win32" }))).toThrow(
-			"unsupported platform: win32",
+		expect(() => targetForHost(host({ platform: "aix" }))).toThrow(
+			"unsupported platform: aix",
 		);
 		expect(() => targetForHost(host({ cpu: "ia32" }))).toThrow(
 			"unsupported architecture: ia32",

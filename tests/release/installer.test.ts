@@ -16,6 +16,7 @@ import { join } from "node:path";
 import {
 	currentBinaryPath,
 	installBinary,
+	replaceBinary,
 	upgradeTargetPath,
 } from "@/release/installer";
 import { stagingPath } from "@/support/atomic-write";
@@ -171,6 +172,76 @@ describe("installBinary", () => {
 		});
 
 		expect(run(targetPath)).toBe("9.9.9");
+	});
+
+	// Windows refuses a rename onto a running image, so the one swap becomes
+	// two: the existing binary is renamed away and the new one takes its name.
+	// The branch is driven explicitly because the platform that needs it is not
+	// the platform this suite runs on.
+	describe("on Windows", () => {
+		test("retires the existing binary instead of renaming over it", async () => {
+			const dir = makeInstallDir();
+			const targetPath = join(dir, "cortex");
+
+			await installBinary(
+				{ binary: script("9.9.9"), version: "9.9.9", targetPath },
+				true,
+			);
+
+			expect(run(targetPath)).toBe("9.9.9");
+			// Deleting what it retired is the one step the process running that
+			// image cannot take on Windows; here it succeeds, so nothing is left.
+			expect(leftovers(dir)).toEqual([]);
+		});
+
+		// The version probe runs the staged file before anything is replaced,
+		// and Windows only launches a path it will treat as an image.
+		test("stages under a name Windows will execute", async () => {
+			const dir = makeInstallDir();
+			const targetPath = join(dir, "cortex");
+			const planted = `${stagingPath(targetPath)}.exe`;
+			writeFileSync(join(dir, "witness"), "untouched");
+			symlinkSync(join(dir, "witness"), planted);
+
+			await installBinary(
+				{ binary: script("9.9.9"), version: "9.9.9", targetPath },
+				true,
+			);
+
+			expect(readFileSync(join(dir, "witness"), "utf8")).toBe("untouched");
+			expect(run(targetPath)).toBe("9.9.9");
+		});
+
+		// Both renames or neither. Driven against replaceBinary directly: from
+		// installBinary the second rename cannot be made to fail once the first
+		// has succeeded, and this is the only path that can leave the install
+		// directory with no cortex at all.
+		test("puts the retired binary back when the second rename fails", () => {
+			const dir = makeInstallDir();
+			const targetPath = join(dir, "cortex");
+
+			expect(() =>
+				replaceBinary(join(dir, "never-staged"), targetPath, true),
+			).toThrow();
+
+			expect(run(targetPath)).toBe("0.0.1");
+			expect(leftovers(dir)).toEqual([]);
+		});
+
+		test("sweeps a retired binary an earlier upgrade could not delete", async () => {
+			const dir = makeInstallDir();
+			const targetPath = join(dir, "cortex");
+			const abandoned = await deadPid();
+			writeFileSync(join(dir, `cortex.${abandoned}.old`), "retired");
+			writeFileSync(join(dir, "cortex.1.old"), "still running");
+
+			await installBinary(
+				{ binary: script("9.9.9"), version: "9.9.9", targetPath },
+				true,
+			);
+
+			expect(leftovers(dir)).toEqual(["cortex.1.old"]);
+		});
 	});
 
 	test("explains an install directory this user cannot write to", async () => {

@@ -64,6 +64,15 @@ describe("the release runs the same gate a branch runs", () => {
 		expect(release.jobs.gate?.needs).toBe("tag");
 		expect(release.jobs.release?.needs).toBe("gate");
 		expect(release.jobs["verify-darwin"]?.needs).toBe("release");
+		expect(release.jobs["verify-windows"]?.needs).toBe("release");
+	});
+
+	// install.ps1 is only parsed by PowerShell, so nothing in the suite can
+	// find a syntax error in it. Inside the gate that costs a failed build;
+	// after the release it would cost a published tag nobody can install.
+	test("install.ps1 is exercised by the gate, not after the release", async () => {
+		expect(script(ci.jobs.windows ?? {})).toContain("./install.ps1");
+		expect(script(ci.jobs.windows ?? {})).toContain("Get-Suffix");
 	});
 
 	test("the tag is still asserted against package.json", async () => {
@@ -100,6 +109,9 @@ describe("what is published is what was proven", () => {
 			attestations: "write",
 		});
 		expect(script(release.jobs["verify-darwin"] ?? {})).toContain(
+			"gh attestation verify",
+		);
+		expect(script(release.jobs["verify-windows"] ?? {})).toContain(
 			"gh attestation verify",
 		);
 	});

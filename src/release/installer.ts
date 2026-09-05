@@ -9,11 +9,16 @@ import {
 import { basename, dirname, join } from "node:path";
 import { createStagingFile, stagingPath } from "@/support/atomic-write";
 import { errnoCode } from "@/support/errors";
+import { RUNS_ON_WINDOWS } from "@/support/platform";
 import { RUNS_FROM_COMPILED_BINARY } from "./target";
 
 const PROBE_TIMEOUT_MS = 10_000;
-const STAGING_SUFFIX = ".partial";
-const STAGING_PID = /\.(\d+)\.partial$/;
+const RETIRED_SUFFIX = ".old";
+
+// Every file this module may leave beside the binary, and whose upgrade left
+// it. The pid is what lets a sweep tell an abandoned file from one an upgrade
+// running beside this one is still using.
+const LEFTOVER = /\.(\d+)\.(partial|old)(\.exe)?$/;
 
 export interface Installation {
 	binary: Uint8Array;
@@ -47,18 +52,58 @@ export function upgradeTargetPath(
 // it is safe: this process keeps the inode it started from. Staging next to
 // the target keeps that rename on one filesystem, and the new binary has to
 // prove it runs before the old one is given up.
-export async function installBinary(installation: Installation): Promise<void> {
+export async function installBinary(
+	installation: Installation,
+	onWindows: boolean = RUNS_ON_WINDOWS,
+): Promise<void> {
 	discardOrphans(installation.targetPath);
-	const staging = stagingPath(installation.targetPath);
+	const staging = installerStagingPath(installation.targetPath, onWindows);
 	try {
 		await writeStaging(staging, installation.binary);
 		chmodSync(staging, 0o755);
 		assertReportsVersion(staging, installation.version);
-		renameSync(staging, installation.targetPath);
+		replaceBinary(staging, installation.targetPath, onWindows);
 	} catch (error) {
 		discard(staging);
 		throw describe(error, installation.targetPath);
 	}
+}
+
+// Windows refuses a rename *onto* a running image — the loader holds the
+// destination open without FILE_SHARE_DELETE — but renaming that image out of
+// the way is allowed, because a mapping follows the file and not its name. So
+// the one atomic swap POSIX gets becomes two renames, undone as a pair if the
+// second fails: a failure between them would leave the install directory with
+// no cortex at all. Deleting what was retired is the part this process cannot
+// finish — it is the program currently executing — and the next upgrade sweeps
+// it. Exported because the platform that takes this branch is not the platform
+// the suite runs on, and the undo is only reachable from here.
+export function replaceBinary(
+	staging: string,
+	targetPath: string,
+	onWindows: boolean,
+): void {
+	if (!onWindows) {
+		renameSync(staging, targetPath);
+		return;
+	}
+	const retired = `${targetPath}.${process.pid}${RETIRED_SUFFIX}`;
+	renameSync(targetPath, retired);
+	try {
+		renameSync(staging, targetPath);
+	} catch (error) {
+		renameSync(retired, targetPath);
+		throw error;
+	}
+	discard(retired);
+}
+
+// Windows launches a program by inspecting the image, but only for a path it
+// will treat as one: the version probe below runs the staged file before
+// anything is replaced, so on Windows the staging name keeps an .exe tail.
+function installerStagingPath(targetPath: string, onWindows: boolean): string {
+	const staging = stagingPath(targetPath);
+	return onWindows ? `${staging}.exe` : staging;
 }
 
 // Exclusive creation, so a symlink planted at the guessable staging path is
@@ -77,14 +122,15 @@ async function writeStaging(
 }
 
 // An upgrade killed between the download and the rename leaves its staging file
-// in the install directory forever. The pid in the name says whose it is, so a
-// sweep can reclaim the abandoned ones without touching an upgrade still
-// running beside this one.
+// in the install directory forever, and on Windows a finished one leaves the
+// binary it retired. The pid in the name says whose it is, so a sweep can
+// reclaim the abandoned ones without touching an upgrade still running beside
+// this one.
 function discardOrphans(targetPath: string): void {
 	const directory = dirname(targetPath);
 	const prefix = `${basename(targetPath)}.`;
 	for (const name of entries(directory)) {
-		if (!name.startsWith(prefix) || !name.endsWith(STAGING_SUFFIX)) continue;
+		if (!name.startsWith(prefix) || !LEFTOVER.test(name)) continue;
 		if (stillRunning(name)) continue;
 		discard(join(directory, name));
 	}
@@ -102,7 +148,7 @@ function entries(directory: string): string[] {
 // that carries no pid at all is not ours to reclaim: only a process the kernel
 // has never heard of is gone for certain.
 function stillRunning(name: string): boolean {
-	const pid = Number(STAGING_PID.exec(name)?.[1]);
+	const pid = Number(LEFTOVER.exec(name)?.[1]);
 	if (!pid) return true;
 	try {
 		process.kill(pid, 0);

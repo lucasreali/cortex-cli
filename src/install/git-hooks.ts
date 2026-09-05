@@ -40,13 +40,23 @@ const SHELL_INTERPRETERS = ["sh", "bash", "dash", "zsh", "ksh"];
 // Every word is emitted inside double quotes, so spaces and accented paths are
 // safe; what must never survive is anything the shell would reinterpret there.
 const SAFE_PATH_SEGMENT = /^[\p{L}\p{N}._+@ -]+$/u;
+const WINDOWS_DRIVE = /^[A-Za-z]:$/;
 
 export function isShellSafeCommandWord(word: string): boolean {
-	if (!word.startsWith("/")) return false;
-	return word
-		.slice(1)
-		.split("/")
-		.every((segment) => segment !== ".." && SAFE_PATH_SEGMENT.test(segment));
+	const [root = "", ...segments] = word.split("/");
+	// An absolute POSIX path leaves the first segment empty; a Windows one
+	// leaves the drive there — git runs hooks through the sh it ships with on
+	// Windows too, and that shell takes a drive-letter path as long as it is
+	// spelled with forward slashes, which is what selfCommand hands over.
+	// Anything else is relative, and git hooks run with the minimal PATH of GUI
+	// clients and CI runners.
+	if (root !== "" && !WINDOWS_DRIVE.test(root)) return false;
+	// A root on its own — "" for the empty word, "C:" for a bare drive — names
+	// no program, and an empty list would otherwise pass the check below.
+	if (segments.length === 0) return false;
+	return segments.every(
+		(segment) => segment !== ".." && SAFE_PATH_SEGMENT.test(segment),
+	);
 }
 
 export function buildHookBody(event: HookEvent, command: HookCommand): string {
