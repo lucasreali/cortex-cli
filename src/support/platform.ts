@@ -6,21 +6,39 @@
 export const RUNS_ON_WINDOWS: boolean = process.platform === "win32";
 
 // Bun serves every module inside a compiled binary from an embedded
-// filesystem, and spells its root differently per platform: "/$bunfs/" on
-// POSIX, and "B:\~BUN\root\" on Windows — which reaches import.meta.url as
-// file:///B:/~BUN/root/. Matching only the POSIX spelling made a compiled
-// Windows binary believe it was a source checkout, and that belief is what
-// decides whether an environment variable may choose the origin cortex
-// upgrades from and the program it executes. It also decides how the binary
-// reaches its own hidden subcommands, so a wrong answer costs the worker, the
-// daemon and the git hooks as well.
+// filesystem, and roots it differently per platform. Measured, not guessed —
+// a binary compiled for each and then run:
 //
-// A drive letter is not pinned: only Bun chooses it, and the marker is
-// distinctive enough without one.
-const EMBEDDED_FILESYSTEM_ROOTS = ["$bunfs", "/~BUN/"];
+//   linux    file:///$bunfs/root/cortex
+//   windows  file:///B:/%7EBUN/root/cortex.exe
+//
+// Two things bite. The Windows root is a different name, and its tilde
+// arrives percent-encoded, so a literal "~BUN" does not appear in the string
+// at all — which is why the first attempt at this fix still read a compiled
+// Windows binary as a source checkout. The URL is therefore decoded before it
+// is matched, and a malformed escape is compared raw rather than throwing:
+// this runs at module load, in front of every command.
+//
+// That answer decides whether an environment variable may choose the origin
+// cortex upgrades from and the program it executes, and how the binary reaches
+// its own hidden subcommands — so a wrong one costs the worker, the daemon and
+// the git hooks as well as the two seams.
+//
+// The drive letter is not pinned: only Bun chooses it, and the root is
+// distinctive without it.
+const EMBEDDED_FILESYSTEM_ROOTS = ["/$bunfs/", "/~BUN/"];
 
 export function runsFromEmbeddedFilesystem(moduleUrl: string): boolean {
-	return EMBEDDED_FILESYSTEM_ROOTS.some((root) => moduleUrl.includes(root));
+	const path = decodedOrRaw(moduleUrl);
+	return EMBEDDED_FILESYSTEM_ROOTS.some((root) => path.includes(root));
+}
+
+function decodedOrRaw(url: string): string {
+	try {
+		return decodeURIComponent(url);
+	} catch {
+		return url;
+	}
 }
 
 // The one fact about this process an environment variable cannot forge, and

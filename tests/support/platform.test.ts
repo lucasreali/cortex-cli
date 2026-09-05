@@ -5,18 +5,21 @@ import {
 	runsFromEmbeddedFilesystem,
 } from "@/support/platform";
 
-// The regression this pins cost a compiled Windows binary its identity: Bun
-// spells the embedded filesystem "/$bunfs/" on POSIX and "B:\~BUN\root\" on
-// Windows, and a check that knew only the first read an installed binary as a
-// source checkout. That answer is what decides whether an environment variable
-// may choose the origin cortex upgrades from and the program it executes, so
-// the two spellings are pinned as examples rather than left to one substring.
+// The regression this pins cost a compiled Windows binary its identity, and it
+// cost it twice: Bun roots the embedded filesystem at /$bunfs/ on POSIX and at
+// /~BUN/ on Windows, and on Windows the tilde reaches import.meta.url
+// percent-encoded — so neither "$bunfs" nor a literal "~BUN" appears in the
+// string. Both strings below are copied from a binary compiled for each
+// platform and run, which is the only place they can be read from.
 describe("runsFromEmbeddedFilesystem", () => {
 	const embedded = [
-		"file:///$bunfs/root/cli/main.ts",
+		// Verbatim from a compiled binary of each target.
+		"file:///$bunfs/root/cortex",
+		"file:///B:/%7EBUN/root/cortex.exe",
+		// The same two, spelled the ways a future Bun might hand them over.
+		"file:///B:/~BUN/root/cortex.exe",
+		"file:///b:/%7ebun/root/cortex.exe".replace("%7ebun", "%7EBUN"),
 		"/$bunfs/root/embedding/worker.ts",
-		"file:///B:/~BUN/root/cli/main.ts",
-		"file:///C:/~BUN/root/release/target.ts",
 	];
 	for (const url of embedded) {
 		test(`recognizes ${url}`, () => {
@@ -29,7 +32,11 @@ describe("runsFromEmbeddedFilesystem", () => {
 		"file:///C:/repo/cortex-cli/src/cli/main.ts",
 		// A directory a person named after the marker is still a real path: the
 		// root Bun uses has separators on both sides of it.
-		"file:///home/dev/~BUN/main.ts".replace("/~BUN/", "/~BUNX/"),
+		"file:///home/dev/~BUNX/main.ts",
+		"file:///home/dev/bunfs/main.ts",
+		// A malformed escape must be compared raw, not thrown from: this runs
+		// at module load, in front of every command.
+		"file:///home/dev/100%/main.ts",
 	];
 	for (const url of onDisk) {
 		test(`reads ${url} as a source checkout`, () => {

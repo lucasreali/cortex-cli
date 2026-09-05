@@ -596,21 +596,27 @@ cannot reach is still a branch the suite has to drive, and `RUNS_ON_WINDOWS`
   accept, so every site that derives a path from a module URL goes through
   `fileURLToPath`.
 - **A compiled binary does not know itself by one spelling.** Bun serves every
-  bundled module from an embedded filesystem rooted at `$bunfs` on POSIX and
-  at `B:\~BUN\root\` on Windows. `RUNS_FROM_COMPILED_BINARY` used to be a
-  substring check for the first, written twice — `embedding/` and `release/`
-  each kept a copy so the upgrade path would not import the rest of the
-  program — and both copies were wrong together, which is what a duplicated
-  check buys. A compiled Windows binary therefore read itself as a source
-  checkout, and that answer is the one deciding whether an environment
-  variable may choose the origin `cortex upgrade` downloads from and the
-  program `embedWorkerCommand` executes; it also decides how the binary reaches
-  its own hidden subcommands, so a wrong answer costs the worker, the daemon
-  and the git hooks as well. `runsFromEmbeddedFilesystem` is now the one
-  recipe, in `support/` — which imports nothing, so `release/` may depend on it
-  without dragging anything in behind it — and it is pinned by example against
-  both spellings. The compiled smoke test found this on the first Windows run;
-  nothing in the suite could have.
+  bundled module from an embedded filesystem, and `import.meta.url` inside one
+  reads `file:///$bunfs/root/cortex` on Linux and
+  `file:///B:/%7EBUN/root/cortex.exe` on Windows. Both halves of that second
+  string matter: the root has a different name, *and* its tilde arrives
+  percent-encoded, so no literal `~BUN` appears in the URL at all — which is
+  why the first attempt at this fix looked right and changed nothing.
+  `runsFromEmbeddedFilesystem` decodes before it matches, and answers on a
+  malformed escape rather than throwing, because it runs at module load in
+  front of every command. `RUNS_FROM_COMPILED_BINARY` used to be a substring
+  check for the POSIX root, written twice — `embedding/` and `release/` each
+  kept a copy so the upgrade path would not import the rest of the program —
+  and both copies were wrong together, which is what a duplicated check buys.
+  It is now one recipe in `support/`, which imports nothing, so `release/` may
+  depend on it without dragging anything in behind it. A compiled Windows
+  binary reading itself as a source checkout is the answer that decides
+  whether an environment variable may choose the origin `cortex upgrade`
+  downloads from and the program `embedWorkerCommand` executes, and how the
+  binary reaches its own hidden subcommands — so it costs the worker, the
+  daemon and the git hooks as well as the two seams. Both strings above are
+  copied from a binary compiled for each target and run; there is nowhere else
+  to read them from, and guessing them is what cost two CI rounds.
 - **One asset, both architectures.** Bun cross-compiles no Windows arm64 build
   and Windows on ARM runs an x64 image under emulation, so `targetForHost`
   answers the same suffix for both — and there is no baseline variant, because

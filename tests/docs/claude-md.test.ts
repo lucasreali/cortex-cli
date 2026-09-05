@@ -41,6 +41,10 @@ const NOT_IN_THE_TREE: Record<string, string> = {
 		"the hook web-tree-sitter does not register — the absence is the point",
 	symbol_key:
 		"the anchors column CLAUDE.md rejects — a second copy of the symbol recipe",
+	"file:///$bunfs/root/cortex":
+		"Bun's embedded filesystem, readable only from inside a compiled binary",
+	"file:///B:/%7EBUN/root/cortex.exe":
+		"the same root on Windows — a path no checkout of this repo can hold",
 };
 
 // Floors, not targets: CLAUDE.md cites around 70 paths, 97 identifiers and 5
