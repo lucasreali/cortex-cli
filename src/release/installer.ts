@@ -9,8 +9,7 @@ import {
 import { basename, dirname, join } from "node:path";
 import { createStagingFile, stagingPath } from "@/support/atomic-write";
 import { errnoCode } from "@/support/errors";
-import { RUNS_ON_WINDOWS } from "@/support/platform";
-import { RUNS_FROM_COMPILED_BINARY } from "./target";
+import { RUNS_FROM_COMPILED_BINARY, RUNS_ON_WINDOWS } from "@/support/platform";
 
 const PROBE_TIMEOUT_MS = 10_000;
 const RETIRED_SUFFIX = ".old";

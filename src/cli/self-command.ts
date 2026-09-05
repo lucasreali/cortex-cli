@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
-import { RUNS_FROM_COMPILED_BINARY } from "@/embedding/subprocess-command";
 import type { HookCommand } from "@/install/git-hooks";
 import { currentBinaryPath } from "@/release/installer";
+import { RUNS_FROM_COMPILED_BINARY } from "@/support/platform";
 
 // How to invoke this same cortex from somewhere that does not inherit our PATH
 // — a git hook, or a detached child. A compiled binary is one word; a source

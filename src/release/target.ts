@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { RUNS_FROM_COMPILED_BINARY } from "@/support/platform";
 
 const DEFAULT_ORIGIN = "https://github.com/lucasreali/cortex-cli";
 const TRUSTED_ORIGIN_HOST = "github.com";
@@ -8,15 +9,6 @@ const CPUINFO_PATH = "/proc/cpuinfo";
 // named: no path segment of its own, no scheme, nothing to escape the address
 // the origin allowlist just pinned.
 const TAG_PATTERN = /^v[0-9A-Za-z][0-9A-Za-z.+-]*$/;
-
-// Every module inside a compiled binary is served from Bun's embedded
-// filesystem. release/ derives this the way embedding/subprocess-command.ts
-// does rather than importing it — the upgrade path must not drag the rest of
-// the program in behind it — and it is the one fact about this process that an
-// environment variable cannot forge.
-export const RUNS_FROM_COMPILED_BINARY: boolean = import.meta.url.includes(
-	"$bunfs",
-);
 
 // Every asset the release workflow publishes. scripts/package-release.ts
 // compiles one binary per entry (Bun's target is this prefixed with "bun-"),

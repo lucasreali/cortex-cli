@@ -3,7 +3,6 @@ import { parseArgs } from "node:util";
 import { type Consent, consent, refusal } from "@/cli/confirm";
 import { reportFailure, usageError } from "@/cli/error-output";
 import { style, success, warning } from "@/cli/style";
-import { RUNS_FROM_COMPILED_BINARY } from "@/embedding/subprocess-command";
 import type { UpsertOutcome } from "@/install/json-mcp";
 import { resolveServerSpec } from "@/install/server-spec";
 import {
@@ -12,6 +11,7 @@ import {
 	resolveTargets,
 } from "@/install/targets";
 import { currentBinaryPath } from "@/release/installer";
+import { RUNS_FROM_COMPILED_BINARY } from "@/support/platform";
 import { tildify } from "@/support/tildify";
 import { installGitHooks, removeGitHooks } from "./install-git-hooks";
 

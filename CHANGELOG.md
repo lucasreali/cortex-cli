@@ -47,6 +47,14 @@ written against what PowerShell ships with rather than against curl and tar.
   every place that quotes it.
 - Paths derived from `import.meta.url` go through `fileURLToPath`: `.pathname`
   hands back `/C:/repo`, which no `spawn` and no `fs` call will accept.
+- **`RUNS_FROM_COMPILED_BINARY` recognizes both spellings of Bun's embedded
+  filesystem** — `/$bunfs/` and Windows' `B:\~BUN\root\` — and is derived in
+  one place (`src/support/platform.ts`) instead of two. The check existed
+  twice and was wrong in both copies, so a compiled Windows binary read itself
+  as a source checkout: it would have honoured `CORTEX_RELEASE_BASE_URL` and
+  `CORTEX_EMBED_WORKER_PATH`, which are test seams an installed binary must
+  ignore, and it could not have reached its own `embed-worker` or
+  `embed-daemon` subcommands at all.
 
 ## [0.5.0] - 2026-08-21
 

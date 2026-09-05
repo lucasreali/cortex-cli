@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
 	embedDaemonCommand,
 	embedWorkerCommand,
-	RUNS_FROM_COMPILED_BINARY,
 } from "@/embedding/subprocess-command";
+import { RUNS_FROM_COMPILED_BINARY } from "@/support/platform";
 
 describe("subprocess commands", () => {
 	test("a source checkout is not a compiled binary", () => {

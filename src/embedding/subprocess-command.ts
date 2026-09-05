@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import { RUNS_FROM_COMPILED_BINARY } from "@/support/platform";
 
 export interface SubprocessCommand {
 	executable: string;
@@ -9,11 +10,7 @@ export interface SubprocessCommand {
 // process.execPath is the binary itself and always runs the CLI. The worker
 // and daemon are therefore reachable as hidden CLI subcommands, and only a
 // source checkout (where execPath is the bun runtime) spawns the files
-// directly. "$bunfs" is the embedded-filesystem prefix Bun gives every
-// module inside a compiled binary.
-export const RUNS_FROM_COMPILED_BINARY: boolean = import.meta.url.includes(
-	"$bunfs",
-);
+// directly. Which of the two this is comes from support/platform.
 
 // CORTEX_EMBED_WORKER_PATH names a script to spawn in place of the real worker.
 // The daemon has always read it and handed it to its provider; the private

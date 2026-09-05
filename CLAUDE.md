@@ -28,8 +28,8 @@ Dependency direction, no cycles:
   invariants (e.g. `MINIMUM_KEYWORDS`) are defined here, nowhere else.
 - `support/` — dependency-free leaf helpers (`errorMessage`, `errnoCode`,
   `parseJsonOrNull`, `sha256Hex`, `symbolKey`, `truncate`, `fenceSafe`,
-  `withTimeout`, `writeAtomically`, `userCortexDir`, `RUNS_ON_WINDOWS`).
-  Anything may import it,
+  `withTimeout`, `writeAtomically`, `userCortexDir`, `RUNS_ON_WINDOWS`,
+  `runsFromEmbeddedFilesystem`). Anything may import it,
   including
   `release/`; it imports nothing. Put a helper here only once a third call site wants it — `symbolKey`
   arrived with exactly three. `prompt-fence.ts` is the exception that earned its
@@ -595,6 +595,22 @@ cannot reach is still a branch the suite has to drive, and `RUNS_ON_WINDOWS`
   slash before the drive letter, which no `spawn` and no `fs` call will
   accept, so every site that derives a path from a module URL goes through
   `fileURLToPath`.
+- **A compiled binary does not know itself by one spelling.** Bun serves every
+  bundled module from an embedded filesystem rooted at `$bunfs` on POSIX and
+  at `B:\~BUN\root\` on Windows. `RUNS_FROM_COMPILED_BINARY` used to be a
+  substring check for the first, written twice — `embedding/` and `release/`
+  each kept a copy so the upgrade path would not import the rest of the
+  program — and both copies were wrong together, which is what a duplicated
+  check buys. A compiled Windows binary therefore read itself as a source
+  checkout, and that answer is the one deciding whether an environment
+  variable may choose the origin `cortex upgrade` downloads from and the
+  program `embedWorkerCommand` executes; it also decides how the binary reaches
+  its own hidden subcommands, so a wrong answer costs the worker, the daemon
+  and the git hooks as well. `runsFromEmbeddedFilesystem` is now the one
+  recipe, in `support/` — which imports nothing, so `release/` may depend on it
+  without dragging anything in behind it — and it is pinned by example against
+  both spellings. The compiled smoke test found this on the first Windows run;
+  nothing in the suite could have.
 - **One asset, both architectures.** Bun cross-compiles no Windows arm64 build
   and Windows on ARM runs an x64 image under emulation, so `targetForHost`
   answers the same suffix for both — and there is no baseline variant, because
