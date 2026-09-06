@@ -8,6 +8,27 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 handshake, so the version here, the version there and the git tag are one fact
 in three places — the release workflow refuses a tag that disagrees.
 
+## [0.6.1] - 2026-09-06
+
+No change to the program. `verify-windows`, the job that installs the freshly
+published Windows asset and drives it, asserted a clean `cortex doctor` — and a
+runner that has never embedded has no model on disk, which doctor reports as a
+finding and exits non-zero for, correctly. `verify-darwin` never ran doctor for
+that reason; the Windows job should not have either.
+
+v0.6.0's Windows asset is published, attested and installable; this release is
+the same program with the post-publish verification fixed, so the pipeline that
+carries it is green end to end. The 0.6.0 artifacts are left exactly as they
+were: this build is not byte-reproducible, so re-cutting that tag would have
+republished different bytes under a version already public.
+
+### Fixed
+
+- `verify-windows` no longer asserts a clean `doctor` on a runner with no
+  embedding model. Everything the job exists to prove — `install.ps1`, the
+  Sigstore attestation, `--version`, `upgrade --check`, `init`, `index` and the
+  three git hooks — is unchanged and still asserted.
+
 ## [0.6.0] - 2026-09-05
 
 Windows. The packaging was one more Bun target; everything else in this release
@@ -191,6 +212,7 @@ First release: decisions in SQLite, a tree-sitter code index over TS/JS,
 local semantic search through a WASM embedding worker, the CLI, and an MCP
 server.
 
+[0.6.1]: https://github.com/lucasreali/cortex-cli/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/lucasreali/cortex-cli/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/lucasreali/cortex-cli/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/lucasreali/cortex-cli/compare/v0.3.0...v0.4.0

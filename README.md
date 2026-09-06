@@ -40,7 +40,7 @@ directory to your user `PATH` itself.
 - git is the only runtime dependency (project identity and head tracking).
   On Windows that means Git for Windows, whose bundled `sh` is what runs the
   hooks `cortex install --git-hooks` writes.
-- `CORTEX_VERSION=v0.6.0` pins a release; `CORTEX_INSTALL_DIR=/somewhere/bin`
+- `CORTEX_VERSION=v0.6.1` pins a release; `CORTEX_INSTALL_DIR=/somewhere/bin`
   changes the destination. Both work the same way in PowerShell.
 
 Prefer not to pipe a URL into a shell? Download the tarball for your platform
@@ -51,7 +51,7 @@ verify it, and move the binary yourself:
 what you downloaded instead of the whole file:
 
 ```bash
-asset=cortex-v0.6.0-darwin-arm64.tar.gz
+asset=cortex-v0.6.1-darwin-arm64.tar.gz
 
 grep " $asset\$" checksums.txt | sha256sum -c -   # shasum -a 256 -c - on macOS
 tar -xzf "$asset"
@@ -407,9 +407,9 @@ connectives). On this repository, at 137 active decisions:
 | what the agent reads per question | tokens | vs cortex |
 | --- | ---: | ---: |
 | whole decision corpus (137 decisions) | 68,368 | 27.0x |
-| repository grep, median keyword (56.6 files) | 137,678 | 54.4x |
-| repository grep, narrowest keyword (4.7 files) | 17,399 | 6.9x |
-| cortex answer (5.0 decisions) | 2,531 | 1.0x |
+| repository grep, median keyword (56.7 files) | 138,352 | 54.7x |
+| repository grep, narrowest keyword (4.7 files) | 17,671 | 7.0x |
+| cortex answer (5.0 decisions) | 2,530 | 1.0x |
 
 Token counts are a deterministic approximation, named in the output
 (`atoms-per-5-bytes/v1`) so they are never mistaken for another model's
