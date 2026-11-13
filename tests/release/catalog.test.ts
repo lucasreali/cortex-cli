@@ -15,6 +15,33 @@ interface Release {
 	location: string | null;
 	checksums: string | null;
 	tarball: Uint8Array | null;
+	attestations: string | null;
+}
+
+function provenance(overrides: Record<string, unknown> = {}): string {
+	const statement = {
+		predicateType: "https://slsa.dev/provenance/v1",
+		subject: [{ name: ASSET, digest: { sha256: sha256Hex(TARBALL) } }],
+		predicate: {
+			buildDefinition: {
+				externalParameters: {
+					workflow: {
+						repository: "https://github.com/lucasreali/cortex-cli",
+						path: ".github/workflows/release.yml",
+						ref: `refs/tags/${TAG}`,
+					},
+				},
+			},
+		},
+		...overrides,
+	};
+	return JSON.stringify({
+		attestations: [
+			{
+				bundle: { dsseEnvelope: { payload: btoa(JSON.stringify(statement)) } },
+			},
+		],
+	});
 }
 
 let server: ReturnType<typeof Bun.serve>;
@@ -33,6 +60,7 @@ beforeEach(() => {
 		location: `/releases/tag/${TAG}`,
 		checksums: `${sha256Hex(TARBALL)}  ${ASSET}\n`,
 		tarball: TARBALL,
+		attestations: provenance(),
 	};
 	server = Bun.serve({
 		port: 0,
@@ -50,6 +78,11 @@ beforeEach(() => {
 			}
 			if (path.endsWith(`/${ASSET}`)) {
 				return release.tarball ? new Response(release.tarball) : missing();
+			}
+			if (path === `/attestations/sha256:${sha256Hex(TARBALL)}`) {
+				return release.attestations
+					? new Response(release.attestations)
+					: missing();
 			}
 			return missing();
 		},
@@ -125,6 +158,59 @@ describe("downloadRelease", () => {
 	// process's memory.
 	test("refuses a download larger than a release can be", async () => {
 		release.checksums = "x".repeat(64 * 1024 + 1);
+		expect(downloadRelease(origin(), TAG, TARGET)).rejects.toThrow(
+			"larger than the",
+		);
+	});
+
+	test("refuses an asset with no attestation from the release workflow", async () => {
+		for (const attestations of [
+			null,
+			"not json",
+			JSON.stringify({ attestations: [{ bundle: { dsseEnvelope: {} } }] }),
+			JSON.stringify({
+				attestations: [{ bundle: { dsseEnvelope: { payload: "%%%" } } }],
+			}),
+			provenance({ subject: [{ digest: { sha256: "0".repeat(64) } }] }),
+			provenance({
+				predicate: {
+					buildDefinition: {
+						externalParameters: {
+							workflow: {
+								repository: "https://github.com/someone/fork",
+								path: ".github/workflows/release.yml",
+								ref: `refs/tags/${TAG}`,
+							},
+						},
+					},
+				},
+			}),
+		]) {
+			release.attestations = attestations;
+			expect(downloadRelease(origin(), TAG, TARGET)).rejects.toThrow(
+				"refusing to install",
+			);
+		}
+	});
+
+	test("refuses a body that keeps streaming past the limit", async () => {
+		server.stop(true);
+		server = Bun.serve({
+			port: 0,
+			fetch() {
+				const chunk = new Uint8Array(32 * 1024);
+				let sent = 0;
+				return new Response(
+					new ReadableStream({
+						pull(controller) {
+							sent += chunk.length;
+							controller.enqueue(chunk);
+							if (sent > 128 * 1024) controller.close();
+						},
+					}),
+				);
+			},
+		});
 		expect(downloadRelease(origin(), TAG, TARGET)).rejects.toThrow(
 			"larger than the",
 		);

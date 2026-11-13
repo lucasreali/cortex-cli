@@ -1,8 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import { RUNS_FROM_COMPILED_BINARY } from "@/support/platform";
 
-const DEFAULT_ORIGIN = "https://github.com/lucasreali/cortex-cli";
-const TRUSTED_ORIGIN_HOST = "github.com";
+export const RELEASE_REPOSITORY = "lucasreali/cortex-cli";
+const DEFAULT_ORIGIN = `https://github.com/${RELEASE_REPOSITORY}`;
+const ATTESTATIONS_API = `https://api.github.com/repos/${RELEASE_REPOSITORY}/attestations`;
 const CPUINFO_PATH = "/proc/cpuinfo";
 
 // A tag reaches a download URL, so it may only be what a release is actually
@@ -37,9 +38,10 @@ export interface Host {
 // running binary, so anything able to set an environment variable — a cloned
 // repo's .envrc, an MCP server's env block, a CI job — would own every later
 // cortex and every agent session that spawns it. An installed binary therefore
-// takes the override only for an address GitHub itself serves; a source
-// checkout, which runUpgrade refuses to install from at all, is where the tests
-// point it at a local server.
+// takes the override only when it names this project's own repository — any
+// other path on github.com is a fork anyone can publish a release into, with a
+// checksums.txt of their own. A source checkout, which runUpgrade refuses to
+// install from at all, is where the tests point it at a local server.
 export function releaseOrigin(
 	compiled: boolean = RUNS_FROM_COMPILED_BINARY,
 ): string {
@@ -50,17 +52,19 @@ export function releaseOrigin(
 }
 
 function trustedOrigin(override: string): string {
-	if (isTrusted(override)) return override;
+	if (override.replace(/\/+$/, "") === DEFAULT_ORIGIN) return DEFAULT_ORIGIN;
 	throw new Error(
-		`refusing to upgrade from ${override}: CORTEX_RELEASE_BASE_URL must ` +
-			`address https://${TRUSTED_ORIGIN_HOST}`,
+		`refusing to upgrade from ${override}: an installed cortex only ` +
+			`upgrades from ${DEFAULT_ORIGIN}`,
 	);
 }
 
-function isTrusted(override: string): boolean {
-	const url = URL.parse(override);
-	if (!url) return false;
-	return url.protocol === "https:" && url.host === TRUSTED_ORIGIN_HOST;
+// Where the build-provenance attestations for an origin's assets are listed.
+// Only the real origin has them; the source-checkout seam serves its own.
+export function attestationsEndpoint(origin: string): string {
+	return origin === DEFAULT_ORIGIN
+		? ATTESTATIONS_API
+		: `${origin}/attestations`;
 }
 
 // scripts/compile.ts bakes this in per cross-compiled target: a binary cannot

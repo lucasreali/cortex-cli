@@ -143,12 +143,18 @@ currently running. It imports nothing from the rest of `src/` except
 
 - `release/target.ts` — which asset this binary is, plus the tag grammar and
   the URL builders. `CORTEX_RELEASE_BASE_URL` is a test seam, not a setting: an
-  installed binary takes the override only for an address on `github.com`,
+  installed binary refuses any override but this project's own repository,
   because whatever it names is downloaded, executed once for a version probe
-  and then renamed over the running binary.
+  and then renamed over the running binary — and any other repository on
+  `github.com` is one anyone can publish a release into.
 - `release/catalog.ts` — resolves the tag through the `/releases/latest`
   redirect, exactly as `latest_version()` does, then downloads the asset and
-  `checksums.txt`.
+  `checksums.txt`, enforcing each size limit while the body streams. Before
+  anything is installed it asks GitHub's attestation API for the asset's
+  digest and requires a build-provenance statement from this repository's
+  `release.yml` at the tag being installed. That proves the workflow built
+  those bytes; it does not re-verify the Sigstore signature, which is what
+  `gh attestation verify` is for.
 - `release/checksums.ts` — verifies the one line naming the asset that was
   downloaded, the same discipline install.sh applies with `awk`.
 - `release/archive.ts` — gunzip plus a ustar reader for the member named

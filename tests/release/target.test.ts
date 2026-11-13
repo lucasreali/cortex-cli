@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
 	assetName,
 	assetUrl,
+	attestationsEndpoint,
 	buildTarget,
 	checksumsUrl,
 	currentHost,
@@ -210,15 +211,36 @@ describe("releaseOrigin", () => {
 		}
 	});
 
-	test("an installed binary takes an https github.com origin", () => {
+	// Any repository on github.com takes a release anyone publishes into it,
+	// with a checksums.txt of their own.
+	test("an installed binary refuses another repository on github.com", () => {
 		process.env.CORTEX_RELEASE_BASE_URL = "https://github.com/someone/fork";
-		expect(releaseOrigin(true)).toBe("https://github.com/someone/fork");
+		expect(() => releaseOrigin(true)).toThrow("refusing to upgrade from");
+	});
+
+	test("an installed binary takes the project's own origin", () => {
+		process.env.CORTEX_RELEASE_BASE_URL =
+			"https://github.com/lucasreali/cortex-cli/";
+		expect(releaseOrigin(true)).toBe(
+			"https://github.com/lucasreali/cortex-cli",
+		);
 	});
 
 	test("an empty override is no override", () => {
 		process.env.CORTEX_RELEASE_BASE_URL = "";
 		expect(releaseOrigin(true)).toBe(
 			"https://github.com/lucasreali/cortex-cli",
+		);
+	});
+});
+
+describe("attestationsEndpoint", () => {
+	test("the real origin is answered by GitHub's attestation API", () => {
+		expect(
+			attestationsEndpoint("https://github.com/lucasreali/cortex-cli"),
+		).toBe("https://api.github.com/repos/lucasreali/cortex-cli/attestations");
+		expect(attestationsEndpoint("http://localhost:1234")).toBe(
+			"http://localhost:1234/attestations",
 		);
 	});
 });

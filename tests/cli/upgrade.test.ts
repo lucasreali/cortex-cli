@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeTarball } from "@tests/release/tarball";
+import { encodeDaemonHello } from "@/embedding/daemon/hello";
 import { daemonPathsFor } from "@/embedding/daemon/paths";
 import { GEMMA_MODEL } from "@/embedding/model";
 import { assetName, buildTarget, versionFromTag } from "@/release/target";
@@ -82,6 +83,35 @@ async function cli(
 	return { code: (await child.exited) ?? 1, stdout, stderr };
 }
 
+let requestedTag = TAG;
+
+// What GitHub's attestation API answers for an asset the release workflow
+// built: the installer refuses a download without one.
+function provenanceFor(tag: string): string {
+	const statement = {
+		predicateType: "https://slsa.dev/provenance/v1",
+		subject: [{ digest: { sha256: sha256Hex(tarball()) } }],
+		predicate: {
+			buildDefinition: {
+				externalParameters: {
+					workflow: {
+						repository: "https://github.com/lucasreali/cortex-cli",
+						path: ".github/workflows/release.yml",
+						ref: `refs/tags/${tag}`,
+					},
+				},
+			},
+		},
+	};
+	return JSON.stringify({
+		attestations: [
+			{
+				bundle: { dsseEnvelope: { payload: btoa(JSON.stringify(statement)) } },
+			},
+		],
+	});
+}
+
 beforeEach(() => {
 	publishedTag = TAG;
 	releasedVersion = null;
@@ -100,8 +130,12 @@ beforeEach(() => {
 				});
 			}
 			if (path.endsWith("/checksums.txt")) {
+				requestedTag = path.split("/").at(-2) ?? TAG;
 				const digest = corruptChecksum ? "0".repeat(64) : sha256Hex(tarball());
 				return new Response(`${digest}  ${requestedAsset(path)}\n`);
+			}
+			if (path.startsWith("/attestations/")) {
+				return new Response(provenanceFor(requestedTag));
 			}
 			return new Response(tarball());
 		},
@@ -306,12 +340,35 @@ describe("cortex upgrade installs", () => {
 			}),
 		);
 
-		const result = await upgrade();
+		// The daemon's own socket is what vouches for the pid in its lock.
+		const listener = Bun.listen({
+			unix: paths.socketPath,
+			socket: {
+				open(socket) {
+					socket.write(
+						encodeDaemonHello({
+							cortex: CORTEX_VERSION,
+							protocol: 1,
+							pid: daemon.pid,
+							modelId: GEMMA_MODEL.modelId,
+						}),
+					);
+				},
+				data() {},
+			},
+		});
 
-		expect(result.stdout).toContain(
-			"Stopped the embedding daemon from the old version",
-		);
-		expect(await daemon.exited).not.toBe(0);
+		try {
+			const result = await upgrade();
+
+			expect(result.stdout).toContain(
+				"Stopped the embedding daemon from the old version",
+			);
+			expect(await daemon.exited).not.toBe(0);
+		} finally {
+			listener.stop(true);
+			daemon.kill("SIGKILL");
+		}
 	}, 20_000);
 
 	test("says nothing about a daemon that was not running", async () => {

@@ -150,6 +150,21 @@ export async function daemonSocketIsListening(
 	return probe.status !== "unreachable";
 }
 
+// The pid a live daemon reports for itself on its own socket, whatever its
+// version: the one answer about a lock's holder that a reused pid cannot fake.
+export async function greetingPid(
+	paths: DaemonPaths,
+	holder: DaemonLock,
+): Promise<number | null> {
+	const probe = await probeDaemon(
+		{ paths, version: holder.version, modelId: holder.modelId },
+		{ helloTimeoutMs: LISTENER_PROBE_TIMEOUT_MS },
+	);
+	if (probe.status !== "connected") return null;
+	probe.connection.close();
+	return probe.connection.hello.pid;
+}
+
 // A daemon greets the moment it accepts, so a listener still silent after this
 // is not one — and the wait is paid only by a process that already found a
 // lock it cannot verify.

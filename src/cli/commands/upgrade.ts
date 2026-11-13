@@ -108,7 +108,7 @@ async function install(
 		targetPath,
 	});
 	console.log(success(`cortex ${tag} installed to ${style.cyan(targetPath)}`));
-	announceDaemon();
+	await announceDaemon();
 	console.log(
 		style.dim(
 			"\nAn MCP server already running keeps the old binary until its client restarts it.",
@@ -117,7 +117,7 @@ async function install(
 	console.log(style.dim("Run cortex doctor in a project to check its store."));
 }
 
-function announceDaemon(): void {
-	if (!stopDaemon(daemonPathsFor(GEMMA_MODEL.modelId))) return;
+async function announceDaemon(): Promise<void> {
+	if (!(await stopDaemon(daemonPathsFor(GEMMA_MODEL.modelId)))) return;
 	console.log(success("Stopped the embedding daemon from the old version"));
 }
