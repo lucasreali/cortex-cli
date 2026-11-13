@@ -17,6 +17,14 @@ function isRepoRelative(path: string): boolean {
 	return !path.split(/[\\/]/).includes("..");
 }
 
+// `#` separates the path from the symbol in the file format, and the code
+// index strips it from an ECMAScript private name (`Foo.#bar` is indexed as
+// `Foo.bar`), so a symbol spelled with one would only ever come back split in
+// the wrong place on every other clone.
+const NO_HASH_IN_SYMBOL =
+	"symbol must not contain '#': private members are indexed without it " +
+	"(write 'Foo.bar' for 'Foo.#bar')";
+
 export const anchorInputSchema = z.strictObject({
 	file_path: z
 		.string()
@@ -26,12 +34,20 @@ export const anchorInputSchema = z.strictObject({
 	symbol: z
 		.string()
 		.min(1)
+		.refine((symbol) => !symbol.includes("#"), NO_HASH_IN_SYMBOL)
 		.optional()
-		.describe(
-			"Qualified symbol inside that file, exactly as indexed — e.g. " +
-				"'AuthService.validateToken'. Omit for a file-level anchor.",
-		),
+		.describe("Qualified symbol as indexed; omit for the whole file."),
 });
+
+// z.uuid() publishes a 170-character pattern in every tool listing, repeated
+// once per link field; the format keyword says the same to a client, and the
+// id is checked against the store before anything is saved anyway.
+const UUID = z.uuid();
+const decisionId = () =>
+	z
+		.string()
+		.refine((value) => UUID.safeParse(value).success, "must be a decision id")
+		.meta({ format: "uuid" });
 
 export const createDecisionSchema = z.strictObject({
 	title: z
@@ -47,55 +63,38 @@ export const createDecisionSchema = z.strictObject({
 		.trim()
 		.min(30)
 		.describe(
-			"What was decided and why: the choice, the rationale, what was " +
-				"rejected and the trade-offs accepted.",
+			"The choice, why, and the alternatives rejected — about 120 words.",
 		),
 	keywords: z
 		.array(z.string().min(1))
 		.min(MINIMUM_KEYWORDS)
 		.describe(
-			"Search terms for this decision. Mix Portuguese and English variants " +
-				"of the concepts involved (e.g. 'autenticação', 'authentication', " +
-				"'jwt', 'login', 'sessão') so both languages find it.",
+			"Search terms mixing Portuguese and English variants (e.g. " +
+				"'autenticação', 'authentication', 'jwt') so both languages find it.",
 		),
 	module: z
 		.string()
 		.min(1)
 		.optional()
-		.describe(
-			"Module/area label (e.g. 'auth'). Reuse values from get_context's " +
-				"modules list when one fits.",
-		),
+		.describe("Module label (e.g. 'auth'); reuse get_context's modules."),
 	anchors: z
 		.array(anchorInputSchema)
 		.optional()
 		.describe("Files/symbols this decision governs."),
 	depends_on: z
-		.array(z.uuid())
+		.array(decisionId())
 		.optional()
 		.describe("Ids of decisions this one builds on; impact walks these links."),
-	replaces: z
-		.uuid()
+	replaces: decisionId()
 		.optional()
-		.describe(
-			"Id of the decision this one supersedes (archived, not deleted).",
-		),
-	archives: z
-		.uuid()
+		.describe("Id of the decision this one supersedes."),
+	archives: decisionId()
 		.optional()
-		.describe(
-			"Id of a decision that no longer applies and has no successor — " +
-				"retired, never deleted. Use replaces when this decision supersedes " +
-				"it instead.",
-		),
+		.describe("Id of a decision that no longer applies, with no successor."),
 	conflicts_with: z
-		.array(z.uuid())
+		.array(decisionId())
 		.optional()
-		.describe(
-			"Ids of decisions this one contradicts. Declare only confirmed " +
-				"contradictions — near-duplicates suggested in conflict_candidates " +
-				"belong here only after you verified they genuinely disagree.",
-		),
+		.describe("Ids of decisions this one is confirmed to contradict."),
 });
 
 export type AnchorInput = z.infer<typeof anchorInputSchema>;

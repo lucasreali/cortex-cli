@@ -145,6 +145,14 @@ describe("createDecisionSchema", () => {
 			}
 		});
 
+		test("rejects a '#' in the symbol, naming the indexed spelling", () => {
+			const result = parse({
+				anchors: [{ file_path: "src/x.ts", symbol: "Foo.#secret" }],
+			});
+			expect(result.success).toBe(false);
+			expect(JSON.stringify(result.error?.issues)).toContain("Foo.bar");
+		});
+
 		test("accepts a dot in a name that is not a segment of its own", () => {
 			const anchors = [{ file_path: "src/..hidden/a.test.ts" }];
 			expect(parse({ anchors }).success).toBe(true);

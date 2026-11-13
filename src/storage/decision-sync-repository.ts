@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import type { Anchor, DecisionFile } from "@/domain";
+import { type Anchor, type DecisionFile, parseAnchorText } from "@/domain";
 import exportDecisions from "./queries/export-decisions.sql" with {
 	type: "text",
 };
@@ -23,6 +23,13 @@ export interface LocalLinks {
 export interface DecisionPresence {
 	id: string;
 	present: boolean;
+	contentSha: string | null;
+}
+
+export interface OwnedEdge {
+	from: string;
+	kind: VersionedEdgeKind;
+	to: string;
 }
 
 interface ExportRow {
@@ -54,11 +61,16 @@ export class DecisionSyncRepository {
 
 	listPresence(): DecisionPresence[] {
 		return this.db
-			.query<{ id: string; present: number }, []>(
-				"SELECT id, present FROM nodes WHERE kind = 'decision' ORDER BY id",
+			.query<{ id: string; present: number; content_sha: string | null }, []>(
+				`SELECT id, present, content_sha FROM nodes
+				 WHERE kind = 'decision' ORDER BY id`,
 			)
 			.all()
-			.map((row) => ({ id: row.id, present: row.present === 1 }));
+			.map((row) => ({
+				id: row.id,
+				present: row.present === 1,
+				contentSha: row.content_sha,
+			}));
 	}
 
 	// The five writes are one fact, and the invariant lives here rather than in
@@ -68,15 +80,90 @@ export class DecisionSyncRepository {
 	// will ever add the missing one back. Nested inside the reconcile's
 	// transaction this is a savepoint, which is what lets one refused decision
 	// roll back alone.
-	insertDecision(file: DecisionFile, local: LocalLinks | null): void {
+	insertDecision(
+		file: DecisionFile,
+		local: LocalLinks | null,
+		contentSha: string | null = null,
+	): void {
 		this.transaction(() => {
-			this.insertNode(file);
+			this.insertNode(file, contentSha);
 			this.insertAnchors(file.id, file.anchors);
 			this.insertFtsRow(file);
 			if (!local) return;
 			this.insertLocalEdge(file.id, "BELONGS_TO", local.projectId);
 			this.insertLocalEdge(file.id, "GENERATED_IN", local.sessionId);
 		});
+	}
+
+	// A file whose bytes changed under an id this store already holds. The row,
+	// its anchors and its FTS entry are rewritten from the file; the vector is
+	// dropped only when the text it was computed from moved, so a fix to an
+	// anchor or a keyword does not cost a model load. Status, presence and the
+	// local edges are left alone — the first two are derived by the reconcile
+	// that called this, the last are facts about this machine.
+	updateDecision(file: DecisionFile, contentSha: string): void {
+		this.transaction(() => {
+			const before = this.db
+				.query<{ title: string; body: string }, [string]>(
+					"SELECT title, body FROM nodes WHERE id = ?",
+				)
+				.get(file.id);
+			this.db
+				.query(
+					`UPDATE nodes SET title = ?, body = ?, keywords = ?, module = ?,
+						commit_sha = ?, commit_dirty = ?, provenance = ?, created_at = ?,
+						content_sha = ?
+					 WHERE id = ?`,
+				)
+				.run(
+					file.title,
+					file.body,
+					JSON.stringify(file.keywords),
+					file.module,
+					file.commitSha,
+					file.commitDirty ? 1 : 0,
+					file.provenance,
+					file.createdAt,
+					contentSha,
+					file.id,
+				);
+			this.db.query("DELETE FROM anchors WHERE node_id = ?").run(file.id);
+			this.insertAnchors(file.id, file.anchors);
+			this.db.query("DELETE FROM nodes_fts WHERE node_id = ?").run(file.id);
+			this.insertFtsRow(file);
+			if (before?.title !== file.title || before?.body !== file.body) {
+				this.db.query("DELETE FROM embeddings WHERE node_id = ?").run(file.id);
+			}
+		});
+	}
+
+	// The versioned edges a file contributes, read back from the last pass that
+	// could parse it: its own DEPENDS_ON and CONFLICTS_WITH, and the retirement
+	// edges pointing at it. A present file that stopped parsing — a conflict
+	// marker left by a merge — keeps them, because dropping them would hand the
+	// decision it replaced back to search as active, next to its successor.
+	listEdgesOwnedBy(ids: string[]): OwnedEdge[] {
+		if (ids.length === 0) return [];
+		return this.db
+			.query<
+				{ from_id: string; kind: VersionedEdgeKind; to_id: string },
+				[string, string]
+			>(
+				`SELECT from_id, kind, to_id FROM edges
+				 WHERE (kind IN ('DEPENDS_ON', 'CONFLICTS_WITH')
+				        AND from_id IN (SELECT value FROM json_each(?)))
+				    OR (kind IN ('REPLACED_BY', 'ARCHIVED_BY')
+				        AND to_id IN (SELECT value FROM json_each(?)))
+				 ORDER BY from_id, kind, to_id`,
+			)
+			.all(JSON.stringify(ids), JSON.stringify(ids))
+			.map((row) => ({ from: row.from_id, kind: row.kind, to: row.to_id }));
+	}
+
+	setContentSha(id: string, contentSha: string): void {
+		this.db
+			.query("UPDATE nodes SET content_sha = ? WHERE id = ?")
+			.run(contentSha, id);
 	}
 
 	setPresent(ids: string[], present: boolean): void {
@@ -143,13 +230,13 @@ export class DecisionSyncRepository {
 			.all();
 	}
 
-	private insertNode(file: DecisionFile): void {
+	private insertNode(file: DecisionFile, contentSha: string | null): void {
 		this.db
 			.query(
 				`INSERT INTO nodes
 					(id, kind, title, body, keywords, module, status, present,
-					 commit_sha, commit_dirty, provenance, created_at)
-				 VALUES (?, 'decision', ?, ?, ?, ?, 'active', 1, ?, ?, ?, ?)`,
+					 commit_sha, commit_dirty, provenance, created_at, content_sha)
+				 VALUES (?, 'decision', ?, ?, ?, ?, 'active', 1, ?, ?, ?, ?, ?)`,
 			)
 			.run(
 				file.id,
@@ -161,6 +248,7 @@ export class DecisionSyncRepository {
 				file.commitDirty ? 1 : 0,
 				file.provenance,
 				file.createdAt,
+				contentSha,
 			);
 	}
 
@@ -201,16 +289,10 @@ function toRecord(row: ExportRow): DecisionFile {
 		archives: row.archives,
 		dependsOn: JSON.parse(row.depends_on),
 		conflictsWith: JSON.parse(row.conflicts_with),
-		anchors: JSON.parse(row.anchors).map(toAnchor),
+		anchors: JSON.parse(row.anchors).map(parseAnchorText),
 		commitSha: row.commit_sha,
 		commitDirty: row.commit_dirty === 1,
 		provenance: row.provenance,
 		createdAt: row.created_at,
 	};
-}
-
-function toAnchor(entry: string): Anchor {
-	const hash = entry.lastIndexOf("#");
-	if (hash === -1) return { filePath: entry, symbol: "" };
-	return { filePath: entry.slice(0, hash), symbol: entry.slice(hash + 1) };
 }

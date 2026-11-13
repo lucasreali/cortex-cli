@@ -5,11 +5,9 @@ import type { RuntimeRegistry } from "@/mcp/runtime-registry";
 import { projectPathField, scopedToProject } from "./project-scope";
 import { jsonResult } from "./results";
 
-const DESCRIPTION = `Persist a narrative summary of the current working session (Cortex).
+const DESCRIPTION = `Persist a narrative of the current session (Cortex), at the end and at milestones.
 
-Call this when the session ends, and again whenever a significant milestone lands mid-session. Structure the summary in three sections: "Implemented" (what was built or changed), "Decisions" (what was chosen, with the saved decision ids when they exist), and "Open" (what remains unfinished, blocked, or deferred). The "Open" section matters most — it is the only record of unfinished work the next session can recover.
-
-Each call replaces the session's previous summary, so always send the complete current narrative, not a delta. Summaries are local to this machine and surface in get_context's overview; they are not versioned with the project's decision files.
+Use three sections: "Implemented", "Decisions" (with saved ids) and "Open" — what remains unfinished, which is how the next session recovers it. Each call replaces the session's previous summary, so send the whole narrative. Summaries are local to this machine (.cortex/local/), never versioned, and appear in get_context's overview.
 
 Returns { session_id }.`;
 
@@ -41,6 +39,6 @@ async function saveSessionSummary(
 	args: { summary: string },
 ) {
 	const sessionId = runtime.ensureSession();
-	runtime.nodes.updateSessionSummary(sessionId, args.summary);
+	runtime.sessionSummaries.record(sessionId, args.summary);
 	return jsonResult({ session_id: sessionId });
 }

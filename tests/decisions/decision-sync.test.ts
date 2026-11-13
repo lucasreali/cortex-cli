@@ -5,7 +5,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { listedIds } from "@tests/fixtures/decision-listing";
 import { DecisionStore } from "@/decisions/decision-store";
-import { type DecisionSync, openDecisionSync } from "@/decisions/decision-sync";
+import {
+	DECISIONS_RECHECK_AFTER_MS,
+	type DecisionSync,
+	openDecisionSync,
+} from "@/decisions/decision-sync";
 import type { ReconcileReport } from "@/decisions/reconcile";
 import type { CreateDecisionInput } from "@/domain";
 import { openDecisionsDb } from "@/storage/connection";
@@ -212,6 +216,19 @@ describe("DecisionSync caching", () => {
 
 		sync.resync();
 		expect(reports).toHaveLength(2);
+	});
+
+	test("ensure looks again once the window has passed, as a long-lived server must", () => {
+		let clock = 0;
+		const server = openDecisionSync({ cortexDir: dir, db, now: () => clock });
+		const saved = sync.save(decisionInput(), context);
+		server.ensure();
+		unlinkSync(store.pathFor(saved.id));
+
+		clock = DECISIONS_RECHECK_AFTER_MS - 1;
+		expect(server.ensure().absent).toEqual([]);
+		clock = DECISIONS_RECHECK_AFTER_MS;
+		expect(server.ensure().absent).toEqual([saved.id]);
 	});
 
 	test("save leaves the cache describing the branch as it now stands", () => {

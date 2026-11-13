@@ -1,9 +1,10 @@
 import type { Database } from "bun:sqlite";
-import type {
-	Anchor,
-	Decision,
-	DecisionStatus,
-	NodeProvenance,
+import {
+	type Anchor,
+	type Decision,
+	type DecisionStatus,
+	type NodeProvenance,
+	normalizeAnchorPath,
 } from "@/domain";
 import { symbolKey } from "@/support/symbol-key";
 import { likeLiteral } from "./like-pattern";
@@ -149,12 +150,7 @@ export class NodeRepository {
 		})();
 	}
 
-	updateSessionSummary(sessionId: string, summary: string): void {
-		this.db
-			.query("UPDATE nodes SET body = ? WHERE id = ? AND kind = 'session'")
-			.run(summary, sessionId);
-	}
-
+	// Read-only: summaries written before they moved to `.cortex/local/`.
 	listSessionSummaries(
 		limit: number,
 	): Array<{ id: string; summary: string; createdAt: string }> {
@@ -173,7 +169,7 @@ export class NodeRepository {
 	}
 
 	listByAnchorPath(path: string): Decision[] {
-		const normalized = path.replace(/\/+$/, "");
+		const normalized = normalizeAnchorPath(path);
 		const rows = this.db
 			.query<NodeRow, [string, string]>(
 				`SELECT DISTINCT n.* FROM nodes n
@@ -186,17 +182,22 @@ export class NodeRepository {
 		return this.toDecisions(rows);
 	}
 
+	// A decision anchored to a directory governs every file under it, so it
+	// matches a path inside that directory as well as the path itself; the row
+	// names the file that matched, not the anchor.
 	listActiveAnchoredToFiles(
 		paths: string[],
 	): Array<{ decision: Decision; filePath: string }> {
 		const rows = this.db
 			.query<NodeRow & { anchor_path: string }, [string]>(
-				`SELECT DISTINCT n.*, a.file_path AS anchor_path
+				`SELECT DISTINCT n.*, p.value AS anchor_path
 				 FROM nodes n
 				 JOIN anchors a ON a.node_id = n.id
+				 JOIN json_each(?) p
+				   ON p.value = a.file_path
+				   OR substr(p.value, 1, length(a.file_path) + 1) = a.file_path || '/'
 				 WHERE n.kind = 'decision' AND n.status = 'active' AND n.present = 1
-				   AND a.file_path IN (SELECT value FROM json_each(?))
-				 ORDER BY n.id, a.file_path`,
+				 ORDER BY n.id, p.value`,
 			)
 			.all(JSON.stringify(paths));
 		const anchors = this.anchorsFor(rows.map((row) => row.id));
@@ -219,7 +220,7 @@ export class NodeRepository {
 				   AND a.file_path = ?
 				 ORDER BY n.id ASC`,
 			)
-			.all(filePath);
+			.all(normalizeAnchorPath(filePath));
 		return this.oncePerNode(rows.filter(anchoringSymbol(symbol)));
 	}
 

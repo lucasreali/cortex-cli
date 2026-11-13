@@ -42,6 +42,12 @@ export class ProjectRoot {
 		return join(this.cortexDir, LOCAL_DIRECTORY, "usefulness.jsonl");
 	}
 
+	// The session narratives, kept out of decisions.db because that database is
+	// a cache people are told to delete.
+	get sessionSummariesPath(): string {
+		return join(this.cortexDir, LOCAL_DIRECTORY, "sessions.jsonl");
+	}
+
 	// A fresh clone carries the decision files and none of the derived caches,
 	// and it is every bit as initialized as the machine it was cloned from —
 	// the first command rebuilds the database from what git brought.

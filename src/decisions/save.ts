@@ -1,8 +1,9 @@
-import type {
-	Anchor,
-	AnchorInput,
-	CreateDecisionInput,
-	DecisionFile,
+import {
+	type Anchor,
+	type AnchorInput,
+	type CreateDecisionInput,
+	type DecisionFile,
+	normalizeAnchorPath,
 } from "@/domain";
 import type { SaveContext } from "@/storage/node-repository";
 import { uniqueAnchors } from "./anchors";
@@ -31,11 +32,12 @@ export function saveDecisionFile(
 	context: SaveContext,
 ): SavedDecision {
 	const file = toDecisionFile(input, context);
-	dependencies.store.write(file);
-	dependencies.repository.insertDecision(file, {
-		projectId: context.projectId,
-		sessionId: context.sessionId,
-	});
+	const contentSha = dependencies.store.write(file);
+	dependencies.repository.insertDecision(
+		file,
+		{ projectId: context.projectId, sessionId: context.sessionId },
+		contentSha,
+	);
 	return {
 		id: file.id,
 		report: reconcileDecisions(dependencies, { full: true }),
@@ -65,5 +67,8 @@ function toDecisionFile(
 }
 
 function toAnchor(input: AnchorInput): Anchor {
-	return { filePath: input.file_path, symbol: input.symbol ?? "" };
+	return {
+		filePath: normalizeAnchorPath(input.file_path),
+		symbol: input.symbol ?? "",
+	};
 }

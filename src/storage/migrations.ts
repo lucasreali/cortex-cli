@@ -19,6 +19,9 @@ import codeFileFacts from "./migrations/007-code-file-facts.sql" with {
 import decisionsNoSelfEdges from "./migrations/008-decisions-no-self-edges.sql" with {
 	type: "text",
 };
+import decisionsContentSha from "./migrations/009-decisions-content-sha.sql" with {
+	type: "text",
+};
 import migrationsTable from "./migrations/migrations-table.sql" with {
 	type: "text",
 };
@@ -62,6 +65,11 @@ const decisionsMigrations: Migration[] = [
 		name: "decisions-no-self-edges",
 		up: (db) => db.run(decisionsNoSelfEdges),
 		rebuildsTables: true,
+	},
+	{
+		id: 6,
+		name: "decisions-content-sha",
+		up: (db) => db.run(decisionsContentSha),
 	},
 ];
 

@@ -5,6 +5,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readdirSync,
+	readFileSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -12,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DecisionStore } from "@/decisions/decision-store";
 import type { DecisionFile } from "@/domain";
+import { sha256Hex } from "@/support/hash";
 
 const ID = "019f6dc3-e77a-7000-8000-000000000000";
 
@@ -102,7 +104,11 @@ describe("DecisionStore.write", () => {
 		const file = decisionFile();
 		store.write(file);
 
-		expect(store.read(ID)).toEqual({ ok: true, file });
+		expect(store.read(ID)).toEqual({
+			ok: true,
+			file,
+			contentSha: sha256Hex(readFileSync(store.pathFor(ID), "utf8")),
+		});
 		expect(readdirSync(store.directory)).toEqual([`${ID}.md`]);
 		expect(store.pathFor(ID)).toBe(join(store.directory, `${ID}.md`));
 	});

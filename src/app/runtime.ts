@@ -17,6 +17,7 @@ import { type CodeIndex, LazyCodeIndex } from "@/indexer/lazy-code-index";
 import { QueryLog } from "@/querylog/query-log";
 import { QueryRecorder } from "@/querylog/recorder";
 import { QueryLogSettings } from "@/querylog/settings";
+import { SessionSummaryLog } from "@/sessions/summary-log";
 import { readConfig, writeConfig } from "@/storage/config";
 import { openDecisionsDb } from "@/storage/connection";
 import { EdgeRepository } from "@/storage/edge-repository";
@@ -45,6 +46,7 @@ export interface CortexRuntime {
 	codeIndex: CodeIndex;
 	decisions: DecisionSync;
 	usefulness: UsefulnessRecorder;
+	sessionSummaries: SessionSummaryLog;
 	queries: QueryRecorder;
 	ensureSession(): string;
 	saveContext(): SaveContext;
@@ -186,6 +188,7 @@ async function assembleRuntime(
 		codeIndex,
 		decisions,
 		usefulness: new UsefulnessRecorder(usefulnessLog, session),
+		sessionSummaries: new SessionSummaryLog(project.sessionSummariesPath),
 		queries: new QueryRecorder(
 			new QueryLog(QueryLogSettings.from(cortexDir)),
 			session,
@@ -213,6 +216,10 @@ async function assembleRuntime(
 // same decision it did before.
 function touched(report: ReconcileReport): boolean {
 	return (
-		report.imported.length + report.absent.length + report.restored.length > 0
+		report.imported.length +
+			report.edited.length +
+			report.absent.length +
+			report.restored.length >
+		0
 	);
 }

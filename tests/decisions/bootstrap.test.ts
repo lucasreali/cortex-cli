@@ -134,6 +134,7 @@ describe("upgrading a populated v1 decisions store", () => {
 			"decisions-graph-vocabulary",
 			"decisions-project-identity",
 			"decisions-no-self-edges",
+			"decisions-content-sha",
 		]);
 	});
 

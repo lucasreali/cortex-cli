@@ -96,6 +96,7 @@ describe("migrations", () => {
 			{ id: 3, name: "decisions-graph-vocabulary" },
 			{ id: 4, name: "decisions-project-identity" },
 			{ id: 5, name: "decisions-no-self-edges" },
+			{ id: 6, name: "decisions-content-sha" },
 		]);
 	});
 
@@ -104,7 +105,7 @@ describe("migrations", () => {
 		db = openDecisionsDb(dir);
 		expect(migrate(db)).toEqual([]);
 		expect(db.query("SELECT count(*) AS n FROM _migrations").get()).toEqual({
-			n: 5,
+			n: 6,
 		});
 	});
 
@@ -117,6 +118,7 @@ describe("migrations", () => {
 				"decisions-graph-vocabulary",
 				"decisions-project-identity",
 				"decisions-no-self-edges",
+				"decisions-content-sha",
 			]);
 		} finally {
 			fresh.close();
@@ -247,6 +249,7 @@ describe("migrations", () => {
 				"decisions-graph-vocabulary",
 				"decisions-project-identity",
 				"decisions-no-self-edges",
+				"decisions-content-sha",
 			]);
 			expect(
 				pre.query("SELECT status, present FROM nodes WHERE id = 'n1'").get(),
@@ -401,6 +404,7 @@ describe("migrations", () => {
 			expect(migrate(pre)).toEqual([
 				"decisions-project-identity",
 				"decisions-no-self-edges",
+				"decisions-content-sha",
 			]);
 			expect(
 				pre.query("SELECT id FROM nodes WHERE kind = 'project'").all(),

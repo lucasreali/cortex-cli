@@ -4,11 +4,8 @@ import type { DecisionFile } from "@/domain";
 import { DECISIONS_DIRECTORY } from "@/storage/project-root";
 import { stagingSuffix, writeAtomicallySync } from "@/support/atomic-write";
 import { errnoCode, errorMessage } from "@/support/errors";
-import {
-	type DecisionFileParse,
-	formatDecisionFile,
-	parseDecisionFile,
-} from "./decision-file";
+import { sha256Hex } from "@/support/hash";
+import { formatDecisionFile, parseDecisionFile } from "./decision-file";
 
 const EXTENSION = ".md";
 // Lowercase only: `Bun.randomUUIDv7` writes lowercase, and a case-insensitive
@@ -28,6 +25,13 @@ export interface DecisionIndex {
 	ids: string[];
 	unusable: UnusableDecisionFile[];
 }
+
+// The hash is of the bytes on disk, not of the parsed decision: it is what
+// tells the reconciler a file changed under an id it already holds, and two
+// spellings of one decision are still two files someone wrote.
+export type DecisionRead =
+	| { ok: true; file: DecisionFile; contentSha: string }
+	| { ok: false; reason: string };
 
 export type DecisionListing =
 	| ({ ok: true } & DecisionIndex)
@@ -53,16 +57,30 @@ export class DecisionStore {
 		};
 	}
 
-	read(id: string): DecisionFileParse {
+	read(id: string): DecisionRead {
 		const source = readText(this.pathFor(id));
 		if (!source.ok) return source;
-		return parseDecisionFile(id, source.text);
+		const parse = parseDecisionFile(id, source.text);
+		if (!parse.ok) return parse;
+		return { ok: true, file: parse.file, contentSha: sha256Hex(source.text) };
 	}
 
-	write(file: DecisionFile): void {
+	// What the cheap reconcile pays per present file to notice an edit: one read
+	// and one hash, no parse. Null when the file cannot be read, which the
+	// caller treats as "changed" so the full read reports the reason.
+	digest(id: string): string | null {
+		const source = readText(this.pathFor(id));
+		return source.ok ? sha256Hex(source.text) : null;
+	}
+
+	// Returns the hash of what it wrote, so the row inserted next records the
+	// same fingerprint the next reconcile computes from the disk.
+	write(file: DecisionFile): string {
 		const path = this.pathFor(file.id);
+		const text = formatDecisionFile(file);
 		mkdirSync(dirname(path), { recursive: true });
-		writeAtomicallySync(path, formatDecisionFile(file));
+		writeAtomicallySync(path, text);
+		return sha256Hex(text);
 	}
 
 	pathFor(id: string): string {

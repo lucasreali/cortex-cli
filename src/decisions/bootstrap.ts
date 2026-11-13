@@ -30,7 +30,8 @@ export function exportExistingDecisions(
 ): string[] {
 	const files = dependencies.repository.listExportRows();
 	for (const file of files) {
-		dependencies.store.write(file);
+		const contentSha = dependencies.store.write(file);
+		dependencies.repository.setContentSha(file.id, contentSha);
 	}
 	return files.map((file) => file.id);
 }

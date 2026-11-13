@@ -86,6 +86,11 @@ function remove(id: string): void {
 	unlinkSync(dependencies.store.pathFor(id));
 }
 
+function corrupt(id: string): void {
+	mkdirSync(dependencies.store.directory, { recursive: true });
+	writeFileSync(dependencies.store.pathFor(id), "sem frontmatter\n");
+}
+
 function reconcile(full = false): ReconcileReport {
 	return reconcileDecisions(dependencies, { full });
 }
@@ -134,6 +139,7 @@ describe("reconcileDecisions imports new files", () => {
 
 		expect(reconcile()).toEqual({
 			imported: [],
+			edited: [],
 			absent: [],
 			restored: [],
 			dangling: [],
@@ -347,11 +353,6 @@ describe("reconcileDecisions derives status from the present files", () => {
 });
 
 describe("reconcileDecisions and files it cannot read", () => {
-	function corrupt(id: string): void {
-		mkdirSync(dependencies.store.directory, { recursive: true });
-		writeFileSync(dependencies.store.pathFor(id), "sem frontmatter\n");
-	}
-
 	test("an unreadable arrival is reported and no node is invented", () => {
 		corrupt(FIRST);
 
@@ -446,12 +447,15 @@ describe("reconcileDecisions and files it cannot read", () => {
 		expect(edgeRows("DEPENDS_ON")).toEqual([{ from_id: THIRD, to_id: FIRST }]);
 	});
 
-	test("the cheap path trusts immutability; --full re-reads everything", () => {
+	test("the cheap path notices a file that stopped parsing, and keeps its row", () => {
 		write();
 		reconcile();
 		corrupt(FIRST);
 
-		expect(reconcile().malformed).toEqual([]);
+		expect(reconcile().malformed).toEqual([
+			{ name: `${FIRST}.md`, reason: "missing frontmatter fence" },
+		]);
+		expect(nodes.getById(FIRST)?.title).toBe("Adotar JWT para autenticação");
 		expect(reconcile(true).malformed).toEqual([
 			{ name: `${FIRST}.md`, reason: "missing frontmatter fence" },
 		]);
@@ -478,6 +482,7 @@ describe("exportExistingDecisions", () => {
 		expect(listedIds(dependencies.store)).toEqual([FIRST, SECOND]);
 		expect(reconcile()).toEqual({
 			imported: [],
+			edited: [],
 			absent: [],
 			restored: [],
 			dangling: [],
@@ -673,5 +678,107 @@ describe("reconcileDecisions and a decisions directory it cannot read", () => {
 		} finally {
 			chmodSync(dependencies.store.directory, 0o755);
 		}
+	});
+});
+
+describe("reconcileDecisions re-reads a file edited in place", () => {
+	function embed(id: string): void {
+		db.query(
+			"INSERT INTO embeddings (node_id, model_id, dims, vector) VALUES (?, 'm', 1, ?)",
+		).run(id, new Uint8Array(4));
+	}
+
+	function hasVector(id: string): boolean {
+		return (
+			db.query("SELECT 1 FROM embeddings WHERE node_id = ?").get(id) !== null
+		);
+	}
+
+	test("rewrites the row, its anchors and its search entry on the cheap path", () => {
+		write({ anchors: [{ filePath: "src/old.ts", symbol: "" }] });
+		reconcile();
+		write({
+			title: "Adotar PASETO para autenticação",
+			keywords: ["paseto", "authentication", "token", "login", "sessão"],
+			anchors: [{ filePath: "src/new.ts", symbol: "Auth.login" }],
+		});
+
+		expect(reconcile().edited).toEqual([FIRST]);
+		const row = nodes.getById(FIRST);
+		expect(row?.title).toBe("Adotar PASETO para autenticação");
+		expect(row?.anchors).toEqual([
+			{ filePath: "src/new.ts", symbol: "Auth.login" },
+		]);
+		expect(search.searchExact(["paseto"]).map((hit) => hit.nodeId)).toEqual([
+			FIRST,
+		]);
+		expect(search.searchExact(["jwt"])).toEqual([]);
+		expect(reconcile().edited).toEqual([]);
+	});
+
+	test("drops the vector only when the embedded text moved", () => {
+		write();
+		reconcile();
+		embed(FIRST);
+		write({ keywords: ["jwt", "token", "login", "auth", "sessão", "rs256"] });
+		reconcile();
+		expect(hasVector(FIRST)).toBe(true);
+
+		write({ body: "Usamos PASETO v4 local para a API, nunca JWT." });
+		reconcile();
+		expect(hasVector(FIRST)).toBe(false);
+	});
+
+	test("a row derived before fingerprints existed is rewritten once", () => {
+		write();
+		reconcile();
+		db.query("UPDATE nodes SET content_sha = NULL, title = 'stale'").run();
+
+		expect(reconcile().edited).toEqual([FIRST]);
+		expect(nodes.getById(FIRST)?.title).toBe("Adotar JWT para autenticação");
+		expect(reconcile().edited).toEqual([]);
+	});
+});
+
+describe("reconcileDecisions keeps a malformed file's links", () => {
+	test("a successor that stops parsing does not hand its predecessor back", () => {
+		write();
+		write({ id: SECOND, replaces: FIRST, dependsOn: [] });
+		reconcile();
+		expect(nodes.getById(FIRST)?.status).toBe("replaced");
+
+		corrupt(SECOND);
+
+		reconcile(true);
+		expect(nodes.getById(FIRST)?.status).toBe("replaced");
+		expect(edgeRows("REPLACED_BY")).toEqual([
+			{ from_id: FIRST, to_id: SECOND },
+		]);
+	});
+});
+
+describe("anchors survive the file format", () => {
+	test("a legacy private-member anchor splits at the path, not inside the symbol", () => {
+		write({ anchors: [{ filePath: "src/x.ts", symbol: "Foo.#secret" }] });
+		reconcile();
+
+		expect(nodes.getById(FIRST)?.anchors).toEqual([
+			{ filePath: "src/x.ts", symbol: "Foo.#secret" },
+		]);
+	});
+
+	test("a Windows or dotted path is read back in the index's spelling", () => {
+		write({
+			anchors: [
+				{ filePath: "src\\auth\\service.ts", symbol: "" },
+				{ filePath: "./src/db.ts", symbol: "Db.open" },
+			],
+		});
+		reconcile();
+
+		expect(nodes.getById(FIRST)?.anchors).toEqual([
+			{ filePath: "src/auth/service.ts", symbol: "" },
+			{ filePath: "src/db.ts", symbol: "Db.open" },
+		]);
 	});
 });

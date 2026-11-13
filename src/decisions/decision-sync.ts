@@ -10,8 +10,14 @@ import {
 } from "./reconcile";
 import { type SavedDecision, saveDecisionFile } from "./save";
 
+// The same window the code index re-checks on, for the same reason: an MCP
+// server outlives many checkouts, and without the git hooks — which are opt-in
+// — a pull in the middle of a session used to keep serving the old branch's
+// decisions for the life of the process while the code index moved on.
+export const DECISIONS_RECHECK_AFTER_MS = 5000;
+
 export interface DecisionSync {
-	// Reconcile once per process, then serve the cached report.
+	// Reconcile, then serve the cached report until the window passes.
 	ensure(): ReconcileReport;
 	// Re-read every present file and recompute, whatever the cache says.
 	resync(): ReconcileReport;
@@ -24,6 +30,7 @@ export interface DecisionSyncOptions {
 	cortexDir: string;
 	db: Database;
 	onReconciled?(report: ReconcileReport): void;
+	now?: () => number;
 }
 
 export function openDecisionSync(options: DecisionSyncOptions): DecisionSync {
@@ -39,6 +46,7 @@ class ProjectDecisionSync implements DecisionSync {
 		repository: DecisionSyncRepository;
 	};
 	private cached: ReconcileReport | null = null;
+	private freshUntil = 0;
 
 	constructor(private readonly options: DecisionSyncOptions) {
 		this.dependencies = {
@@ -48,7 +56,9 @@ class ProjectDecisionSync implements DecisionSync {
 	}
 
 	ensure(): ReconcileReport {
-		this.cached ??= this.reconcile({});
+		if (this.cached && this.now() < this.freshUntil) return this.cached;
+		const fresh = this.reconcile({});
+		this.cached = this.cached ? merged(this.cached, fresh) : fresh;
 		return this.cached;
 	}
 
@@ -72,11 +82,17 @@ class ProjectDecisionSync implements DecisionSync {
 	save(input: CreateDecisionInput, context: SaveContext): SavedDecision {
 		const saved = saveDecisionFile(this.dependencies, input, context);
 		this.cached = saved.report;
+		this.freshUntil = this.now() + DECISIONS_RECHECK_AFTER_MS;
 		return saved;
+	}
+
+	private now(): number {
+		return (this.options.now ?? Date.now)();
 	}
 
 	private reconcile(options: ReconcileOptions): ReconcileReport {
 		const report = reconcileDecisions(this.dependencies, options);
+		this.freshUntil = this.now() + DECISIONS_RECHECK_AFTER_MS;
 		this.options.onReconciled?.(report);
 		return report;
 	}
@@ -91,6 +107,7 @@ function merged(
 ): ReconcileReport {
 	return {
 		imported: union(earlier.imported, fresh.imported),
+		edited: union(earlier.edited, fresh.edited),
 		absent: union(earlier.absent, fresh.absent),
 		restored: union(earlier.restored, fresh.restored),
 		dangling: fresh.dangling,

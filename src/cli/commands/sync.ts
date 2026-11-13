@@ -52,6 +52,7 @@ function render(report: ReconcileReport): void {
 function changes(report: ReconcileReport): string[] {
 	const counted = [
 		count("imported", report.imported.length),
+		count("re-read after an edit", report.edited.length),
 		count("no longer on this branch", report.absent.length),
 		count("back on this branch", report.restored.length),
 	].filter((line) => line !== null);

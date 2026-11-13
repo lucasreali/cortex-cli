@@ -82,6 +82,7 @@ export class RuntimeRegistry {
 		if (typeof root !== "string") return root;
 		const runtime = await this.acquire(root);
 		try {
+			runtime.decisions.ensure();
 			return { ok: true, value: await use(runtime) };
 		} finally {
 			this.runtimes.release(root);
@@ -142,9 +143,9 @@ export class RuntimeRegistry {
 		// embedding worker through the user-wide daemon instead of each
 		// loading its own copy of the model.
 		//
-		// The decision files are reconciled once, when the session first
-		// touches this project: a checkout later in the session is picked up by
-		// the next `cortex` command, not here.
+		// The decision files are reconciled here and again by every later
+		// call once DECISIONS_RECHECK_AFTER_MS has passed, so a checkout in the
+		// middle of a session is picked up without the git hooks.
 		const opening = buildRuntimeAt(root, {
 			sharedEmbedding: true,
 			busyTimeoutMs: MCP_BUSY_TIMEOUT_MS,

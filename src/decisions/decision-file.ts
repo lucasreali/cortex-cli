@@ -1,8 +1,10 @@
 import {
 	type Anchor,
 	type DecisionFile,
+	formatAnchorText,
 	NODE_PROVENANCES,
 	type NodeProvenance,
+	parseAnchorText,
 } from "@/domain";
 import { errorMessage } from "@/support/errors";
 import { uniqueAnchors } from "./anchors";
@@ -130,7 +132,7 @@ function anchorLines(anchors: Anchor[]): string[] {
 	if (anchors.length === 0) return [];
 	return [
 		"anchors:",
-		...anchors.map((anchor) => `  - ${scalar(text(anchor))}`),
+		...anchors.map((anchor) => `  - ${scalar(formatAnchorText(anchor))}`),
 	];
 }
 
@@ -139,11 +141,6 @@ function anchorLines(anchors: Anchor[]): string[] {
 function commitLines(file: DecisionFile): string[] {
 	if (file.commitSha === null) return [];
 	return [`commit: ${scalar(file.commitSha)}`, `dirty: ${file.commitDirty}`];
-}
-
-function text(anchor: Anchor): string {
-	if (anchor.symbol === "") return anchor.filePath;
-	return `${anchor.filePath}#${anchor.symbol}`;
 }
 
 type FenceSplit =
@@ -231,20 +228,12 @@ function toDecisionFile(
 		archives: data.archives ?? null,
 		dependsOn: data.depends_on ?? [],
 		conflictsWith: data.conflicts_with ?? [],
-		anchors: uniqueAnchors((data.anchors ?? []).map(toAnchor)),
+		anchors: uniqueAnchors((data.anchors ?? []).map(parseAnchorText)),
 		commitSha: data.commit ?? null,
 		commitDirty: data.dirty === true,
 		provenance: data.provenance,
 		createdAt: data.created_at,
 	};
-}
-
-// The last `#` wins, so a path that legitimately contains one still resolves;
-// no `#` at all — or nothing after it — is the file-level anchor.
-function toAnchor(entry: string): Anchor {
-	const hash = entry.lastIndexOf("#");
-	if (hash === -1) return { filePath: entry, symbol: "" };
-	return { filePath: entry.slice(0, hash), symbol: entry.slice(hash + 1) };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

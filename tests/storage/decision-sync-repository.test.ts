@@ -145,7 +145,9 @@ describe("DecisionSyncRepository.insertDecision", () => {
 			sync.insertDecision(decisionFile({ id: SECOND }), null);
 		});
 
-		expect(sync.listPresence()).toEqual([{ id: SECOND, present: true }]);
+		expect(sync.listPresence()).toEqual([
+			{ id: SECOND, present: true, contentSha: null },
+		]);
 		expect(db.query("SELECT count(*) AS n FROM nodes_fts").get()).toEqual({
 			n: 1,
 		});
@@ -183,8 +185,8 @@ describe("DecisionSyncRepository presence and status", () => {
 		sync.setPresent([SECOND], false);
 
 		expect(sync.listPresence()).toEqual([
-			{ id: FIRST, present: true },
-			{ id: SECOND, present: false },
+			{ id: FIRST, present: true, contentSha: null },
+			{ id: SECOND, present: false, contentSha: null },
 		]);
 		expect(sync.listAbsent()).toEqual([
 			{ id: SECOND, title: "Adotar JWT para autenticação" },

@@ -1,5 +1,6 @@
 import type { DecisionFile } from "@/domain";
 import type {
+	DecisionPresence,
 	DecisionSyncRepository,
 	VersionedEdgeKind,
 } from "@/storage/decision-sync-repository";
@@ -39,6 +40,7 @@ export interface SupersededTwice {
 
 export interface ReconcileReport {
 	imported: string[];
+	edited: string[];
 	absent: string[];
 	restored: string[];
 	dangling: VersionedEdge[];
@@ -50,12 +52,16 @@ export interface ReconcileReport {
 
 interface ParsedFiles {
 	files: DecisionFile[];
+	contentShas: Map<string, string>;
 	malformed: MalformedDecisionFile[];
+	malformedIds: string[];
 }
 
-// Drift detection is a set difference — no stamp, no hash, no mtime — because
-// a decision file is immutable: changing your mind writes a new file with
-// `replaces`, and nothing ever rewrites an existing one.
+// Drift is a set difference plus one fingerprint per present file. Decision
+// files are meant to be immutable — changing your mind writes a new file with
+// `replaces` — but they are markdown on a branch, and a hand edit or a merge
+// that resolved a conflict inside one used to leave the row, its anchors, its
+// FTS entry and its vector describing text that no longer existed anywhere.
 export function reconcileDecisions(
 	dependencies: ReconcileDependencies,
 	options: ReconcileOptions = {},
@@ -64,9 +70,8 @@ export function reconcileDecisions(
 	if (!listing.ok) return quiet([unreadableDirectory(listing.reason)]);
 	const onDisk = new Set(listing.ids);
 	const stored = dependencies.repository.listPresence();
-	const arriving = [...onDisk].filter(
-		(id) => !stored.some((entry) => entry.id === id),
-	);
+	const storedIds = new Set(stored.map((entry) => entry.id));
+	const arriving = [...onDisk].filter((id) => !storedIds.has(id));
 	const absent = stored
 		.filter((entry) => entry.present && !onDisk.has(entry.id))
 		.map((entry) => entry.id);
@@ -77,11 +82,33 @@ export function reconcileDecisions(
 
 	if (!options.full) {
 		const arrivals = parseAll(dependencies, arriving);
-		if (nothingMoves(arrivals, drift)) {
-			return quiet([...arrivals.malformed, ...listing.unusable]);
+		const edits = parseAll(
+			dependencies,
+			changedOnDisk(dependencies, stored, onDisk),
+		);
+		if (nothingMoves(arrivals, edits, drift)) {
+			return quiet([
+				...arrivals.malformed,
+				...edits.malformed,
+				...listing.unusable,
+			]);
 		}
 	}
 	return apply(dependencies, drift, listing, stored);
+}
+
+// One read and one hash per present file, no parse: what the cheap path pays
+// to notice an edit. A row derived before the fingerprint existed has none, so
+// it counts as changed exactly once and is rewritten from its file.
+function changedOnDisk(
+	dependencies: ReconcileDependencies,
+	stored: DecisionPresence[],
+	onDisk: Set<string>,
+): string[] {
+	return stored
+		.filter((entry) => onDisk.has(entry.id))
+		.filter((entry) => dependencies.store.digest(entry.id) !== entry.contentSha)
+		.map((entry) => entry.id);
 }
 
 // The whole directory answering EACCES is not a branch without decisions: it
@@ -94,17 +121,27 @@ function unreadableDirectory(reason: string): MalformedDecisionFile {
 // A file that does not parse is never inserted, so it stays in `arriving` for
 // as long as it sits there — and counting ids alone would then send every
 // process that builds a runtime down the full path, clearing and re-deriving
-// the whole edge table on an ordinary read. Parsing the arrivals is what the
-// cheap path pays to stay cheap, and when there are none it costs nothing.
-function nothingMoves(arrivals: ParsedFiles, drift: Drift): boolean {
+// the whole edge table on an ordinary read. Parsing the arrivals and the edits
+// is what the cheap path pays to stay cheap, and when there are none it costs
+// nothing.
+function nothingMoves(
+	arrivals: ParsedFiles,
+	edits: ParsedFiles,
+	drift: Drift,
+): boolean {
 	return (
-		arrivals.files.length + drift.absent.length + drift.restored.length === 0
+		arrivals.files.length +
+			edits.files.length +
+			drift.absent.length +
+			drift.restored.length ===
+		0
 	);
 }
 
 function quiet(malformed: MalformedDecisionFile[]): ReconcileReport {
 	return {
 		imported: [],
+		edited: [],
 		absent: [],
 		restored: [],
 		dangling: [],
@@ -125,18 +162,30 @@ function apply(
 	dependencies: ReconcileDependencies,
 	drift: Drift,
 	listing: DecisionIndex,
-	stored: Array<{ id: string }>,
+	stored: DecisionPresence[],
 ): ReconcileReport {
 	const parsed = parseAll(dependencies, listing.ids);
 	const usable = new Map(parsed.files.map((file) => [file.id, file]));
+	const storedShas = new Map(
+		stored.map((entry) => [entry.id, entry.contentSha]),
+	);
 	const arrivals = drift.arriving
 		.filter((id) => usable.has(id))
 		.map((id) => usable.get(id) as DecisionFile);
-	const known = new Set([...stored.map((entry) => entry.id), ...usable.keys()]);
-	const links = deriveLinks(parsed.files, known);
+	const edits = parsed.files.filter(
+		(file) =>
+			storedShas.has(file.id) &&
+			storedShas.get(file.id) !== parsed.contentShas.get(file.id),
+	);
+	const known = new Set([...storedShas.keys(), ...usable.keys()]);
+	const preserved = dependencies.repository.listEdgesOwnedBy(
+		parsed.malformedIds.filter((id) => storedShas.has(id)),
+	);
+	const links = deriveLinks(parsed.files, preserved, known);
 
-	const insertion = dependencies.repository.transaction(() => {
-		const outcome = insertArrivals(dependencies.repository, arrivals);
+	const writes = dependencies.repository.transaction(() => {
+		const insertion = insertArrivals(dependencies.repository, arrivals, parsed);
+		const update = updateEdits(dependencies.repository, edits, parsed);
 		dependencies.repository.setPresent(drift.absent, false);
 		dependencies.repository.setPresent(drift.restored, true);
 		dependencies.repository.clearVersionedEdges();
@@ -148,17 +197,23 @@ function apply(
 			);
 		}
 		dependencies.repository.applyStatuses(links.replaced, links.archived);
-		return outcome;
+		return { insertion, update };
 	});
 
 	return {
-		imported: insertion.imported,
+		imported: writes.insertion.written,
+		edited: writes.update.written,
 		absent: drift.absent,
 		restored: drift.restored,
 		dangling: links.dangling,
 		cyclic: links.cyclic,
 		multiplyReplaced: supersededTwice(parsed.files),
-		malformed: [...parsed.malformed, ...insertion.refused, ...listing.unusable],
+		malformed: [
+			...parsed.malformed,
+			...writes.insertion.refused,
+			...writes.update.refused,
+			...listing.unusable,
+		],
 		fenceBreaking: fenceBreaking(parsed.files),
 	};
 }
@@ -177,8 +232,8 @@ function fenceBreaking(files: DecisionFile[]): string[] {
 		.map((file) => `${file.id}.md`);
 }
 
-interface Insertion {
-	imported: string[];
+interface Writes {
+	written: string[];
 	refused: MalformedDecisionFile[];
 }
 
@@ -190,35 +245,66 @@ interface Insertion {
 function insertArrivals(
 	repository: DecisionSyncRepository,
 	files: DecisionFile[],
-): Insertion {
-	const imported: string[] = [];
+	parsed: ParsedFiles,
+): Writes {
+	return eachRefusable(files, (file) =>
+		repository.insertDecision(
+			file,
+			null,
+			parsed.contentShas.get(file.id) ?? null,
+		),
+	);
+}
+
+function updateEdits(
+	repository: DecisionSyncRepository,
+	files: DecisionFile[],
+	parsed: ParsedFiles,
+): Writes {
+	return eachRefusable(files, (file) =>
+		repository.updateDecision(file, parsed.contentShas.get(file.id) as string),
+	);
+}
+
+function eachRefusable(
+	files: DecisionFile[],
+	write: (file: DecisionFile) => void,
+): Writes {
+	const written: string[] = [];
 	const refused: MalformedDecisionFile[] = [];
 	for (const file of files) {
 		try {
-			repository.insertDecision(file, null);
-			imported.push(file.id);
+			write(file);
+			written.push(file.id);
 		} catch (error) {
 			refused.push({ name: `${file.id}.md`, reason: errorMessage(error) });
 		}
 	}
-	return { imported, refused };
+	return { written, refused };
 }
 
 // A file that exists but does not parse is present-but-unusable, never absent:
 // one typo in a hand-edited file must not silently drop a decision out of
-// search. Its node keeps the presence it already had.
+// search. Its node keeps the presence, the content and the edges it already had.
 function parseAll(
 	dependencies: ReconcileDependencies,
 	ids: string[],
 ): ParsedFiles {
 	const files: DecisionFile[] = [];
+	const contentShas = new Map<string, string>();
 	const malformed: MalformedDecisionFile[] = [];
+	const malformedIds: string[] = [];
 	for (const id of ids) {
-		const parse = dependencies.store.read(id);
-		if (parse.ok) files.push(parse.file);
-		else malformed.push({ name: `${id}.md`, reason: parse.reason });
+		const read = dependencies.store.read(id);
+		if (read.ok) {
+			files.push(read.file);
+			contentShas.set(id, read.contentSha);
+		} else {
+			malformed.push({ name: `${id}.md`, reason: read.reason });
+			malformedIds.push(id);
+		}
 	}
-	return { files, malformed };
+	return { files, contentShas, malformed, malformedIds };
 }
 
 interface DerivedLinks {
@@ -233,10 +319,14 @@ interface DerivedLinks {
 // deleted, so a depends_on naming a decision that lives only on another branch
 // still resolves. A target that is nowhere is skipped rather than inserted —
 // foreign keys are on, and a bad edge would fail every command.
-function deriveLinks(files: DecisionFile[], known: Set<string>): DerivedLinks {
+function deriveLinks(
+	files: DecisionFile[],
+	preserved: VersionedEdge[],
+	known: Set<string>,
+): DerivedLinks {
 	const resolved: VersionedEdge[] = [];
 	const dangling: VersionedEdge[] = [];
-	for (const edge of files.flatMap(edgesOf)) {
+	for (const edge of [...files.flatMap(edgesOf), ...preserved]) {
 		if (known.has(edge.from) && known.has(edge.to)) resolved.push(edge);
 		else dangling.push(edge);
 	}
