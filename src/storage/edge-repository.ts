@@ -1,12 +1,33 @@
 import type { Database } from "bun:sqlite";
 import getImpactSql from "./queries/get-impact.sql" with { type: "text" };
 
+export type ImpactRelation = "dependent" | "dependency";
+
 export interface ImpactedNode {
 	nodeId: string;
 	depth: number;
+	relation: ImpactRelation;
 }
 
 const IMPACT_ROW_LIMIT = 5000;
+
+export interface VersionedLinks {
+	dependsOn: string[];
+	replaces: string[];
+	replacedBy: string[];
+	archives: string[];
+	archivedBy: string[];
+}
+
+function emptyLinks(): VersionedLinks {
+	return {
+		dependsOn: [],
+		replaces: [],
+		replacedBy: [],
+		archives: [],
+		archivedBy: [],
+	};
+}
 
 export class EdgeRepository {
 	constructor(private readonly db: Database) {}
@@ -37,10 +58,45 @@ export class EdgeRepository {
 		return groupPartners(rows);
 	}
 
+	// The versioned links around each decision, from both ends: what it builds
+	// on and what it retired, and who retired it. One query for the whole page.
+	listVersionedLinks(ids: string[]): Map<string, VersionedLinks> {
+		const links = new Map<string, VersionedLinks>(
+			ids.map((id) => [id, emptyLinks()]),
+		);
+		if (ids.length === 0) return links;
+		const rows = this.db
+			.query<
+				{ from_id: string; kind: string; to_id: string },
+				[string, string]
+			>(
+				`SELECT from_id, kind, to_id FROM edges
+				 WHERE kind IN ('DEPENDS_ON', 'REPLACED_BY', 'ARCHIVED_BY')
+				   AND (from_id IN (SELECT value FROM json_each(?))
+				        OR to_id IN (SELECT value FROM json_each(?)))
+				 ORDER BY from_id, kind, to_id`,
+			)
+			.all(JSON.stringify(ids), JSON.stringify(ids));
+		for (const row of rows) {
+			const from = links.get(row.from_id);
+			const to = links.get(row.to_id);
+			if (row.kind === "DEPENDS_ON") from?.dependsOn.push(row.to_id);
+			if (row.kind === "REPLACED_BY") {
+				from?.replacedBy.push(row.to_id);
+				to?.replaces.push(row.from_id);
+			}
+			if (row.kind === "ARCHIVED_BY") {
+				from?.archivedBy.push(row.to_id);
+				to?.archives.push(row.from_id);
+			}
+		}
+		return links;
+	}
+
 	getImpact(decisionId: string, maxDepth = 3): ImpactedNode[] {
 		return this.db
 			.query<
-				{ node_id: string; depth: number },
+				{ node_id: string; depth: number; relation: ImpactRelation },
 				{ $id: string; $maxDepth: number; $limit: number }
 			>(getImpactSql)
 			.all({
@@ -48,7 +104,11 @@ export class EdgeRepository {
 				$maxDepth: maxDepth,
 				$limit: IMPACT_ROW_LIMIT,
 			})
-			.map((row) => ({ nodeId: row.node_id, depth: row.depth }));
+			.map((row) => ({
+				nodeId: row.node_id,
+				depth: row.depth,
+				relation: row.relation,
+			}));
 	}
 }
 

@@ -26,7 +26,17 @@ export interface SemanticSearchOptions {
 	queryTimeoutMs?: number;
 }
 
+// Restricts a ranking to one module. Applied while the top-K is filled, never
+// after it: filtering five results that were chosen without the filter used to
+// answer "nothing matched" whenever the module's decisions ranked sixth.
+export interface RankFilter {
+	module?: string;
+}
+
 const DEFAULT_TOP_K = 5;
+// How deep the textual leg reaches when a filter will discard most of what it
+// returns; unfiltered, it only ever needs the top-K.
+const FILTERED_FTS_CANDIDATES = 100;
 const DEFAULT_THRESHOLD = 0.3;
 const DEFAULT_QUERY_TIMEOUT_MS = 2000;
 const RRF_K = 60;
@@ -69,8 +79,11 @@ export class SemanticSearch {
 	// RRF over both legs (measured in tests/evaluation/): the vector leg keeps
 	// the relevance threshold so unrelated intents still come back empty, and
 	// with no vector available the fusion degrades to plain BM25 top-K.
-	async search(intent: string): Promise<SemanticSearchResult[]> {
-		return this.rank(intent, await this.embedQuery(intent));
+	async search(
+		intent: string,
+		filter: RankFilter = {},
+	): Promise<SemanticSearchResult[]> {
+		return this.rank(intent, await this.embedQuery(intent), filter);
 	}
 
 	// Split out of search so a cross-project sweep pays the embedding once and
@@ -83,18 +96,26 @@ export class SemanticSearch {
 		return vector ? { vector, modelId: provider.modelId } : null;
 	}
 
-	rank(intent: string, query: QueryVector | null): SemanticSearchResult[] {
+	rank(
+		intent: string,
+		query: QueryVector | null,
+		filter: RankFilter = {},
+	): SemanticSearchResult[] {
 		const vectorLeg = this.vectorLeg(query);
 		const inVector = new Set(vectorLeg);
-		const selected = fuseRankings([vectorLeg, this.bm25Leg(intent)])
-			.slice(0, this.topK())
-			.flatMap((entry) =>
-				this.toResult(
-					entry.nodeId,
-					entry.score,
-					inVector.has(entry.nodeId) ? "vector" : "fts",
-				),
+		const selected: SemanticSearchResult[] = [];
+		for (const entry of fuseRankings([
+			vectorLeg,
+			this.bm25Leg(intent, filter),
+		])) {
+			if (selected.length === this.topK()) break;
+			const result = this.toResult(
+				entry.nodeId,
+				entry.score,
+				inVector.has(entry.nodeId) ? "vector" : "fts",
 			);
+			if (result && matches(result.node, filter)) selected.push(result);
+		}
 		return this.preferUseful(selected);
 	}
 
@@ -137,11 +158,12 @@ export class SemanticSearch {
 		}
 	}
 
-	private bm25Leg(intent: string): string[] {
+	private bm25Leg(intent: string, filter: RankFilter): string[] {
 		const terms = intentTerms(intent);
 		if (terms.length === 0) return [];
+		const depth = filter.module ? FILTERED_FTS_CANDIDATES : this.topK();
 		return this.dependencies.fts
-			.searchExact(terms, this.topK())
+			.searchExact(terms, depth)
 			.map((hit) => hit.nodeId);
 	}
 
@@ -153,10 +175,10 @@ export class SemanticSearch {
 		nodeId: string,
 		score: number,
 		source: SemanticSearchResult["source"],
-	): SemanticSearchResult[] {
+	): SemanticSearchResult | null {
 		const node = this.dependencies.nodes.getById(nodeId);
-		if (node?.status !== "active" || !node.present) return [];
-		return [{ node, score, source }];
+		if (node?.status !== "active" || !node.present) return null;
+		return { node, score, source };
 	}
 
 	// Two things make a loaded cache wrong, and neither is visible from inside
@@ -233,6 +255,10 @@ class VectorCache {
 			this.key.modelId === modelId && this.key.writeCounter === writeCounter
 		);
 	}
+}
+
+function matches(node: Decision, filter: RankFilter): boolean {
+	return filter.module === undefined || node.module === filter.module;
 }
 
 export function fuseRankings(rankings: string[][]): FusedRanking[] {

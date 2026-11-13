@@ -135,8 +135,16 @@ describe("decisionImpact", () => {
 
 		expect(impact?.root.id).toBe(base.id);
 		expect(impact?.impacted).toEqual([
-			{ node: expect.objectContaining({ id: middle.id }), depth: 1 },
-			{ node: expect.objectContaining({ id: leaf.id }), depth: 2 },
+			{
+				node: expect.objectContaining({ id: middle.id }),
+				depth: 1,
+				relation: "dependent",
+			},
+			{
+				node: expect.objectContaining({ id: leaf.id }),
+				depth: 2,
+				relation: "dependent",
+			},
 		]);
 		expect(impact?.codeWarning).toBeNull();
 	});
@@ -156,7 +164,11 @@ describe("decisionImpact", () => {
 		const impact = await decisionImpact(runtime(), base.id);
 
 		expect(impact?.impacted).toEqual([
-			{ node: expect.objectContaining({ id: leaf.id }), depth: 2 },
+			{
+				node: expect.objectContaining({ id: leaf.id }),
+				depth: 2,
+				relation: "dependent",
+			},
 		]);
 		expect(await decisionImpact(runtime(), middle.id)).toBeNull();
 	});

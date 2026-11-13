@@ -11,13 +11,13 @@ import type { CodeRepository } from "@/storage/code-repository";
 import { projectPathField, scopedToProject } from "./project-scope";
 import { guidanceResult, jsonResult } from "./results";
 
-const DESCRIPTION = `Record a technical decision in the project's persistent memory (Cortex).
+const DESCRIPTION = `Record a technical decision in this project's memory (Cortex) when a non-trivial choice is made, confirmed or reversed.
 
-Call this whenever a non-trivial choice is made, confirmed, or reversed during the session: architecture, library or tool picks, schema changes, accepted trade-offs, rejected approaches. Write title and body factually and self-contained — they will be read months from now, without this conversation's context. Example: title "Adopt stateless JWT auth", body "Access tokens signed RS256, 15 min TTL, refresh tokens rotate in an httpOnly cookie. Rejected server-side sessions to keep the API stateless across instances."
+A decision is a choice and its reasons, not a changelog or a bug report: state what was chosen, why, and which alternatives were rejected, in about 120 words a reader can follow months from now without this conversation. Fixes and incident narratives belong in commits.
 
-Link related decisions: depends_on = ids this decision builds on (impact analysis walks these links); replaces = id of the decision this one supersedes; archives = id of a decision that no longer applies and has no successor (a deleted module, a constraint that disappeared) — this decision documents why it was retired. Retired decisions leave search and context but are never deleted. conflicts_with = ids of decisions this one contradicts but does not supersede (both stay active, flagged on both sides). anchors tie the decision to the files/symbols it governs so future readers of that code can find it. Symbol anchors use the qualified name from the code index (e.g. "AuthService.validateToken").
+Links: depends_on = ids this builds on; replaces = id it supersedes; archives = id that no longer applies and has no successor; conflicts_with = ids it contradicts without superseding. anchors = files/symbols it governs (qualified names as indexed, e.g. "AuthService.validateToken").
 
-Returns { id, warnings, conflict_candidates }. warnings flag anchor files missing from the working tree and anchor symbols missing from the code index, with close-match suggestions (the decision is still saved). conflict_candidates lists already-recorded decisions that look close enough to contradict this one — suggestions only, nothing is linked automatically. Review each candidate: if it genuinely contradicts what was just saved, either record the resolution with replaces or declare the disagreement by saving with conflicts_with.`;
+Returns { id, warnings, conflict_candidates }. Review each candidate: if it truly contradicts this decision, save again with replaces or conflicts_with.`;
 
 export function registerSaveDecision(
 	server: McpServer,

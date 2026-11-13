@@ -17,11 +17,9 @@ import {
 import { READ_ONLY_ANNOTATIONS } from "./annotations";
 import { errorResult, guidanceResult, jsonResult } from "./results";
 
-const DESCRIPTION = `Search decisions across every Cortex project on this machine (Cortex).
+const DESCRIPTION = `Search decisions across every Cortex project on this machine, for questions beyond the current project ("how did I handle rate limiting elsewhere?").
 
-Call this for questions that reach beyond the current project — "how did I solve rate limiting in my other projects?", "have I picked an auth library before?". It fans out over all registered projects (a project registers when it is initialized or first used) and returns results grouped per project, each labeled with its project identity. Scores are not comparable across projects, so groups are never merged into one ranking.
-
-Questions about the current project belong to search or get_context — this tool is deliberately separate so scoped reads stay scoped. Terms behave exactly like search: pass PT/EN variants, exact=true for literal matching only. Projects that fail to open are listed under "skipped" with a reason; so are projects the sweep did not reach, once it hits its project cap or its deadline.`;
+Results are grouped per project and never merged, because scores are not comparable across stores. Terms behave as in search. Projects that could not be opened or reached are listed under "skipped" with a reason. Questions about this project belong to search or get_context.`;
 
 const NO_PROJECTS_GUIDANCE =
 	"No Cortex projects registered on this machine yet. A project registers " +

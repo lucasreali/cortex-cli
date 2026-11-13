@@ -6,24 +6,22 @@ import {
 } from "@/app/anchor-confidence";
 import type { CortexRuntime } from "@/app/runtime";
 import type { Decision } from "@/domain";
-import {
-	displayScore,
-	type SemanticSearchResult,
-} from "@/embedding/semantic-search";
+import type { SemanticSearchResult } from "@/embedding/semantic-search";
 import type { RuntimeRegistry } from "@/mcp/runtime-registry";
 import { contextQuery } from "@/querylog/entry";
 import { truncate } from "@/support/text";
+import { anchorEntries } from "./anchor-entry";
 import { READ_ONLY_ANNOTATIONS } from "./annotations";
 import { projectPathField, scopedToProject } from "./project-scope";
 import { jsonResult } from "./results";
 
 const SUMMARY_LIMIT = 200;
 
-const DESCRIPTION = `Fetch decision context from the project's persistent memory (Cortex).
+const DESCRIPTION = `Fetch decision context from this project's memory (Cortex). Call it before proposing or changing an approach.
 
-Call this when starting work on a task, before proposing an architectural change, or whenever you need to know why something is the way it is. With "intent" — a natural-language question, Portuguese or English, e.g. "como autenticamos usuários?" or "how do we paginate lists?" — it runs semantic search and returns the most relevant decisions ranked by score, each tagged with source ("vector" = semantic match; "fts" = textual fallback, used while the embedding model is cold or unavailable). Without "intent" it returns the project identity, the list of known modules (valid values for the module filter), the most recent active decisions and recent session summaries.
+With "intent" (a question in Portuguese or English) it returns the most relevant decisions in rank order, each with source "vector" (semantic) or "fts" (textual fallback). Without it, it returns the known modules, the most recent decisions and recent session summaries.
 
-Results are compact (id, title, summary). A decision that anchors code carries those anchors with a confidence resolved against this checkout: "exact" (the file declares that symbol), "name_only" (the symbol lives in another file — likely moved or renamed), "file_only" (a file-level anchor, or a symbol the index cannot judge), "unresolved" (the file is gone, or the symbol vanished from a file that is indexed) and "unknown" (the code index could not be read). Trust an "exact" anchor as a pointer into the code; treat the weaker ones as hints. Use get_impact on an id to see what a decision affects, or search for keyword lookup.`;
+Entries are compact; read the full rationale with get_decision. Anchor confidence: "exact" (file declares the symbol), "name_only" (symbol lives elsewhere — likely moved), "file_only", "unresolved" (file or symbol gone), "unknown" (index unreadable). Trust "exact"; treat the rest as hints.`;
 
 const RECENT_LIMIT = 10;
 const SESSION_LIMIT = 5;
@@ -79,10 +77,7 @@ async function intentContext(
 	intent: string,
 	module?: string,
 ) {
-	const results = await runtime.semanticSearch.search(intent);
-	const filtered = module
-		? results.filter((result) => result.node.module === module)
-		: results;
+	const filtered = await runtime.semanticSearch.search(intent, { module });
 	// Only the intent path records: the overview lists the most recent
 	// decisions, which is browsing rather than a judgement about relevance, and
 	// counting it would mark every new decision as passed over.
@@ -98,8 +93,8 @@ async function intentContext(
 	const conflicts = conflictsOf(runtime, nodes);
 	const anchors = await anchorsByDecision(runtime, nodes);
 	return jsonResult({
-		decisions: filtered.map((result) =>
-			searchEntry(result, conflicts, anchors),
+		decisions: filtered.map((result, index) =>
+			searchEntry(result, index, conflicts, anchors),
 		),
 		...(filtered.length === 0 ? { guidance: NO_MATCH_GUIDANCE } : {}),
 	});
@@ -115,7 +110,10 @@ async function overviewContext(runtime: CortexRuntime, module?: string) {
 		decisions: recent.map((decision) =>
 			decisionEntry(decision, conflicts, anchors),
 		),
-		sessions: runtime.nodes.listSessionSummaries(SESSION_LIMIT),
+		sessions: runtime.sessionSummaries.list(
+			SESSION_LIMIT,
+			runtime.nodes.listSessionSummaries(SESSION_LIMIT),
+		),
 		...(recent.length === 0 ? { guidance: EMPTY_STORE_GUIDANCE } : {}),
 	});
 }
@@ -129,14 +127,17 @@ function conflictsOf(
 	);
 }
 
+// The rank, not the fused score: a reciprocal-rank score tops out near 0.03,
+// which reads to a model as "barely relevant" even for the best match there is.
 function searchEntry(
 	result: SemanticSearchResult,
+	index: number,
 	conflicts: Map<string, string[]>,
 	anchors: Map<string, ResolvedAnchor[]>,
 ) {
 	return {
+		rank: index + 1,
 		...decisionEntry(result.node, conflicts, anchors),
-		score: displayScore(result.score),
 		source: result.source,
 	};
 }
@@ -155,6 +156,6 @@ function decisionEntry(
 		module: decision.module,
 		createdAt: decision.createdAt,
 		...(partners.length > 0 ? { conflicts_with: partners } : {}),
-		...(resolved.length > 0 ? { anchors: resolved } : {}),
+		...(resolved.length > 0 ? { anchors: anchorEntries(resolved) } : {}),
 	};
 }

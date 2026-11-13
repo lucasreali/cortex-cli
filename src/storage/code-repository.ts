@@ -138,6 +138,18 @@ export class CodeRepository {
 		return indexedFileOf(row);
 	}
 
+	// Indexed files under a directory, for an anchor that names one: the index
+	// holds files only, so a directory anchor is expanded here or matches nothing.
+	listFilesUnder(directory: string): string[] {
+		const prefix = `${directory}/`;
+		return this.db
+			.query<{ path: string }, [number, string]>(
+				"SELECT path FROM files WHERE substr(path, 1, ?) = ? ORDER BY path",
+			)
+			.all(prefix.length, prefix)
+			.map((row) => row.path);
+	}
+
 	listFiles(): IndexedFile[] {
 		return this.db
 			.query<FileRow, []>("SELECT * FROM files ORDER BY path")

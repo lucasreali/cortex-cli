@@ -570,3 +570,37 @@ describe("SemanticSearch — usefulness tiebreaker", () => {
 		);
 	});
 });
+
+describe("SemanticSearch — module filter", () => {
+	test("fills the top-K from the module, not from the unfiltered top-K", async () => {
+		for (let index = 0; index < 6; index += 1) {
+			seedDecision(
+				dir,
+				db,
+				{ ...jwtInput, title: `JWT na API, variante ${index}`, module: "api" },
+				context,
+			);
+		}
+		const wanted = seedDecision(
+			dir,
+			db,
+			{ ...jwtInput, title: "JWT no worker de filas", module: "worker" },
+			context,
+		);
+		const search = new SemanticSearch({
+			nodes,
+			embeddings,
+			fts,
+			provider: null,
+		});
+
+		expect(
+			(await search.search("jwt login token")).map((r) => r.node.id),
+		).not.toContain(wanted.id);
+		const filtered = await search.search("jwt login token", {
+			module: "worker",
+		});
+
+		expect(filtered.map((result) => result.node.id)).toEqual([wanted.id]);
+	});
+});

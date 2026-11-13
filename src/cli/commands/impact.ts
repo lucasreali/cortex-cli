@@ -57,7 +57,7 @@ function printDependsOnTree(impact: DecisionImpact): void {
 	console.log(`${style.bold(impact.root.title)}  ${style.dim(impact.root.id)}`);
 	for (const entry of impact.impacted) {
 		const marker =
-			entry.node.status === "replaced" ? ` ${style.yellow("[replaced]")}` : "";
+			entry.relation === "dependency" ? ` ${style.dim("(builds on)")}` : "";
 		const connector = `${"  ".repeat(entry.depth)}${style.dim("└─")}`;
 		console.log(
 			`${connector} ${entry.node.title}${marker}  ${style.dim(entry.node.id)}`,

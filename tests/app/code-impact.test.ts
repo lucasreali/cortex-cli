@@ -144,4 +144,60 @@ describe("CodeImpactAnalysis", () => {
 		]);
 		expect(analysis.forDecision(origin, 3).decisions).toEqual([]);
 	});
+
+	test("a decision on the same file is impact at depth 0", () => {
+		const origin = saveDecision("Decisão de autenticação central", [
+			{ file_path: "src/auth/service.ts" },
+		]);
+		const sibling = saveDecision("Outra decisão no mesmo serviço", [
+			{ file_path: "src/auth/service.ts", symbol: "AuthService.login" },
+		]);
+
+		expect(analysis.forDecision(origin, 3).decisions[0]).toEqual({
+			decision: expect.objectContaining({ id: sibling.id }),
+			filePath: "src/auth/service.ts",
+			depth: 0,
+			provenance: "exact",
+		});
+	});
+
+	test("orders by depth, closest first, one entry per decision", () => {
+		const origin = saveDecision("Decisão de autenticação central", [
+			{ file_path: "src/auth/service.ts" },
+		]);
+		const far = saveDecision("Decisão do endpoint de login", [
+			{ file_path: "src/api/login.ts" },
+		]);
+		const near = saveDecision("Outra decisão no mesmo serviço", [
+			{ file_path: "src/auth/service.ts" },
+			{ file_path: "src/api/login.ts" },
+		]);
+
+		expect(
+			analysis
+				.forDecision(origin, 3)
+				.decisions.map((entry) => [entry.decision.id, entry.depth]),
+		).toEqual([
+			[near.id, 0],
+			[far.id, 1],
+		]);
+	});
+
+	test("a directory anchor covers the files under it, from either side", () => {
+		const origin = saveDecision("Decisão sobre o módulo de autenticação", [
+			{ file_path: "src/auth" },
+		]);
+		const dependent = saveDecision("Decisão do diretório da API", [
+			{ file_path: "src/api" },
+		]);
+
+		expect(analysis.forDecision(origin, 3).decisions).toEqual([
+			{
+				decision: expect.objectContaining({ id: dependent.id }),
+				filePath: "src/api/login.ts",
+				depth: 1,
+				provenance: "heuristic",
+			},
+		]);
+	});
 });

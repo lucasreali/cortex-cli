@@ -1,4 +1,5 @@
 import type { Decision } from "@/domain";
+import type { ImpactRelation } from "@/storage/edge-repository";
 import {
 	type AnchoredDecision,
 	type AnchorResolver,
@@ -12,6 +13,7 @@ import type { CortexRuntime } from "./runtime";
 export interface ImpactedDecision {
 	node: AnchoredDecision;
 	depth: number;
+	relation: ImpactRelation;
 }
 
 export interface ConflictingDecision {
@@ -57,9 +59,9 @@ export async function decisionImpact(
 	if (!root) return null;
 	const impacted = runtime.edges
 		.getImpact(decisionId, depths.maxDepth ?? DEFAULT_IMPACT_DEPTH)
-		.flatMap(({ nodeId, depth }) => {
+		.flatMap(({ nodeId, depth, relation }) => {
 			const node = presentDecision(runtime, nodeId);
-			return node ? [{ node, depth }] : [];
+			return node ? [{ node, depth, relation }] : [];
 		});
 	const lens = await codeLens(runtime, [
 		root,
@@ -74,6 +76,7 @@ export async function decisionImpact(
 		impacted: impacted.map((entry) => ({
 			node: lens.resolver.label(entry.node),
 			depth: entry.depth,
+			relation: entry.relation,
 		})),
 		conflicts: conflictsOf(runtime, decisionId),
 		codeImpacted: code?.decisions ?? [],
@@ -98,9 +101,6 @@ function conflictsOf(
 	});
 }
 
-// get-impact.sql walks edges without consulting the working tree, so an
-// off-branch decision can be reached from a present one and must be dropped
-// here rather than in the recursive query.
 function presentDecision(
 	runtime: ImpactDependencies,
 	decisionId: string,

@@ -5,17 +5,14 @@ import type { RuntimeRegistry } from "@/mcp/runtime-registry";
 import { errorResult, guidanceResult } from "./results";
 
 const RESOLUTION_HINT =
-	"Absolute path to the project to target — any directory inside it works; " +
-	"the nearest .cortex/ store is resolved walking up from it.";
+	"Absolute path inside the target project (nearest .cortex/ wins).";
 
 export function projectPathField(registry: RuntimeRegistry) {
 	const field = z.string().min(1);
 	if (registry.hasDefaultProject) {
 		return field
 			.optional()
-			.describe(
-				`${RESOLUTION_HINT} Omit to use the project the server started in.`,
-			);
+			.describe(`${RESOLUTION_HINT} Omit for the server's own project.`);
 	}
 	return field.describe(
 		`${RESOLUTION_HINT} Required: this server started outside any ` +

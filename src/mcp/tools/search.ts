@@ -2,21 +2,18 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { CortexRuntime } from "@/app/runtime";
 import { searchDecisions } from "@/app/search-decisions";
-import {
-	displayScore,
-	type SemanticSearchResult,
-} from "@/embedding/semantic-search";
+import type { SemanticSearchResult } from "@/embedding/semantic-search";
 import type { RuntimeRegistry } from "@/mcp/runtime-registry";
 import { searchQuery } from "@/querylog/entry";
 import { READ_ONLY_ANNOTATIONS } from "./annotations";
 import { projectPathField, scopedToProject } from "./project-scope";
 import { jsonResult } from "./results";
 
-const DESCRIPTION = `Keyword and semantic search over the project's recorded decisions (Cortex).
+const DESCRIPTION = `Search this project's recorded decisions by keywords (Cortex).
 
-Pass several terms, mixing Portuguese and English variants of the same concept — e.g. ["autenticação", "authentication", "jwt", "login"] — terms are OR-ed and matching ignores accents ("decisao" finds "decisão"). With exact=true only literal full-text matches return (fast and precise, good for error messages, library names, and qualified symbols like "AuthService.validateToken"). Default (false) also ranks semantically when the embedding model is available, so conceptually related decisions surface even without term overlap.
+Pass several terms mixing Portuguese and English variants — e.g. ["autenticação", "authentication", "jwt", "login"]; terms are OR-ed and accents ignored. exact=true matches literal text only (error messages, library names, qualified symbols); the default also ranks semantically.
 
-Returns compact results: id, title, score, and source ("vector" = semantic match, "fts" = textual match). Use get_impact on an id before changing what you find.`;
+Returns rank, id, title, module and source ("vector" or "fts"). Read entries in full with get_decision; call get_impact before changing what you find.`;
 
 const NO_MATCH_GUIDANCE =
 	"No decision matched these terms. Retry with broader PT/EN variants, or " +
@@ -66,17 +63,17 @@ async function search(
 		results.map((result) => result.node.id),
 	);
 	return jsonResult({
-		results: results.map(resultEntry),
+		results: results.map((result, index) => resultEntry(result, index)),
 		...(results.length === 0 ? { guidance: NO_MATCH_GUIDANCE } : {}),
 	});
 }
 
-function resultEntry(result: SemanticSearchResult) {
+function resultEntry(result: SemanticSearchResult, index: number) {
 	return {
+		rank: index + 1,
 		id: result.node.id,
 		title: result.node.title,
 		module: result.node.module,
-		score: displayScore(result.score),
 		source: result.source,
 	};
 }

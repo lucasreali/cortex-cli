@@ -75,18 +75,41 @@ function edgeRows(kind: string): Array<{ from_id: string; to_id: string }> {
 }
 
 describe("EdgeRepository.getImpact", () => {
-	test("walks DEPENDS_ON chains in both directions", () => {
+	test("walks DEPENDS_ON chains in both directions, labelled", () => {
 		const a = create(decisionInput(), context);
 		const b = create(decisionInput({ depends_on: [a.id] }), context);
 		const c = create(decisionInput({ depends_on: [b.id] }), context);
 
 		expect(edges.getImpact(a.id, 5)).toEqual([
-			{ nodeId: b.id, depth: 1 },
-			{ nodeId: c.id, depth: 2 },
+			{ nodeId: b.id, depth: 1, relation: "dependent" },
+			{ nodeId: c.id, depth: 2, relation: "dependent" },
 		]);
 		expect(edges.getImpact(c.id, 5)).toEqual([
-			{ nodeId: b.id, depth: 1 },
-			{ nodeId: a.id, depth: 2 },
+			{ nodeId: b.id, depth: 1, relation: "dependency" },
+			{ nodeId: a.id, depth: 2, relation: "dependency" },
+		]);
+	});
+
+	test("never steps sideways onto a sibling that shares a dependency", () => {
+		const base = create(decisionInput(), context);
+		const one = create(decisionInput({ depends_on: [base.id] }), context);
+		create(decisionInput({ depends_on: [base.id] }), context);
+
+		expect(edges.getImpact(one.id, 5)).toEqual([
+			{ nodeId: base.id, depth: 1, relation: "dependency" },
+		]);
+	});
+
+	test("lists a replaced dependent's successor, never the replaced one", () => {
+		const base = create(decisionInput(), context);
+		const old = create(decisionInput({ depends_on: [base.id] }), context);
+		const successor = create(
+			decisionInput({ replaces: old.id, depends_on: [] }),
+			context,
+		);
+
+		expect(edges.getImpact(base.id, 5)).toEqual([
+			{ nodeId: successor.id, depth: 1, relation: "dependent" },
 		]);
 	});
 
@@ -95,7 +118,38 @@ describe("EdgeRepository.getImpact", () => {
 		const b = create(decisionInput({ depends_on: [a.id] }), context);
 		create(decisionInput({ depends_on: [b.id] }), context);
 
-		expect(edges.getImpact(a.id, 1)).toEqual([{ nodeId: b.id, depth: 1 }]);
+		expect(edges.getImpact(a.id, 1)).toEqual([
+			{ nodeId: b.id, depth: 1, relation: "dependent" },
+		]);
+	});
+});
+
+describe("EdgeRepository.listVersionedLinks", () => {
+	test("reads every link around a decision, from both ends", () => {
+		const base = create(decisionInput(), context);
+		const old = create(decisionInput({ depends_on: [base.id] }), context);
+		const successor = create(decisionInput({ replaces: old.id }), context);
+		const retired = create(decisionInput(), context);
+		const retirer = create(decisionInput({ archives: retired.id }), context);
+
+		const links = edges.listVersionedLinks([
+			old.id,
+			successor.id,
+			retired.id,
+			retirer.id,
+		]);
+
+		expect(links.get(old.id)).toEqual({
+			dependsOn: [base.id],
+			replaces: [],
+			replacedBy: [successor.id],
+			archives: [],
+			archivedBy: [],
+		});
+		expect(links.get(successor.id)?.replaces).toEqual([old.id]);
+		expect(links.get(retired.id)?.archivedBy).toEqual([retirer.id]);
+		expect(links.get(retirer.id)?.archives).toEqual([retired.id]);
+		expect(edges.listVersionedLinks([]).size).toBe(0);
 	});
 });
 
@@ -279,40 +333,21 @@ describe("NodeRepository project and session nodes", () => {
 		});
 	});
 
-	test("listSessionSummaries returns only sessions with a summary", () => {
+	test("listSessionSummaries reads the summaries an older cortex stored", () => {
 		const summarized = nodes.createSession(PROJECT_ID);
 		nodes.createSession(PROJECT_ID);
-		nodes.updateSessionSummary(summarized, "Refatorada a autenticação.");
+		db.query("UPDATE nodes SET body = ? WHERE id = ?").run(
+			"Refatorada a autenticação.",
+			summarized,
+		);
 
-		const summaries = nodes.listSessionSummaries(10);
-		expect(summaries).toEqual([
+		expect(nodes.listSessionSummaries(10)).toEqual([
 			{
 				id: summarized,
 				summary: "Refatorada a autenticação.",
 				createdAt: expect.any(String),
 			},
 		]);
-	});
-
-	test("updateSessionSummary replaces the previous narrative", () => {
-		const session = nodes.createSession(PROJECT_ID);
-		nodes.updateSessionSummary(session, "Primeira versão do resumo.");
-		nodes.updateSessionSummary(session, "Resumo final da sessão.");
-
-		expect(nodes.listSessionSummaries(10)).toEqual([
-			{
-				id: session,
-				summary: "Resumo final da sessão.",
-				createdAt: expect.any(String),
-			},
-		]);
-	});
-
-	test("updateSessionSummary never touches decision nodes", () => {
-		const decision = create(decisionInput(), context);
-		nodes.updateSessionSummary(decision.id, "não deveria sobrescrever");
-
-		expect(nodes.getById(decision.id)?.body).toBe(decision.body);
 	});
 });
 

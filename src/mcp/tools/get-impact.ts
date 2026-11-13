@@ -4,13 +4,14 @@ import type { DecisionImpact } from "@/app/decision-impact";
 import { decisionImpact } from "@/app/decision-impact";
 import type { CortexRuntime } from "@/app/runtime";
 import type { RuntimeRegistry } from "@/mcp/runtime-registry";
+import { anchorEntries } from "./anchor-entry";
 import { READ_ONLY_ANNOTATIONS } from "./annotations";
 import { projectPathField, scopedToProject } from "./project-scope";
 import { guidanceResult, jsonResult } from "./results";
 
-const DESCRIPTION = `List every decision affected by changing a given decision, through two lenses.
+const DESCRIPTION = `List what changing a decision affects (Cortex). Call it before modifying, replacing or contradicting one.
 
-Call this before modifying, replacing, or contradicting a recorded decision. "impacted" walks explicit DEPENDS_ON links in both directions — decisions this one builds on, and decisions built on it — up to max_depth hops. "conflicts" lists the decisions already recorded as contradicting this one, from either side of the declaration. "code_impacted" walks the code: decisions anchored to files that transitively import the files this decision is anchored to, up to code_depth import hops. Code entries carry provenance — "exact" import chains are reliably resolved, "heuristic" ones come from inferred resolution and may be wrong; treat them as leads, not proof. Every anchor carries a confidence, resolved against this checkout: "exact" (the file declares that symbol), "name_only" (the symbol lives in another file — likely moved or renamed), "file_only" (a file-level anchor, or a symbol the index cannot judge), "unresolved" (the file is gone, or the symbol vanished from a file that is indexed) and "unknown" (the code index could not be read — see code_warning). Weigh an "exact" anchor above a weaker one. If the code index cannot be loaded, code_impacted comes back empty with a code_warning explaining why; if the import walk hit its row cap, truncated.import_walk_capped says so and code_impacted is biased towards the shallowest hops. Use the returned ids with get_context or search for full detail.`;
+"impacted" walks DEPENDS_ON up to max_depth, each entry labelled relation "dependent" (builds on this decision — a change here can break it) or "dependency" (this decision builds on it); "conflicts" lists declared contradictions; "code_impacted" lists decisions anchored to files that transitively import this decision's files, up to code_depth, with provenance "exact" or "heuristic" (a lead, not proof). Anchors carry the same confidence labels as get_context. code_warning and truncated explain an incomplete answer. Read any returned id in full with get_decision.`;
 
 const CAP_GUIDANCE =
 	"This decision reaches more entries than one answer carries. " +
@@ -105,17 +106,20 @@ function toPayload(impact: DecisionImpact) {
 			id: root.id,
 			title: root.title,
 			status: root.status,
-			anchors: root.anchors,
+			anchors: anchorEntries(root.anchors),
 		},
 		...truncationMarker(impact),
 		conflicts: impact.conflicts,
-		impacted: impact.impacted.slice(0, MAX_ENTRIES).map(({ node, depth }) => ({
-			id: node.id,
-			depth,
-			title: node.title,
-			status: node.status,
-			anchors: node.anchors,
-		})),
+		impacted: impact.impacted
+			.slice(0, MAX_ENTRIES)
+			.map(({ node, depth, relation }) => ({
+				id: node.id,
+				depth,
+				relation,
+				title: node.title,
+				status: node.status,
+				anchors: anchorEntries(node.anchors),
+			})),
 		code_impacted: impact.codeImpacted.slice(0, MAX_ENTRIES).map((entry) => ({
 			id: entry.decision.id,
 			title: entry.decision.title,

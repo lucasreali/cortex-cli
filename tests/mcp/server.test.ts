@@ -61,10 +61,11 @@ describe("cortex MCP server e2e", () => {
 	let decisionA: string;
 	let decisionB: string;
 
-	test("exposes the six tools", async () => {
+	test("exposes the seven tools", async () => {
 		const tools = await client.listTools();
 		expect(tools.tools.map((tool) => tool.name).sort()).toEqual([
 			"get_context",
+			"get_decision",
 			"get_impact",
 			"save_decision",
 			"save_session_summary",
@@ -80,6 +81,7 @@ describe("cortex MCP server e2e", () => {
 		);
 		for (const name of [
 			"get_context",
+			"get_decision",
 			"get_impact",
 			"search",
 			"search_all_projects",
@@ -172,7 +174,6 @@ describe("cortex MCP server e2e", () => {
 		expect(payload.decision.anchors).toEqual([
 			{
 				filePath: "src/auth/missing.ts",
-				symbol: "",
 				confidence: "unresolved",
 			},
 			{
@@ -185,11 +186,28 @@ describe("cortex MCP server e2e", () => {
 			{
 				id: decisionB,
 				depth: 1,
+				relation: "dependent",
 				title: "Refresh tokens em cookie httpOnly",
 				status: "active",
 				anchors: [],
 			},
 		]);
+	});
+
+	test("get_decision returns the full body and the links around it", async () => {
+		const { payload } = await callTool("get_decision", {
+			ids: [decisionB, "019f0000-0000-7000-8000-00000000dead"],
+		});
+
+		expect(payload.decisions).toHaveLength(1);
+		expect(payload.decisions[0]).toMatchObject({
+			id: decisionB,
+			status: "active",
+			body: "Refresh tokens rotacionados a cada uso ficam em cookie httpOnly.",
+			keywords: ["refresh", "token", "cookie", "sessão", "security"],
+			depends_on: [decisionA],
+		});
+		expect(payload.not_found).toEqual(["019f0000-0000-7000-8000-00000000dead"]);
 	});
 
 	test("get_impact reaches decisions through code imports, with provenance", async () => {
@@ -207,6 +225,14 @@ describe("cortex MCP server e2e", () => {
 		});
 
 		expect(payload.code_impacted).toEqual([
+			{
+				id: expect.any(String),
+				title: "Validação de token centralizada no AuthService",
+				status: "active",
+				file: "src/auth/service.ts",
+				depth: 0,
+				provenance: "exact",
+			},
 			{
 				id: loginDecision,
 				title: "Endpoint de login usa o AuthService diretamente",
