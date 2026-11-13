@@ -205,3 +205,13 @@ describe("getHead", () => {
 		expect(getHead(dir)?.dirty).toBe(true);
 	});
 });
+
+describe("listRepoFiles", () => {
+	// Without -z, git quotes these names and the quoted spelling matches no file.
+	test("returns names git would quote exactly as they are on disk", () => {
+		const names = ['say "hi".ts', "back\\slash.ts", "tab\there.ts", " lead.ts"];
+		for (const name of names) writeFileSync(join(dir, name), "");
+
+		expect(listRepoFiles(dir)?.sort()).toEqual([...names].sort());
+	});
+});

@@ -13,7 +13,14 @@ import { type EmbedKind, isDaemonBusy } from "./protocol";
 export interface SharedEmbeddingProviderOptions extends ConnectOptions {
 	paths?: DaemonPaths;
 	version?: string;
+	now?: () => number;
 }
+
+// How long "the daemon cannot be reached" stays the answer. It used to stay it
+// for the life of the process: one failed spawn at the start of a week-long MCP
+// session pinned that session to its own private worker, ~1.3 GB each, long
+// after a daemon was available again.
+export const DAEMON_RETRY_AFTER_MS = 60_000;
 
 // Multiplexes embedding onto the user-wide daemon so N concurrent sessions
 // share one model load, degrading to the private worker whenever the daemon
@@ -22,7 +29,7 @@ export interface SharedEmbeddingProviderOptions extends ConnectOptions {
 export class SharedEmbeddingProvider extends KindEmbeddingProvider {
 	private connection: DaemonConnection | null = null;
 	private connecting: Promise<DaemonConnection | null> | null = null;
-	private daemonUnavailable = false;
+	private unavailableUntil = 0;
 
 	constructor(
 		private readonly direct: GemmaProvider,
@@ -71,7 +78,7 @@ export class SharedEmbeddingProvider extends KindEmbeddingProvider {
 	private async ensureConnection(): Promise<DaemonConnection | null> {
 		if (this.connection?.alive) return this.connection;
 		if (this.connection) this.forgetDroppedConnection();
-		if (this.daemonUnavailable) return null;
+		if (this.now() < this.unavailableUntil) return null;
 		this.connecting ??= this.connect();
 		try {
 			return await this.connecting;
@@ -84,14 +91,19 @@ export class SharedEmbeddingProvider extends KindEmbeddingProvider {
 	// restarted (e.g. by an upgrade), so the next embed runs a fresh cycle.
 	private forgetDroppedConnection(): void {
 		this.connection = null;
-		this.daemonUnavailable = false;
+		this.unavailableUntil = 0;
 	}
 
 	private async connect(): Promise<DaemonConnection | null> {
 		const connection = await connectToDaemon(this.endpoint(), this.options);
 		this.connection = connection;
-		this.daemonUnavailable = connection === null;
+		this.unavailableUntil =
+			connection === null ? this.now() + DAEMON_RETRY_AFTER_MS : 0;
 		return connection;
+	}
+
+	private now(): number {
+		return (this.options.now ?? Date.now)();
 	}
 
 	private endpoint(): DaemonEndpoint {

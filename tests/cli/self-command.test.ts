@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { selfCommand } from "@/cli/self-command";
+import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { selfCommand, stableBinaryPath } from "@/cli/self-command";
 import { isShellSafeCommandWord } from "@/install/git-hooks";
 import { currentBinaryPath } from "@/release/installer";
 
@@ -44,5 +47,22 @@ describe("selfCommand", () => {
 		);
 		expect(command.args[0]).toBe("C:/repo/src/cli/main.ts");
 		expect(isShellSafeCommandWord(command.args[0] ?? "")).toBe(true);
+	});
+});
+
+describe("stableBinaryPath", () => {
+	test("prefers the PATH entry that resolves to this same binary", () => {
+		const dir = mkdtempSync(join(tmpdir(), "cortex-self-"));
+		try {
+			const link = join(dir, "cortex");
+			symlinkSync(currentBinaryPath(), link);
+			expect(stableBinaryPath(() => link)).toBe(link);
+			expect(stableBinaryPath(() => null)).toBe(currentBinaryPath());
+			expect(stableBinaryPath(() => join(dir, "missing"))).toBe(
+				currentBinaryPath(),
+			);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 });

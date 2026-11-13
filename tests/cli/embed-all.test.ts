@@ -23,4 +23,22 @@ describe("embedAll", () => {
 			rmSync(dir, { recursive: true, force: true });
 		}
 	}, 15_000);
+
+	test("a failure costs only the decision that failed, never the rest", () => {
+		const dir = mkdtempSync(join(tmpdir(), "cortex-embed-all-"));
+		try {
+			const result = Bun.spawnSync(["bun", DRIVER_PATH, dir, "flaky"], {
+				stdout: "pipe",
+				stderr: "pipe",
+			});
+			expect(result.exitCode).toBe(1);
+			expect(result.stdout.toString()).toContain("Embedded 2 decision(s).");
+			expect(result.stdout.toString()).toContain("pending:1");
+			expect(result.stderr.toString()).toContain(
+				"1 decision(s) could not be embedded",
+			);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	}, 15_000);
 });

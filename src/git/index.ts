@@ -20,17 +20,24 @@ export function getCanonicalProjectId(cwd: string): string | null {
 	return parseRemoteUrl(remoteUrl) ?? root;
 }
 
+// NUL-separated, never newline-separated: without -z git quotes any name
+// holding a double quote, a backslash or a control character, and a quoted name
+// matches no file on disk — it vanished from the index without ever being
+// reported as skipped. The output is not trimmed for the same reason: a name
+// may begin or end with a space.
 export function listRepoFiles(cwd: string): string[] | null {
-	const output = runGit(cwd, [
-		"-c",
-		"core.quotepath=off",
+	const result = spawnGit(cwd, [
 		"ls-files",
+		"-z",
 		"--cached",
 		"--others",
 		"--exclude-standard",
 	]);
-	if (output === null) return null;
-	return output.split("\n").filter((line) => line.length > 0);
+	if (result === null || result.exitCode !== 0) return null;
+	return result.stdout
+		.toString()
+		.split("\0")
+		.filter((name) => name.length > 0);
 }
 
 // git is the only thing that knows where hooks live: core.hooksPath, husky and

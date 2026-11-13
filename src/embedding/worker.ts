@@ -1,7 +1,11 @@
 import type { pipeline as pipelineType } from "@huggingface/transformers";
 import { DownloadProgress } from "./download-progress";
 import { GEMMA_MODEL } from "./model";
-import { markModelResident, modelIsResident } from "./model-cache";
+import {
+	markModelResident,
+	modelIsResident,
+	withModelAcquisition,
+} from "./model-cache";
 import { modelsDir } from "./models-dir";
 import { encodeNdjson, LineBuffer } from "./ndjson";
 import { ensureOnnxRuntimeAssets } from "./onnxruntime-assets";
@@ -39,17 +43,20 @@ async function createExtractor(): Promise<Extractor> {
 	const progress = modelIsResident() ? null : new DownloadProgress();
 	// q8 is mandatory: q4 uses GatherBlockQuantized, which the wasm
 	// execution provider does not implement.
-	const loaded = await pipeline(
-		"feature-extraction",
-		GEMMA_MODEL.huggingFaceId,
-		{
-			device: "wasm",
-			dtype: "q8",
-			progress_callback: (event) => reportProgress(progress, event),
-		},
-	);
-	markModelResident();
-	return loaded;
+	return withModelAcquisition(async () => {
+		const loaded = await pipeline(
+			"feature-extraction",
+			GEMMA_MODEL.huggingFaceId,
+			{
+				device: "wasm",
+				dtype: "q8",
+				revision: GEMMA_MODEL.revision,
+				progress_callback: (event) => reportProgress(progress, event),
+			},
+		);
+		markModelResident();
+		return loaded;
+	});
 }
 
 function reportProgress(

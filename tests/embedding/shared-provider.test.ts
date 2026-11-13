@@ -6,7 +6,10 @@ import { EmbeddingDaemon } from "@/embedding/daemon/embedding-daemon";
 import { type DaemonPaths, daemonPathsFor } from "@/embedding/daemon/paths";
 import { GemmaProvider } from "@/embedding/gemma-provider";
 import { GEMMA_MODEL } from "@/embedding/model";
-import { SharedEmbeddingProvider } from "@/embedding/shared-provider";
+import {
+	DAEMON_RETRY_AFTER_MS,
+	SharedEmbeddingProvider,
+} from "@/embedding/shared-provider";
 import { CORTEX_VERSION } from "@/version";
 
 const FAKE_WORKER = new URL(
@@ -41,7 +44,10 @@ function startDaemon(
 	return daemon;
 }
 
-function makeProvider(paths: DaemonPaths): {
+function makeProvider(
+	paths: DaemonPaths,
+	now?: () => number,
+): {
 	shared: SharedEmbeddingProvider;
 	direct: GemmaProvider;
 } {
@@ -49,6 +55,7 @@ function makeProvider(paths: DaemonPaths): {
 	const shared = new SharedEmbeddingProvider(direct, {
 		paths,
 		spawnDaemon: false,
+		now,
 	});
 	providers.push(shared);
 	return { shared, direct };
@@ -84,6 +91,21 @@ describe("SharedEmbeddingProvider", () => {
 		expect([...(await shared.embedQuery("hello"))]).toEqual([5, 0, 1]);
 		expect(shared.daemonConnected).toBe(false);
 		expect(direct.workerRunning).toBe(true);
+	});
+
+	test("an unreachable daemon is tried again once the verdict expires", async () => {
+		const paths = makePaths();
+		let clock = 0;
+		const { shared } = makeProvider(paths, () => clock);
+		await shared.embedQuery("hello");
+		startDaemon(paths);
+
+		clock = DAEMON_RETRY_AFTER_MS - 1;
+		await shared.embedQuery("hello");
+		expect(shared.daemonConnected).toBe(false);
+		clock = DAEMON_RETRY_AFTER_MS;
+		await shared.embedQuery("hello");
+		expect(shared.daemonConnected).toBe(true);
 	});
 
 	test("falls back when the daemon speaks another version", async () => {

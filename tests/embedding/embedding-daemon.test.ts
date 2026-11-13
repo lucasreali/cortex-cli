@@ -426,7 +426,7 @@ describe("EmbeddingDaemon", () => {
 		});
 		try {
 			raw.write("not json at all\n");
-			raw.write(JSON.stringify({ id: "not a number" }) + "\n");
+			raw.write(`${JSON.stringify({ id: "not a number" })}\n`);
 			const failures = [
 				connection.embed("query", ["!error"]),
 				connection.embed("query", ["!hang"]),

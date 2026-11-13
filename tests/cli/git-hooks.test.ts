@@ -14,6 +14,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { markModelResident } from "@/embedding/model-cache";
 import { CORTEX_HOOK_BEGIN, CORTEX_HOOK_END } from "@/install/git-hooks";
 
 const MAIN_PATH = new URL("../../src/cli/main.ts", import.meta.url).pathname;
@@ -390,6 +391,13 @@ describe("what a hook defers to a detached embed", () => {
 	const BROUGHT = "019f0000-0000-7000-8000-0000000000c3";
 	const CARRIED = "019f0000-0000-7000-8000-0000000000d4";
 
+	let models: string;
+
+	beforeEach(() => {
+		models = join(home, "models");
+		markModelResident(models);
+	});
+
 	function embedding(...args: string[]) {
 		return Bun.spawnSync(["git", ...args], {
 			cwd: dir,
@@ -400,6 +408,7 @@ describe("what a hook defers to a detached embed", () => {
 				HOME: home,
 				CORTEX_EMBED_WORKER_PATH: FAKE_WORKER,
 				CORTEX_DISABLE_EMBEDDINGS: "",
+				CORTEX_MODELS_DIR: models,
 			},
 		});
 	}
@@ -514,6 +523,19 @@ describe("what a hook defers to a detached embed", () => {
 		expect(embedding("commit", "-m", "no config").exitCode).toBe(0);
 
 		expect(await eventuallyEmbedded(BROUGHT)).toBe(true);
+	}, 30_000);
+
+	// The first commit after init used to download ~300 MB in a detached child
+	// whose output nobody saw.
+	test("a commit never downloads a model that is not here yet", async () => {
+		repoWithHooks();
+		models = join(home, "empty-models");
+		decisionFile(BROUGHT, "Decision waiting for an explicit fetch");
+		embedding("add", "-A");
+
+		expect(embedding("commit", "-m", "no model").exitCode).toBe(0);
+
+		expect(await stillNotEmbedded(BROUGHT)).toBe(true);
 	}, 30_000);
 
 	test("the kill-switch still stops the embed as well as the hook", async () => {

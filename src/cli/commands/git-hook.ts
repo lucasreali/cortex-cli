@@ -3,6 +3,7 @@ import { selfCommand } from "@/cli/self-command";
 import { exportDecisionsIfNeeded } from "@/decisions/bootstrap";
 import { openDecisionSync } from "@/decisions/decision-sync";
 import { GEMMA_MODEL } from "@/embedding/model";
+import { modelIsResident } from "@/embedding/model-cache";
 import { replayStepsRemaining } from "@/git/replay";
 import {
 	type HookEvent,
@@ -105,9 +106,15 @@ function reconcileOnce(
 // sequencer still has steps to run the embed is left to the last of them,
 // whose todo is empty by the time this hook sees it, and one embed covers
 // everything the replay brought.
+//
+// And a hook never downloads the model: the first commit after `init` used to
+// fetch ~300 MB in a detached child with its output discarded, so nothing told
+// the user why the disk and the network were busy. `cortex embed --fetch-model`
+// is the explicit step, and doctor names it until it has run.
 function embedsAfter(event: HookEvent, cwd: string): boolean {
 	if (process.env.CORTEX_DISABLE_EMBEDDINGS === "1") return false;
 	if (event === "post-checkout") return false;
+	if (!modelIsResident()) return false;
 	return !replayStepsRemaining(cwd);
 }
 
