@@ -432,7 +432,7 @@ separately by `bun run eval:search`.
 
 ## Development
 
-Working on cortex itself needs [Bun](https://bun.com) 1.3+:
+Working on cortex itself needs [Bun](https://bun.com) 1.4+ (CI pins 1.4.0, as `packageManager` in `package.json` says):
 
 ```bash
 bun install

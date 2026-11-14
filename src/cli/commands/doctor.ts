@@ -298,7 +298,9 @@ function checkDuplicates(runtime: CortexRuntime, report: DoctorReport): void {
 }
 
 // Read before trusting: these are the decisions the prompt hook would place in
-// front of a model, and the shapes a hostile pull request would take.
+// front of a model, and the shapes a hostile pull request would take. Notes,
+// not issues — a decision about an install script quotes the command it runs,
+// and an exit code that never clears teaches people to stop reading doctor.
 function checkHookContent(runtime: CortexRuntime, report: DoctorReport): void {
 	const flags = flaggedContent(runtime.nodes.listActive());
 	if (flags.length === 0) {
@@ -306,8 +308,9 @@ function checkHookContent(runtime: CortexRuntime, report: DoctorReport): void {
 		return;
 	}
 	for (const flag of flags) {
-		report.warn(
-			`review ${flag.decision.id}.md ("${flag.decision.title}"): ${flag.reason}`,
+		report.ok(
+			`review before trusting: ${flag.decision.id}.md ` +
+				`("${flag.decision.title}") ${flag.reason}`,
 		);
 	}
 }

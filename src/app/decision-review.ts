@@ -10,14 +10,15 @@ export interface DecisionContentFlag {
 	reason: string;
 }
 
-// Words a codebase's prompts use all the time. As a keyword one of them makes
-// the prompt hook inject that decision on nearly every prompt — which is
-// exactly what a pull request wanting its text in front of the model would
-// choose. Function words are not here: the hook never matches those at all.
+// Words that name no topic at all, only the shape of a request. As a keyword
+// one of them makes the prompt hook inject that decision on nearly every
+// prompt — exactly what a pull request wanting its text in front of the model
+// would choose. Topical words, however common ("cli", "config", "erro"), stay
+// out: a store that curates them as keywords means them. Function words are
+// not here either: the hook never matches those at all.
 const CATCH_ALL_KEYWORDS = new Set(
-	`api app bug bugs class classe cli config data dados error errors erro erros
-	feature function funcao help ajuda issue problem problema refactor
-	refatorar server servidor test teste testes tests todo type tipo user usuario`
+	`ajuda bug bugs feature features help improvement issue issues melhoria
+	problem problema problems todo`
 		.split(/\s+/)
 		.filter((word) => word.length > 0),
 );

@@ -78,6 +78,10 @@ Dependency direction, no cycles:
   store already versions, a query holds the text of the question. `QueryLog`
   never throws and never reads on the write path; `observedQueries` turns the
   log into candidate evaluation cases.
+- `sessions/` — the session narratives `save_session_summary` writes, as a
+  per-machine JSONL under `LOCAL_DIRECTORY` (`SessionSummaryLog`). They used
+  to live in `decisions.db`, the cache every error message says may be
+  deleted; the rows an older cortex left there are still read, never written.
 - `benchmark/` — the context-economy measurement behind `BENCHMARKS.md`, and
   the third pure peer of `decisions/` and `usefulness/`: it depends on nothing
   but itself and takes the retrieval path as a parameter, so it is the one
@@ -178,7 +182,7 @@ Dependency direction, no cycles:
   `init` writes into `CLAUDE.md` and the shell block `install --git-hooks`
   writes into a hook, and its `remove` is the exact inverse of its append —
   that is what lets uninstall hand a file the user owns back unchanged.
-- `mcp/` — server with 6 tools; `RuntimeRegistry` caches one runtime per
+- `mcp/` — server with 7 tools; `RuntimeRegistry` caches one runtime per
   resolved project root, as an LRU capped at 8 that disposes what it evicts.
   A runtime is leased for the length of the handler (`withRuntime`), so the
   cache never closes one a call is still using. Recoverable states return
@@ -187,6 +191,8 @@ Dependency direction, no cycles:
   rebuildable per-user registry filled by `cortex init` and first use — and
   returns results grouped per project, never merged into one ranking. Scoped
   reads stay scoped; never fold cross-project search into them.
+  `get_impact` walks `DEPENDS_ON` in two directed passes (`src/storage/queries/get-impact.sql`),
+  labelled `dependent` or `dependency`; an undirected walk lists siblings.
   Rebuildable is not disposable: a registry that is there but unreadable is
   renamed to `projects.json.corrupt.<timestamp>` before anything writes over
   it, and left alone when even that fails, because starting fresh drops every
@@ -209,11 +215,15 @@ by count and by deadline, with the remainder reported as `skipped`.
 ## Decisions are files, the database is a cache
 
 **A decision file is immutable. Changing your mind writes a new file with
-`replaces`; nothing ever rewrites an existing one.** This is what lets drift
-detection be a plain set difference, lets `nodes_fts` stay insert-only, and
-lets a stored vector outlive a branch switch without a content hash. If an
-edit path is ever added, stored vectors and FTS rows go stale silently —
-revisit a `content_sha` column that day, and not before.
+`replaces`; nothing ever rewrites an existing one.** cortex never edits one —
+but a file is markdown on a branch, and people do: a typo fix, a merge that
+resolved a conflict inside it. So every row carries `content_sha`, the hash of
+the bytes it was derived from, and the cheap reconcile reads and hashes every
+present file (no parse) to compare. A file whose hash moved is rewritten into
+its row, anchors and FTS entry (`updateDecision`); its vector is dropped only
+when the title or body moved. A row with no hash predates the column and is
+rewritten once. Without this, two clones of one repository answered
+differently forever.
 
 - `nodes.present` is a working-tree fact (is the file on this branch?),
   `status` a product fact (was it superseded?). Orthogonal, never folded.
@@ -298,6 +308,15 @@ revisit a `content_sha` column that day, and not before.
 - The reconcile does not enqueue embeddings: a pull must not make `cortex log`
   load the model, and a CLI process disposes before the embed would finish.
   `cortex embed --missing` owns that, and doctor reports the pending count.
+- `prompt-hook` injects decision text only in a trusted project:
+  `src/storage/project-trust.ts` keeps a per-user list that `cortex init` and
+  `cortex trust` alone fill, and no environment variable relocates it. An
+  untrusted clone gets a fixed pointer to `get_context` and not one word of a
+  decision file. What it does inject is framed as data written by
+  contributors, with provenance and commit, and `doctor` notes decisions that
+  link out, carry commands, address the model or use catch-all keywords
+  (`app/decision-review.ts`) — notes, never issues, so the exit code stays
+  meaningful.
 - `prompt-hook` never reconciles — it is read-only and must never migrate. It
   serves the previous view until the next command runs. Read-only to SQLite is
   not read-only to the filesystem, though: reading a WAL database creates
@@ -323,8 +342,9 @@ revisit a `content_sha` column that day, and not before.
   sequencer has steps left: a rebase replays post-commit once per commit, so
   fifty replayed commits would load the model fifty times.
   `replayStepsRemaining` reads the todo file git rewrites before each of them,
-  which is empty on the last one, so the whole replay costs one embed. It does
-  not touch the code index.
+  which is empty on the last one, so the whole replay costs one embed. And
+  never while the model is not resident: a hook does not download ~300 MB in a
+  child nobody sees. It does not touch the code index.
 
 ## The usefulness sidecar ranks, it never selects
 
@@ -547,6 +567,11 @@ one budget.
   deadline. Only the process that would spawn the download knows there is one
   to wait for, so a fake or a stub must not silently inherit a 15-minute
   budget.
+- The model is pinned to a commit (`GEMMA_MODEL.revision`), never `main`, and
+  the residency marker is named for it, because pinning moves where
+  transformers.js keeps the files. A worker acquiring the model holds
+  `withModelAcquisition`'s lock in the models directory, so two never write one
+  cache; every failure of that lock degrades to loading without it.
 - The worker narrates the download on stderr (which the parent inherits) and
   only while acquiring: transformers.js reports the same progress for a file it
   streams out of the cache as for one it fetches, so a resident model would
@@ -567,7 +592,9 @@ cannot reach is still a branch the suite has to drive, and `RUNS_ON_WINDOWS`
   files — they are what a second process reads to find the daemon at all. That
   namespace is machine-wide, so the owner is part of the pipe's name; without
   it two accounts would race for one daemon and the loser would be handed the
-  other's. Nothing about the degradation ladder changes: a pipe that cannot be
+  other's. The name also carries a random token kept in the user's daemon
+  directory, because a name another account can compute is one it can listen
+  on first. Nothing about the degradation ladder changes: a pipe that cannot be
   reached is `unreachable`, which is the rung the private worker already
   answers.
 - **A running image cannot be renamed over.** The loader holds it open without
@@ -693,7 +720,7 @@ actually has to prove.
   a name that survives only in a comment, in a test or in a derived store has
   not survived. Spans matching none of those shapes are ignored, so a
   minimum-match floor guards the extractor itself. A name that deliberately
-  does not exist — `content_sha` is the standing example — goes in that
+  does not exist — `symbol_key` is the standing example — goes in that
   test's exemption map with its reason, checked in both directions like the
   coverage audit.
 - Every number in `README.md` is a quote from a command's output, and
@@ -728,11 +755,13 @@ commit — `tests/docs/readme.test.ts` fails until the two agree.
 
 This project records its technical decisions with cortex (MCP server
 `cortex`, tools: `save_decision`, `save_session_summary`,
-`get_context`, `get_impact`, `search`, `search_all_projects`).
+`get_context`, `get_decision`, `get_impact`, `search`,
+`search_all_projects`).
 
 - Before proposing an approach or changing existing behavior, call
   `get_context` with your intent (or `search` with keywords) — a past
-  decision may already govern this code.
+  decision may already govern this code. Read the ones that matter in full
+  with `get_decision`.
 - Before reworking code a decision anchors, call `get_impact` with the
   decision id to see everything the change touches.
 - When the user confirms a non-obvious decision, save it with

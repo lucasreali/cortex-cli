@@ -84,8 +84,8 @@ jobs:
       # similarity threshold, intentTerms or the FTS tokenizer could halve
       # recall@5 over a real corpus and the whole suite would stay green. This
       # runs in the one job that already has the model. The floor sits under
-      # today's 0.92 so the corpus can grow without failing the build, and far
-      # above anything that would count as a regression.
+      # the recall the README quotes so the corpus can grow without failing the
+      # build, and far above anything that would count as a regression.
       - name: Search quality — recall@5 over this repo's own decisions
         run: |
           bun src/cli/main.ts sync
