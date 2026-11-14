@@ -25,6 +25,7 @@ import {
 	DECISIONS_DIRECTORY,
 	ProjectRoot,
 } from "@/storage/project-root";
+import { trustProject } from "@/storage/project-trust";
 import { writeAtomically } from "@/support/atomic-write";
 
 export async function runInit(args: string[], cwd: string): Promise<number> {
@@ -49,14 +50,28 @@ export async function runInit(args: string[], cwd: string): Promise<number> {
 	printStep(1, "Register the MCP server with your agents once, user-wide", [
 		"cortex install",
 	]);
-	printStep(2, "Save decisions with save_decision, then explore them", [
+	printStep(
+		2,
+		"Download the embedding model once (~300 MB) for semantic search",
+		["cortex embed --fetch-model"],
+	);
+	printStep(3, "Keep the store in step with commits, merges and checkouts", [
+		"cortex install --git-hooks",
+	]);
+	printStep(4, "Save decisions with save_decision, then explore them", [
 		"cortex search <terms>",
 		"cortex log",
 		"cortex why <path>",
 	]);
-	printStep(3, "Commit each decision file alongside the code it governs", [
+	printStep(5, "Commit each decision file alongside the code it governs", [
 		"git add .cortex/decisions",
 	]);
+	console.log(
+		style.dim(
+			"\nPassive recall: register `cortex prompt-hook` as a Claude Code " +
+				"UserPromptSubmit hook (run it in a terminal for the snippet).",
+		),
+	);
 	return 0;
 }
 
@@ -75,6 +90,9 @@ function initializeStorage(root: string, cortexDir: string): void {
 		const canonicalId = getCanonicalProjectId(root) ?? root;
 		new NodeRepository(db).ensureProject(canonicalId);
 		registerProject(root, canonicalId);
+		// Initializing a project is the person here vouching for it; a clone
+		// that arrives with decision files waits for `cortex trust`.
+		trustProject(root);
 	} finally {
 		db.close();
 	}

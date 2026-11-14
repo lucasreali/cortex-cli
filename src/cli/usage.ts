@@ -14,6 +14,7 @@ export const USAGE = {
 	sync: "sync [--json]",
 	embed: "embed --missing | --rebuild [--yes] | --fetch-model",
 	doctor: "doctor [--json]",
+	trust: "trust [--revoke]",
 	benchmark: "benchmark [--limit N] [--write] [--json]",
 	upgrade: "upgrade [--check [--json]] [--version V] [--force]",
 	"prompt-hook": "prompt-hook",

@@ -181,13 +181,14 @@ Per-project `.cortex/` directories hold your decisions and are left alone.
 
 ## How it works
 
-The agent gets six tools:
+The agent gets seven tools:
 
 | Tool | Purpose |
 |---|---|
 | `save_decision` | Record a decision: title, rationale, keywords (PT/EN), optional module, file/symbol anchors, `depends_on` links, `replaces`, `archives` (retire a decision that no longer applies, without a successor) and `conflicts_with`; returns `conflict_candidates` — already-recorded decisions close enough to contradict the new one |
 | `save_session_summary` | Persist the session's "Implemented / Decisions / Open" narrative — local to the machine, surfaced by `get_context`'s overview |
 | `get_context` | Semantic search by intent ("como autenticamos usuários?") or recent active decisions |
+| `get_decision` | Full body, keywords, anchors and links of decisions by id — the "why" the compact results leave out |
 | `get_impact` | Everything affected by changing a decision — dependency links walked both ways |
 | `search` | Keyword search (accent-insensitive FTS) with optional semantic ranking |
 | `search_all_projects` | Search every Cortex project registered on this machine (`~/.cortex/projects.json`, filled by `cortex init` and first use); results grouped per project, never merged — also available as `cortex search --all-projects` |
@@ -293,6 +294,7 @@ cortex sync [--json]                                  # reconcile the store with
 cortex embed --missing | --rebuild [--yes]            # fill or rebuild the vector index
 cortex embed --fetch-model                            # download the embedding model, no deadline
 cortex doctor [--json]                                # config, anchors, embeddings, model, code index
+cortex trust [--revoke]                               # let the prompt hook read this project's decisions
 cortex benchmark [--limit N] [--write] [--json]       # tokens read per question vs corpus and grep
 cortex upgrade [--check [--json]] [--version V] [--force]      # replace this binary with the latest release
 ```
@@ -312,6 +314,16 @@ prints a `<cortex_context>` block only on a verified match:
 - **medium** — a term hits only a decision title → injects titles/ids and
   points the agent at `get_context`;
 - anything else is a silent no-op, so unrelated prompts cost nothing.
+
+Decision files arrive through pull requests, so the hook only injects their
+text in projects you trust: `cortex init` trusts the project it initializes,
+and `cortex trust` (undone with `--revoke`) trusts a clone. In any other
+project a match produces a one-line pointer to `get_context` and no decision
+text at all. Injected decisions are framed as data written by contributors,
+never instructions, and each names who wrote it and at which commit;
+`cortex doctor` flags decisions that link to URLs, carry shell commands,
+address the model, or use catch-all keywords that would fire on most prompts.
+The trust list is `~/.cortex/trusted-projects.json`.
 
 The gate is pure FTS (no embedding model on this path, ~100ms) and read-only;
 any failure exits 0 with no output, so the hook can never break a prompt.

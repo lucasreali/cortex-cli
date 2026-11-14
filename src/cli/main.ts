@@ -17,6 +17,7 @@ import { runPromptHook } from "./commands/prompt-hook";
 import { runSearch } from "./commands/search";
 import { runServe } from "./commands/serve";
 import { runSync } from "./commands/sync";
+import { runTrust } from "./commands/trust";
 import { runUpgrade } from "./commands/upgrade";
 import { runWhy } from "./commands/why";
 import { reportFailure } from "./error-output";
@@ -85,6 +86,11 @@ const COMMANDS: Record<string, Command> = {
 		run: runDoctor,
 		usage: USAGE.doctor,
 		description: "check store and index health",
+	},
+	trust: {
+		run: runTrust,
+		usage: USAGE.trust,
+		description: "let the prompt hook read this project's decisions",
 	},
 	benchmark: {
 		run: runBenchmark,

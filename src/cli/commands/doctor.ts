@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
+import { duplicateDecisions, flaggedContent } from "@/app/decision-review";
 import type { CortexRuntime } from "@/app/runtime";
 import { symbolHint } from "@/app/symbol-hints";
 import { printJson } from "@/cli/json";
@@ -31,6 +32,7 @@ import {
 	readProjectRegistry,
 } from "@/storage/project-registry";
 import { ProjectRoot } from "@/storage/project-root";
+import { isTrustedProject } from "@/storage/project-trust";
 import { errorMessage } from "@/support/errors";
 import { UsefulnessEventLog } from "@/usefulness/event-log";
 
@@ -49,6 +51,9 @@ export async function runDoctor(args: string[], cwd: string): Promise<number> {
 		checkEmbeddings(runtime, report);
 		checkEmbeddingVintages(runtime, report);
 		checkKeywords(runtime, report);
+		checkDuplicates(runtime, report);
+		checkHookContent(runtime, report);
+		checkTrust(runtime, report);
 		checkUsefulness(runtime, report);
 		checkQueryLog(runtime, report);
 		checkModelDownloaded(report);
@@ -276,6 +281,48 @@ function checkKeywords(runtime: CortexRuntime, report: DoctorReport): void {
 			`fewer than ${MINIMUM_KEYWORDS} keywords: ${entry.title} (${entry.id})`,
 		);
 	}
+}
+
+function checkDuplicates(runtime: CortexRuntime, report: DoctorReport): void {
+	const pairs = duplicateDecisions(runtime.nodes.listActive());
+	if (pairs.length === 0) {
+		report.ok("duplicates: no two active decisions share a title or body");
+		return;
+	}
+	for (const pair of pairs) {
+		report.warn(
+			`duplicate decision: ${pair.duplicate.id} repeats ${pair.kept.id} ` +
+				`("${pair.kept.title}") — retire one with replaces or archives`,
+		);
+	}
+}
+
+// Read before trusting: these are the decisions the prompt hook would place in
+// front of a model, and the shapes a hostile pull request would take.
+function checkHookContent(runtime: CortexRuntime, report: DoctorReport): void {
+	const flags = flaggedContent(runtime.nodes.listActive());
+	if (flags.length === 0) {
+		report.ok("decision content: no links, commands or catch-all keywords");
+		return;
+	}
+	for (const flag of flags) {
+		report.warn(
+			`review ${flag.decision.id}.md ("${flag.decision.title}"): ${flag.reason}`,
+		);
+	}
+}
+
+// A fact, never an issue: an untrusted project is the safe default for a
+// clone, and the hook still points the agent at get_context.
+function checkTrust(runtime: CortexRuntime, report: DoctorReport): void {
+	if (isTrustedProject(runtime.repoRoot)) {
+		report.ok("prompt hook: this project is trusted for passive recall");
+		return;
+	}
+	report.ok(
+		"prompt hook: this project is not trusted, so the hook injects no " +
+			"decision text here — run cortex trust to enable it",
+	);
 }
 
 // A fact, never an issue: an empty sidecar is the normal state of a fresh

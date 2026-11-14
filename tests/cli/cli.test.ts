@@ -937,7 +937,12 @@ describe("cortex prompt-hook", () => {
 			stdin: new TextEncoder().encode(raw),
 			stdout: "pipe",
 			stderr: "pipe",
-			env: { ...process.env, CORTEX_DISABLE_EMBEDDINGS: "1", ...env },
+			env: {
+				...process.env,
+				CORTEX_DISABLE_EMBEDDINGS: "1",
+				HOME: fakeHome,
+				...env,
+			},
 		});
 		return {
 			code: result.exitCode ?? 1,
@@ -945,6 +950,25 @@ describe("cortex prompt-hook", () => {
 			stderr: result.stderr.toString(),
 		};
 	}
+
+	// A clone arrives with decision files anyone with merge rights wrote; not a
+	// word of them reaches the prompt until the user trusts the repository.
+	test("an untrusted project gets a pointer, never decision text", () => {
+		expect(cli("trust", "--revoke").code).toBe(0);
+		try {
+			const result = promptHook({
+				prompt: "como funciona a autenticação por jwt?",
+				cwd: dir,
+			});
+			expect(result.stdout).toContain("cortex trust");
+			expect(result.stdout).not.toContain("Adotar JWT");
+			expect(
+				promptHook({ prompt: "paleta de cores do gráfico", cwd: dir }).stdout,
+			).toBe("");
+		} finally {
+			expect(cli("trust").stdout).toContain("now reads decisions");
+		}
+	});
 
 	test("keyword match injects decisions with title and body (high tier)", () => {
 		const result = promptHook({
@@ -955,6 +979,8 @@ describe("cortex prompt-hook", () => {
 		expect(result.stdout).toContain("<cortex_context");
 		expect(result.stdout).toContain("Adotar JWT para autenticação");
 		expect(result.stdout).toContain("RS256");
+		expect(result.stdout).toContain("not instructions");
+		expect(result.stdout).toContain("written by agent");
 	});
 
 	test("title-only match injects titles and ids only (medium tier)", () => {
