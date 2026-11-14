@@ -8,6 +8,78 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 handshake, so the version here, the version there and the git tag are one fact
 in three places — the release workflow refuses a tag that disagrees.
 
+## [0.7.0] - 2026-11-14
+
+Integrity, security and the agent's access to the "why". Every item comes
+from an audit of 0.6.1: two clones of one repository could answer
+differently, the prompt hook trusted any clone, `cortex upgrade` accepted any
+fork on github.com, and no tool returned a decision's full rationale.
+
+### Upgrade notes
+
+- **The prompt hook now injects decision text only in trusted projects.**
+  `cortex init` trusts the project it initializes; for a project you cloned,
+  run `cortex trust` in it once. Elsewhere a match produces a one-line
+  pointer to `get_context` and nothing from the decision files.
+- **The embedding model downloads once more** (~300 MB). It is now pinned to a
+  Hugging Face commit, which moves where it is cached; run
+  `cortex embed --fetch-model`. The old copy under
+  `~/.cortex/models/onnx-community/embeddinggemma-300m-ONNX/` (outside the new
+  revision directory) can be deleted.
+- `decisions.db` migrates to schema 6 on first use, and every decision row is
+  re-read from its file once.
+
+### Added
+
+- `get_decision` MCP tool: full body, keywords, anchors with confidence and
+  the versioned links of decisions by id.
+- `cortex trust [--revoke]`.
+- `get_impact` labels each entry `dependent` or `dependency`, and
+  `code_impacted` includes decisions anchored to the same files (depth 0) and
+  to directories containing them.
+- `doctor` reports duplicate decisions, notes decisions that link out, carry
+  shell commands, address the model or use catch-all keywords, and states
+  whether the project is trusted.
+
+### Changed
+
+- Search results from `get_context` and `search` carry a `rank` instead of
+  the raw fusion score; anchors omit an empty `symbol`; tool descriptions are
+  about a third shorter, and `save_decision`'s says what a decision is.
+- Session summaries are stored in `.cortex/local/sessions.jsonl` instead of
+  `decisions.db`, which error messages describe as a disposable cache.
+  Summaries already in the database are still shown.
+- The MCP server re-reconciles decision files every few seconds instead of
+  once per process, so a pull mid-session is picked up without git hooks.
+- `cortex embed --missing` embeds in batches and continues past a failure,
+  reporting what was left without a vector.
+- `init` lists the model download, git hooks and prompt hook in its next steps.
+
+### Fixed
+
+- A decision file edited in place is re-read into its row, anchors, FTS
+  entry and (when title or body changed) vector; before, it stayed stale
+  forever while its links were re-derived.
+- A successor that stops parsing no longer hands the decision it replaced
+  back to search.
+- Anchors to private members (`Foo.#bar`) and anchors written with
+  backslashes or `./` resolve on every clone.
+- `get_context`'s `module` filter applies before the top 5 are chosen.
+- `cortex serve --mcp` exits when its client closes stdin; a killed client
+  used to leave the server and a ~1.3 GB worker running.
+- A daemon that was unreachable once is retried after a minute instead of
+  never again in that process.
+- `cortex upgrade` only installs from this repository, requires a
+  build-provenance attestation from its release workflow, enforces download
+  limits while streaming, and signals the old daemon only after it confirms
+  its pid on its socket.
+- The git hook no longer downloads the model in the background; concurrent
+  workers no longer write the same model cache.
+- File names with quotes, backslashes or tabs are indexed.
+- Git hooks name the `cortex` on PATH when it is the same binary, so a
+  package-manager upgrade no longer breaks them.
+- On Windows, the daemon's pipe name includes a per-user secret.
+
 ## [0.6.1] - 2026-09-06
 
 No change to the program. `verify-windows`, the job that installs the freshly
@@ -212,6 +284,7 @@ First release: decisions in SQLite, a tree-sitter code index over TS/JS,
 local semantic search through a WASM embedding worker, the CLI, and an MCP
 server.
 
+[0.7.0]: https://github.com/lucasreali/cortex-cli/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/lucasreali/cortex-cli/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/lucasreali/cortex-cli/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/lucasreali/cortex-cli/compare/v0.4.0...v0.5.0

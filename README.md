@@ -40,7 +40,7 @@ directory to your user `PATH` itself.
 - git is the only runtime dependency (project identity and head tracking).
   On Windows that means Git for Windows, whose bundled `sh` is what runs the
   hooks `cortex install --git-hooks` writes.
-- `CORTEX_VERSION=v0.6.1` pins a release; `CORTEX_INSTALL_DIR=/somewhere/bin`
+- `CORTEX_VERSION=v0.7.0` pins a release; `CORTEX_INSTALL_DIR=/somewhere/bin`
   changes the destination. Both work the same way in PowerShell.
 
 Prefer not to pipe a URL into a shell? Download the tarball for your platform
@@ -51,7 +51,7 @@ verify it, and move the binary yourself:
 what you downloaded instead of the whole file:
 
 ```bash
-asset=cortex-v0.6.1-darwin-arm64.tar.gz
+asset=cortex-v0.7.0-darwin-arm64.tar.gz
 
 grep " $asset\$" checksums.txt | sha256sum -c -   # shasum -a 256 -c - on macOS
 tar -xzf "$asset"
@@ -274,7 +274,7 @@ install --git-hooks` makes it happen when the branch changes instead; see
 not parse, links whose target this store has never seen, and decisions
 superseded from two branches at once. A fresh clone has no vectors until
 `cortex embed --missing` runs; until then search answers on full text alone,
-which measures 0.885 recall@5 against 0.938 once the vectors join it. Those are
+which measures 0.896 recall@5 against 0.938 once the vectors join it. Those are
 this repository's numbers over 48 evaluation cases, printed by
 `bun run eval:search`, which stays the only authority on them.
 
@@ -414,14 +414,17 @@ through the same `search` path an agent takes, and charges the answer the full
 text of every decision file it names. Against that it puts two baselines: the
 whole decision corpus, and a naive `grep -il` over every tracked file outside
 `.cortex/`, one keyword at a time (their union would only measure the
-connectives). On this repository, at 137 active decisions:
+connectives). On this repository, at 142 active decisions:
 
 | what the agent reads per question | tokens | vs cortex |
 | --- | ---: | ---: |
-| whole decision corpus (137 decisions) | 68,368 | 27.0x |
-| repository grep, median keyword (56.7 files) | 138,352 | 54.7x |
-| repository grep, narrowest keyword (4.7 files) | 17,671 | 7.0x |
-| cortex answer (5.0 decisions) | 2,530 | 1.0x |
+| whole decision corpus (142 decisions) | 69,464 | 28.1x |
+| repository grep, median keyword (57.7 files) | 146,075 | 59.1x |
+| repository grep, narrowest keyword (4.6 files) | 19,153 | 7.7x |
+| cortex answer (5.0 decisions) | 2,473 | 1.0x |
+
+The narrowest-keyword row is the fair comparison: a person who greps the one
+rare term in a question reads about 7.7x what cortex returns, not 59x.
 
 Token counts are a deterministic approximation, named in the output
 (`atoms-per-5-bytes/v1`) so they are never mistaken for another model's
