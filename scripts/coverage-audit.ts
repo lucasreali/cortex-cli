@@ -27,6 +27,7 @@ const SUBPROCESS_COVERED = [
 	"src/cli/commands/search.ts",
 	"src/cli/commands/serve.ts",
 	"src/cli/commands/sync.ts",
+	"src/cli/commands/trust.ts",
 	"src/cli/commands/upgrade.ts",
 	"src/cli/commands/why.ts",
 	"src/cli/json.ts",

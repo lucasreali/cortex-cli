@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
 	chmodSync,
 	existsSync,
+	mkdirSync,
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
@@ -176,6 +177,18 @@ describe("withModelAcquisition", () => {
 		writeFileSync(directory, "");
 		expect(
 			await withModelAcquisition(async () => "loaded", { directory }),
+		).toBe("loaded");
+	});
+
+	test("a lock it can neither read nor remove is waited out", async () => {
+		const directory = makeModelsDir();
+		mkdirSync(join(directory, ".cortex-model-download.lock"));
+		expect(
+			await withModelAcquisition(async () => "loaded", {
+				directory,
+				pollMs: 5,
+				deadlineMs: 20,
+			}),
 		).toBe("loaded");
 	});
 });

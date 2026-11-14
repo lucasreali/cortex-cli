@@ -66,8 +66,8 @@ describe("SessionSummaryLog", () => {
 	test("compacts to the latest summary per session once it grows", () => {
 		const log = new SessionSummaryLog(path);
 		const long = "x".repeat(64 * 1024);
-		for (let index = 0; index < 20; index += 1) log.record(OLDER, long);
 		log.record(NEWER, "Curta.");
+		for (let index = 0; index < 20; index += 1) log.record(OLDER, long);
 
 		expect(statSync(path).size).toBeLessThan(1024 * 1024);
 		expect(log.list(10).map((entry) => entry.id)).toEqual([NEWER, OLDER]);

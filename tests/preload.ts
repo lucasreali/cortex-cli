@@ -14,9 +14,9 @@ import { join } from "node:path";
 // forgets to clean up costs nothing, and no future one can reintroduce the leak.
 // A checkout without its dependencies used to fail ninety-odd tests with
 // ENOENT and nothing pointing at the cause.
-if (!existsSync(new URL("../node_modules/zod", import.meta.url))) {
-	throw new Error("dependencies are not installed — run: bun install");
-}
+const DEPENDENCY = new URL("../node_modules/zod", import.meta.url);
+const UNINSTALLED = "dependencies are not installed — run: bun install";
+if (!existsSync(DEPENDENCY)) throw new Error(UNINSTALLED);
 
 const CACHE_ROOT = join(tmpdir(), "cortex-test-cache");
 const runRoot = mkdtempSync(join(tmpdir(), "cortex-test-run-"));
