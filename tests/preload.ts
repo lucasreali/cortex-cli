@@ -1,5 +1,5 @@
 import { afterAll } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -12,6 +12,12 @@ import { join } from "node:path";
 // TMPDIR is what makes that last part systemic: every mkdtempSync(tmpdir())
 // call site in tests/ lands inside the run's own directory, so a test that
 // forgets to clean up costs nothing, and no future one can reintroduce the leak.
+// A checkout without its dependencies used to fail ninety-odd tests with
+// ENOENT and nothing pointing at the cause.
+if (!existsSync(new URL("../node_modules/zod", import.meta.url))) {
+	throw new Error("dependencies are not installed — run: bun install");
+}
+
 const CACHE_ROOT = join(tmpdir(), "cortex-test-cache");
 const runRoot = mkdtempSync(join(tmpdir(), "cortex-test-run-"));
 

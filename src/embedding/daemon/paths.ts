@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { userCortexDir } from "@/support/cortex-home";
 import { RUNS_ON_WINDOWS } from "@/support/platform";
@@ -25,7 +27,7 @@ export function daemonPathsFor(
 	return {
 		directory,
 		socketPath: onWindows
-			? `${WINDOWS_PIPE_PREFIX}cortex-${fileSafe(owner())}-${base}`
+			? `${WINDOWS_PIPE_PREFIX}cortex-${fileSafe(owner())}-${base}-${pipeToken(directory, base)}`
 			: join(directory, `${base}.sock`),
 		lockPath: join(directory, `${base}.lock`),
 		logPath: join(directory, `${base}.log`),
@@ -34,6 +36,35 @@ export function daemonPathsFor(
 
 export function defaultDaemonDirectory(): string {
 	return userCortexDir("daemon", process.env.CORTEX_DAEMON_DIR);
+}
+
+// A pipe name anyone can predict is a pipe anyone can create first: another
+// account on the machine could listen under it and be sent every text this
+// user embeds. The token lives in the user's own daemon directory, which other
+// accounts cannot read, so only this user's processes know the name. The
+// first process to need it writes it, exclusively, and every later one reads
+// that same value.
+function pipeToken(directory: string, base: string): string {
+	const path = join(directory, `${base}.pipe-token`);
+	const existing = readToken(path);
+	if (existing) return existing;
+	try {
+		mkdirSync(directory, { recursive: true, mode: 0o700 });
+		writeFileSync(path, randomBytes(16).toString("hex"), {
+			flag: "wx",
+			mode: 0o600,
+		});
+	} catch {}
+	return readToken(path) ?? "shared";
+}
+
+function readToken(path: string): string | null {
+	try {
+		const token = readFileSync(path, "utf8").trim();
+		return /^[0-9a-f]{32}$/.test(token) ? token : null;
+	} catch {
+		return null;
+	}
 }
 
 // Windows sets USERNAME for every interactive and service account. Where it

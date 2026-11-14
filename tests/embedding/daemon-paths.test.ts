@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { homedir } from "node:os";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	daemonPathsFor,
@@ -38,16 +39,47 @@ describe("daemon paths", () => {
 	// because those are what a second process reads to find the daemon at all.
 	describe("on Windows", () => {
 		process.env.USERNAME = "Ada Lovelace";
-		const paths = daemonPathsFor("embeddinggemma-300m-q8@256", "/tmp/d", true);
+		const directory = mkdtempSync(join(tmpdir(), "cortex-pipe-"));
+		const paths = daemonPathsFor("embeddinggemma-300m-q8@256", directory, true);
 
 		test("the socket becomes a named pipe", () => {
 			expect(paths.socketPath).toStartWith("\\\\.\\pipe\\cortex-");
-			expect(paths.socketPath).toEndWith("-embeddinggemma-300m-q8-256");
+			expect(paths.socketPath).toMatch(
+				/-embeddinggemma-300m-q8-256-[0-9a-f]{32}$/,
+			);
 		});
 
 		test("the lock and the log stay files in the daemon directory", () => {
-			expect(paths.lockPath).toBe("/tmp/d/embeddinggemma-300m-q8-256.lock");
-			expect(paths.logPath).toBe("/tmp/d/embeddinggemma-300m-q8-256.log");
+			expect(paths.lockPath).toBe(
+				join(directory, "embeddinggemma-300m-q8-256.lock"),
+			);
+			expect(paths.logPath).toBe(
+				join(directory, "embeddinggemma-300m-q8-256.log"),
+			);
+		});
+
+		// A predictable name is one another account can listen on first.
+		test("the pipe name carries this user's token, stable across processes", () => {
+			const again = daemonPathsFor(
+				"embeddinggemma-300m-q8@256",
+				directory,
+				true,
+			);
+			const elsewhere = daemonPathsFor(
+				"embeddinggemma-300m-q8@256",
+				mkdtempSync(join(tmpdir(), "cortex-pipe-")),
+				true,
+			);
+			expect(again.socketPath).toBe(paths.socketPath);
+			expect(elsewhere.socketPath).not.toBe(paths.socketPath);
+		});
+
+		test("a token file that cannot be read or written degrades to one name", () => {
+			const blocked = join(mkdtempSync(join(tmpdir(), "cortex-pipe-")), "file");
+			writeFileSync(blocked, "");
+			expect(daemonPathsFor("m@1", blocked, true).socketPath).toEndWith(
+				"-m-1-shared",
+			);
 		});
 
 		// The pipe namespace is shared by every account on the machine, so two
