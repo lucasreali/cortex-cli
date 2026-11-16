@@ -40,7 +40,7 @@ directory to your user `PATH` itself.
 - git is the only runtime dependency (project identity and head tracking).
   On Windows that means Git for Windows, whose bundled `sh` is what runs the
   hooks `cortex install --git-hooks` writes.
-- `CORTEX_VERSION=v0.7.0` pins a release; `CORTEX_INSTALL_DIR=/somewhere/bin`
+- `CORTEX_VERSION=v0.7.1` pins a release; `CORTEX_INSTALL_DIR=/somewhere/bin`
   changes the destination. Both work the same way in PowerShell.
 
 Prefer not to pipe a URL into a shell? Download the tarball for your platform
@@ -51,7 +51,7 @@ verify it, and move the binary yourself:
 what you downloaded instead of the whole file:
 
 ```bash
-asset=cortex-v0.7.0-darwin-arm64.tar.gz
+asset=cortex-v0.7.1-darwin-arm64.tar.gz
 
 grep " $asset\$" checksums.txt | sha256sum -c -   # shasum -a 256 -c - on macOS
 tar -xzf "$asset"
@@ -419,12 +419,12 @@ connectives). On this repository, at 142 active decisions:
 | what the agent reads per question | tokens | vs cortex |
 | --- | ---: | ---: |
 | whole decision corpus (142 decisions) | 69,464 | 28.1x |
-| repository grep, median keyword (57.7 files) | 146,075 | 59.1x |
-| repository grep, narrowest keyword (4.6 files) | 19,153 | 7.7x |
+| repository grep, median keyword (57.8 files) | 147,687 | 59.7x |
+| repository grep, narrowest keyword (4.6 files) | 19,763 | 8.0x |
 | cortex answer (5.0 decisions) | 2,473 | 1.0x |
 
 The narrowest-keyword row is the fair comparison: a person who greps the one
-rare term in a question reads about 7.7x what cortex returns, not 59x.
+rare term in a question reads about 8.0x what cortex returns, not 59x.
 
 Token counts are a deterministic approximation, named in the output
 (`atoms-per-5-bytes/v1`) so they are never mistaken for another model's

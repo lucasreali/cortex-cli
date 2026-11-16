@@ -8,6 +8,18 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 handshake, so the version here, the version there and the git tag are one fact
 in three places — the release workflow refuses a tag that disagrees.
 
+## [0.7.1] - 2026-11-16
+
+### Fixed
+
+- **The macOS binaries start again.** Bun leaves a cross-compiled darwin
+  binary with a signature that does not cover it, and recent macOS releases
+  kill such a binary at exec: every darwin asset of 0.6.1 and 0.7.0 exits with
+  SIGKILL there, so `install.sh` and `cortex upgrade` both reported a binary
+  that "does not run here". The release now packages on macOS, re-signs the
+  darwin binaries ad hoc with `codesign`, and verifies the signature before
+  publishing and again after installing.
+
 ## [0.7.0] - 2026-11-14
 
 Integrity, security and the agent's access to the "why". Every item comes
@@ -284,6 +296,7 @@ First release: decisions in SQLite, a tree-sitter code index over TS/JS,
 local semantic search through a WASM embedding worker, the CLI, and an MCP
 server.
 
+[0.7.1]: https://github.com/lucasreali/cortex-cli/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/lucasreali/cortex-cli/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/lucasreali/cortex-cli/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/lucasreali/cortex-cli/compare/v0.5.0...v0.6.0
