@@ -39,9 +39,11 @@ jobs:
     needs: tag
     uses: ./.github/workflows/ci.yml
 
+  # On macOS because the darwin assets are re-signed with Apple's codesign
+  # (scripts/package-release.ts); every other target cross-compiles from here.
   release:
     needs: gate
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     permissions:
       contents: write
       id-token: write
@@ -66,16 +68,19 @@ jobs:
 
       - run: bun scripts/package-release.ts
 
-      # gate compiled its own binary from the same source; these are the bytes
-      # that will carry the tag, so they are the ones driven end to end.
+      # gate compiled its own binary from the same source and drove it on
+      # Linux; these are the bytes that will carry the tag, so they are the
+      # ones driven end to end — the darwin ones, which are the ones this
+      # runner can execute and the only ones packaging rewrites after compile.
       - name: Smoke-test the bytes about to be published
         run: |
           set -eu
           published=$(mktemp -d)
-          tar -xzf "dist/release/cortex-$GITHUB_REF_NAME-linux-x64.tar.gz" \
+          tar -xzf "dist/release/cortex-$GITHUB_REF_NAME-darwin-arm64.tar.gz" \
             -C "$published"
           test -f "$published/LICENSE"
           test -f "$published/THIRD-PARTY-NOTICES.md"
+          codesign --verify --strict "$published/cortex"
           CORTEX_SMOKE_BINARY="$published/cortex" bun run smoke:compiled
 
       # Nothing signs checksums.txt, so a consumer verifying a tarball against
@@ -133,6 +138,9 @@ jobs:
       - name: Run the darwin binary
         run: |
           cortex="$GITHUB_WORKSPACE/bin/cortex"
+          # The runner's macOS may still start a binary whose signature is
+          # broken; a user's newer one kills it. Assert the signature itself.
+          codesign --verify --strict "$cortex"
           "$cortex" --version
           "$cortex" upgrade --check --json
           repo=$(mktemp -d)

@@ -94,6 +94,28 @@ async function stageNotices(stageDir: string): Promise<void> {
 	await Bun.write(join(stageDir, NOTICES), renderNotices(TAG, notices));
 }
 
+function run(command: string[]): void {
+	const result = Bun.spawnSync(command, { stdout: "pipe", stderr: "pipe" });
+	if (result.exitCode !== 0) {
+		console.error(result.stderr.toString().trim());
+		throw new Error(`${command.join(" ")} exited ${result.exitCode}`);
+	}
+}
+
+// Bun leaves a cross-compiled darwin binary with a signature that no longer
+// covers the bytes it appended: the linker's ad-hoc one on arm64, Bun's own on
+// x64. Older macOS ran it anyway; recent releases kill it at exec with SIGKILL,
+// which is how 0.6.1 and 0.7.0 shipped binaries no Mac could start. Only
+// Apple's codesign is trusted to re-sign here, so darwin assets are packaged on
+// macOS or not at all.
+function signForMacOS(binary: string): void {
+	if (process.platform !== "darwin") {
+		throw new Error("darwin assets must be packaged on macOS, to be re-signed");
+	}
+	run(["codesign", "--force", "--sign", "-", "--identifier", "cortex", binary]);
+	run(["codesign", "--verify", "--strict", binary]);
+}
+
 async function packageTarget(
 	target: Bun.Build.CompileTarget,
 	suffix: string,
@@ -102,6 +124,9 @@ async function packageTarget(
 	const executable = executableNameFor(suffix);
 	mkdirSync(stageDir, { recursive: true });
 	await compile({ outfile: join(stageDir, executable), target, suffix });
+	if (suffix.startsWith("darwin-")) {
+		signForMacOS(join(stageDir, executable));
+	}
 	await stageNotices(stageDir);
 	const asset = assetName(TAG, suffix);
 	await archive(stageDir, executable, join(RELEASE_DIR, asset));

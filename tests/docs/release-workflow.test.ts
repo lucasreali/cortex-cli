@@ -15,6 +15,7 @@ interface Step {
 interface Job {
 	uses?: string;
 	needs?: string | string[];
+	"runs-on"?: string;
 	permissions?: Record<string, string>;
 	steps?: Step[];
 }
@@ -89,6 +90,20 @@ describe("what is published is what was proven", () => {
 		const published = script(release.jobs.release ?? {});
 		expect(published).toContain("CORTEX_SMOKE_BINARY=");
 		expect(published).toContain("bun run smoke:compiled");
+	});
+
+	// Bun's cross-compiled darwin signature does not cover the binary, and a
+	// recent macOS kills such a binary at exec. Only a macOS runner can re-sign
+	// it with codesign, and only an explicit verify catches the regression: the
+	// runner's own macOS started 0.7.0's broken binary without complaint.
+	test("the darwin assets are signed on macOS and the signature is verified", async () => {
+		expect(release.jobs.release?.["runs-on"]).toBe("macos-latest");
+		expect(script(release.jobs.release ?? {})).toContain(
+			"codesign --verify --strict",
+		);
+		expect(script(release.jobs["verify-darwin"] ?? {})).toContain(
+			"codesign --verify --strict",
+		);
 	});
 
 	test("it also proves the notices travel inside the tarball", async () => {
